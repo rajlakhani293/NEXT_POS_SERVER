@@ -1,3 +1,4 @@
+# type: ignore
 from django.db import transaction
 
 from apps.common.error_codes import ErrorCodes

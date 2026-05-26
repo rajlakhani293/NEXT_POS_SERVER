@@ -1,6 +1,6 @@
+# type: ignore
 from django.utils import timezone
 from ninja.security import HttpBearer
-
 from apps.accounts.models import AccessToken
 
 

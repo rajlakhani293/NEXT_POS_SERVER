@@ -1,14 +1,15 @@
+from typing import Optional
 from ninja import Router
-
 from apps.accounts.auth import auth_bearer
-from apps.catalog.controllers import CatalogController
 from apps.catalog.schemas import (
     BrandIn,
     BrandUpdateIn,
     CategoryIn,
     CategoryUpdateIn,
+    DeleteSchema,
     ProductIn,
     ProductUpdateIn,
+    StatusUpdateSchema,
     TaxGroupIn,
     TaxGroupUpdateIn,
     TaxIn,
@@ -18,176 +19,317 @@ from apps.catalog.schemas import (
     UnitIn,
     UnitUpdateIn,
 )
+from apps.catalog.services import (
+    BrandService,
+    CategoryService,
+    ProductService,
+    TaxGroupService,
+    TaxService,
+    UnitGroupService,
+    UnitService,
+)
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
 
 
-router = Router(tags=["catalog"])
+router = Router(tags=["catalog"], auth=auth_bearer)
 
 
-@router.get("/categories", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listCategories(request):
-    return CatalogController.listCategories(request)
-
-
-@router.post("/categories", auth=auth_bearer, response=ApiResponse)
+@router.post("/categories/", response=ApiResponse)
 @permission_required("products_create")
 def createCategory(request, payload: CategoryIn):
-    return CatalogController.createCategory(request, payload)
+    return CategoryService.create(payload.dict(), request)
 
 
-@router.put("/categories/{category_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/categories/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllCategories(request, payload: Optional[dict] = None):
+    return CategoryService.getAll(payload, request)
+
+
+@router.get("/categories/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getCategoryDropdown(request):
+    return CategoryService.dropdownList(request)
+
+
+@router.delete("/categories/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteCategories(request, payload: DeleteSchema):
+    return CategoryService.delete(payload.dict(), request)
+
+
+@router.patch("/categories/status", response=ApiResponse)
+@permission_required("products_update")
+def updateCategoryStatus(request, payload: StatusUpdateSchema):
+    return CategoryService.updateStatus(payload.dict(), request)
+
+
+@router.get("/categories/{category_id}", response=ApiResponse)
+@permission_required("products_view")
+def getCategoryById(request, category_id: int):
+    return CategoryService.getById(category_id, request)
+
+
+@router.put("/categories/{category_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateCategory(request, category_id: int, payload: CategoryUpdateIn):
-    return CatalogController.updateCategory(request, category_id, payload)
+    return CategoryService.update(payload.dict(exclude_none=True), request, category_id)
 
+# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
-@router.delete("/categories/{category_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteCategory(request, category_id: int):
-    return CatalogController.deleteCategory(request, category_id)
-
-
-@router.get("/brands", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listBrands(request):
-    return CatalogController.listBrands(request)
-
-
-@router.post("/brands", auth=auth_bearer, response=ApiResponse)
+@router.post("/brands/", response=ApiResponse)
 @permission_required("products_create")
 def createBrand(request, payload: BrandIn):
-    return CatalogController.createBrand(request, payload)
+    return BrandService.create(payload.dict(), request)
 
 
-@router.put("/brands/{brand_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/brands/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllBrands(request, payload: Optional[dict] = None):
+    return BrandService.getAll(payload, request)
+
+
+@router.get("/brands/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getBrandDropdown(request):
+    return BrandService.dropdownList(request)
+
+
+@router.delete("/brands/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteBrands(request, payload: DeleteSchema):
+    return BrandService.delete(payload.dict(), request)
+
+
+@router.patch("/brands/status", response=ApiResponse)
+@permission_required("products_update")
+def updateBrandStatus(request, payload: StatusUpdateSchema):
+    return BrandService.updateStatus(payload.dict(), request)
+
+
+@router.get("/brands/{brand_id}", response=ApiResponse)
+@permission_required("products_view")
+def getBrandById(request, brand_id: int):
+    return BrandService.getById(brand_id, request)
+
+
+@router.put("/brands/{brand_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateBrand(request, brand_id: int, payload: BrandUpdateIn):
-    return CatalogController.updateBrand(request, brand_id, payload)
+    return BrandService.update(payload.dict(exclude_none=True), request, brand_id)
 
+# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
-@router.delete("/brands/{brand_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteBrand(request, brand_id: int):
-    return CatalogController.deleteBrand(request, brand_id)
-
-
-@router.get("/unit-groups", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listUnitGroups(request):
-    return CatalogController.listUnitGroups(request)
-
-
-@router.post("/unit-groups", auth=auth_bearer, response=ApiResponse)
+@router.post("/unit-groups/", response=ApiResponse)
 @permission_required("products_create")
 def createUnitGroup(request, payload: UnitGroupIn):
-    return CatalogController.createUnitGroup(request, payload)
+    return UnitGroupService.create(payload.dict(), request)
 
 
-@router.put("/unit-groups/{unit_group_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/unit-groups/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllUnitGroups(request, payload: Optional[dict] = None):
+    return UnitGroupService.getAll(payload, request)
+
+
+@router.get("/unit-groups/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getUnitGroupDropdown(request):
+    return UnitGroupService.dropdownList(request)
+
+
+@router.delete("/unit-groups/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteUnitGroups(request, payload: DeleteSchema):
+    return UnitGroupService.delete(payload.dict(), request)
+
+
+@router.patch("/unit-groups/status", response=ApiResponse)
+@permission_required("products_update")
+def updateUnitGroupStatus(request, payload: StatusUpdateSchema):
+    return UnitGroupService.updateStatus(payload.dict(), request)
+
+
+@router.get("/unit-groups/{unit_group_id}", response=ApiResponse)
+@permission_required("products_view")
+def getUnitGroupById(request, unit_group_id: int):
+    return UnitGroupService.getById(unit_group_id, request)
+
+
+@router.put("/unit-groups/{unit_group_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateUnitGroup(request, unit_group_id: int, payload: UnitGroupUpdateIn):
-    return CatalogController.updateUnitGroup(request, unit_group_id, payload)
+    return UnitGroupService.update(payload.dict(exclude_none=True), request, unit_group_id)
 
+# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
-@router.delete("/unit-groups/{unit_group_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteUnitGroup(request, unit_group_id: int):
-    return CatalogController.deleteUnitGroup(request, unit_group_id)
-
-
-@router.get("/units", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listUnits(request):
-    return CatalogController.listUnits(request)
-
-
-@router.post("/units", auth=auth_bearer, response=ApiResponse)
+@router.post("/units/", response=ApiResponse)
 @permission_required("products_create")
 def createUnit(request, payload: UnitIn):
-    return CatalogController.createUnit(request, payload)
+    return UnitService.create(payload.dict(), request)
 
 
-@router.put("/units/{unit_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/units/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllUnits(request, payload: Optional[dict] = None):
+    return UnitService.getAll(payload, request)
+
+
+@router.get("/units/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getUnitDropdown(request):
+    return UnitService.dropdownList(request)
+
+
+@router.delete("/units/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteUnits(request, payload: DeleteSchema):
+    return UnitService.delete(payload.dict(), request)
+
+
+@router.patch("/units/status", response=ApiResponse)
+@permission_required("products_update")
+def updateUnitStatus(request, payload: StatusUpdateSchema):
+    return UnitService.updateStatus(payload.dict(), request)
+
+
+@router.get("/units/{unit_id}", response=ApiResponse)
+@permission_required("products_view")
+def getUnitById(request, unit_id: int):
+    return UnitService.getById(unit_id, request)
+
+
+@router.put("/units/{unit_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateUnit(request, unit_id: int, payload: UnitUpdateIn):
-    return CatalogController.updateUnit(request, unit_id, payload)
+    return UnitService.update(payload.dict(exclude_none=True), request, unit_id)
 
+# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
-@router.delete("/units/{unit_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteUnit(request, unit_id: int):
-    return CatalogController.deleteUnit(request, unit_id)
-
-
-@router.get("/tax-groups", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listTaxGroups(request):
-    return CatalogController.listTaxGroups(request)
-
-
-@router.post("/tax-groups", auth=auth_bearer, response=ApiResponse)
+@router.post("/tax-groups/", response=ApiResponse)
 @permission_required("products_create")
 def createTaxGroup(request, payload: TaxGroupIn):
-    return CatalogController.createTaxGroup(request, payload)
+    return TaxGroupService.create(payload.dict(), request)
 
 
-@router.put("/tax-groups/{tax_group_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/tax-groups/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllTaxGroups(request, payload: Optional[dict] = None):
+    return TaxGroupService.getAll(payload, request)
+
+
+@router.get("/tax-groups/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getTaxGroupDropdown(request):
+    return TaxGroupService.dropdownList(request)
+
+
+@router.delete("/tax-groups/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteTaxGroups(request, payload: DeleteSchema):
+    return TaxGroupService.delete(payload.dict(), request)
+
+
+@router.patch("/tax-groups/status", response=ApiResponse)
+@permission_required("products_update")
+def updateTaxGroupStatus(request, payload: StatusUpdateSchema):
+    return TaxGroupService.updateStatus(payload.dict(), request)
+
+
+@router.get("/tax-groups/{tax_group_id}", response=ApiResponse)
+@permission_required("products_view")
+def getTaxGroupById(request, tax_group_id: int):
+    return TaxGroupService.getById(tax_group_id, request)
+
+
+@router.put("/tax-groups/{tax_group_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateTaxGroup(request, tax_group_id: int, payload: TaxGroupUpdateIn):
-    return CatalogController.updateTaxGroup(request, tax_group_id, payload)
+    return TaxGroupService.update(payload.dict(exclude_none=True), request, tax_group_id)
 
+# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
-@router.delete("/tax-groups/{tax_group_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteTaxGroup(request, tax_group_id: int):
-    return CatalogController.deleteTaxGroup(request, tax_group_id)
-
-
-@router.get("/taxes", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listTaxes(request):
-    return CatalogController.listTaxes(request)
-
-
-@router.post("/taxes", auth=auth_bearer, response=ApiResponse)
+@router.post("/taxes/", response=ApiResponse)
 @permission_required("products_create")
 def createTax(request, payload: TaxIn):
-    return CatalogController.createTax(request, payload)
+    return TaxService.create(payload.dict(), request)
 
 
-@router.put("/taxes/{tax_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/taxes/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllTaxes(request, payload: Optional[dict] = None):
+    return TaxService.getAll(payload, request)
+
+
+@router.get("/taxes/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getTaxDropdown(request):
+    return TaxService.dropdownList(request)
+
+
+@router.delete("/taxes/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteTaxes(request, payload: DeleteSchema):
+    return TaxService.delete(payload.dict(), request)
+
+
+@router.patch("/taxes/status", response=ApiResponse)
+@permission_required("products_update")
+def updateTaxStatus(request, payload: StatusUpdateSchema):
+    return TaxService.updateStatus(payload.dict(), request)
+
+
+@router.get("/taxes/{tax_id}", response=ApiResponse)
+@permission_required("products_view")
+def getTaxById(request, tax_id: int):
+    return TaxService.getById(tax_id, request)
+
+
+@router.put("/taxes/{tax_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateTax(request, tax_id: int, payload: TaxUpdateIn):
-    return CatalogController.updateTax(request, tax_id, payload)
+    return TaxService.update(payload.dict(exclude_none=True), request, tax_id)
 
+# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
-@router.delete("/taxes/{tax_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteTax(request, tax_id: int):
-    return CatalogController.deleteTax(request, tax_id)
-
-
-@router.get("/products", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_view")
-def listProducts(request):
-    return CatalogController.listProducts(request)
-
-
-@router.post("/products", auth=auth_bearer, response=ApiResponse)
+@router.post("/products/", response=ApiResponse)
 @permission_required("products_create")
 def createProduct(request, payload: ProductIn):
-    return CatalogController.createProduct(request, payload)
+    return ProductService.create(payload.dict(), request)
 
 
-@router.put("/products/{product_id}", auth=auth_bearer, response=ApiResponse)
+@router.post("/products/get-transactions", response=ApiResponse)
+@permission_required("products_view")
+def getAllProducts(request, payload: Optional[dict] = None):
+    return ProductService.getAll(payload, request)
+
+
+@router.get("/products/dropdown-list", response=ApiResponse)
+@permission_required("products_view")
+def getProductDropdown(request):
+    return ProductService.dropdownList(request)
+
+
+@router.delete("/products/delete", response=ApiResponse)
+@permission_required("products_delete")
+def deleteProducts(request, payload: DeleteSchema):
+    return ProductService.delete(payload.dict(), request)
+
+
+@router.patch("/products/status", response=ApiResponse)
+@permission_required("products_update")
+def updateProductStatus(request, payload: StatusUpdateSchema):
+    return ProductService.updateStatus(payload.dict(), request)
+
+
+@router.get("/products/{product_id}", response=ApiResponse)
+@permission_required("products_view")
+def getProductById(request, product_id: int):
+    return ProductService.getById(product_id, request)
+
+
+@router.put("/products/{product_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateProduct(request, product_id: int, payload: ProductUpdateIn):
-    return CatalogController.updateProduct(request, product_id, payload)
-
-
-@router.delete("/products/{product_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("products_delete")
-def deleteProduct(request, product_id: int):
-    return CatalogController.deleteProduct(request, product_id)
+    return ProductService.update(payload.dict(exclude_none=True), request, product_id)

@@ -1,7 +1,16 @@
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional, Union
 
 from ninja import Schema
+
+
+class DeleteSchema(Schema):
+    ids: Union[int, List[int]]
+
+
+class StatusUpdateSchema(Schema):
+    ids: Union[int, List[int]]
+    status: int
 
 
 class CategoryIn(Schema):

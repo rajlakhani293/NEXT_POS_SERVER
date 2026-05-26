@@ -1,445 +1,1054 @@
+# type: ignore
 from django.db import transaction
 from django.utils.text import slugify
-
 from apps.catalog.models import Brand, Category, Product, Tax, TaxGroup, Unit, UnitGroup
+from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
+from apps.common.responses import success_response
 
 
-class CatalogService:
-    @staticmethod
-    def _tenant_queryset(model, user):
-        return model.objects.filter(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-        ).exclude(status=2)
+def buildUniqueValue(model, request, field_name, raw_value, exclude_id=None):
+    value = raw_value
+    counter = 1
 
-    @staticmethod
-    def _serialize_category(category):
-        data = serializeModelInstance(category)
-        data["parent_name"] = category.parent.name if category.parent else None
-        return data
-
-    @staticmethod
-    def _serialize_brand(brand):
-        return serializeModelInstance(brand)
-
-    @staticmethod
-    def _serialize_unit_group(unit_group):
-        data = serializeModelInstance(unit_group)
-        data["units_count"] = unit_group.units.exclude(status=2).count()
-        return data
-
-    @staticmethod
-    def _serialize_unit(unit):
-        data = serializeModelInstance(unit)
-        data["unit_group_name"] = unit.unit_group.name if unit.unit_group else None
-        return data
-
-    @staticmethod
-    def _serialize_tax_group(tax_group):
-        data = serializeModelInstance(tax_group)
-        data["taxes_count"] = tax_group.taxes.exclude(status=2).count()
-        return data
-
-    @staticmethod
-    def _serialize_tax(tax):
-        data = serializeModelInstance(tax)
-        data["tax_group_name"] = tax.tax_group.name if tax.tax_group else None
-        return data
-
-    @staticmethod
-    def _serialize_product(product):
-        data = serializeModelInstance(product)
-        data["category_name"] = product.category.name if product.category else None
-        data["brand_name"] = product.brand.name if product.brand else None
-        data["tax_group_name"] = product.tax_group.name if product.tax_group else None
-        data["unit_group_name"] = product.unit_group.name if product.unit_group else None
-        data["variants_count"] = product.variants.exclude(status=2).count()
-        return data
-
-    @staticmethod
-    def _get_tenant_object(model, user, object_id, label):
-        instance = CatalogService._tenant_queryset(model, user).filter(id=object_id).first()
-        if instance is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, f"{label} not found.")
-        return instance
-
-    @staticmethod
-    def _unique_value(model, user, field_name, raw_value, exclude_id=None):
-        candidate = raw_value
-        counter = 1
-
-        while True:
-            qs = CatalogService._tenant_queryset(model, user).filter(**{field_name: candidate})
-            if exclude_id is not None:
-                qs = qs.exclude(id=exclude_id)
-            if not qs.exists():
-                return candidate
-            counter += 1
-            candidate = f"{raw_value}-{counter}"
-
-    @staticmethod
-    def _build_code(model, user, name, provided=None, exclude_id=None):
-        base = slugify(provided or name or "item") or "item"
-        return CatalogService._unique_value(model, user, "code", base, exclude_id=exclude_id)
-
-    @staticmethod
-    def _build_slug(model, user, name, provided=None, exclude_id=None):
-        base = slugify(provided or name or "product") or "product"
-        return CatalogService._unique_value(model, user, "slug", base, exclude_id=exclude_id)
-
-    @staticmethod
-    def _ensure_related(model, user, object_id, label):
-        if object_id is None:
-            return None
-        return CatalogService._get_tenant_object(model, user, object_id, label)
-
-    @staticmethod
-    def listCategories(user):
-        categories = CatalogService._tenant_queryset(Category, user).select_related("parent").order_by("name")
-        return [CatalogService._serialize_category(item) for item in categories]
-
-    @staticmethod
-    def createCategory(user, payload):
-        parent = CatalogService._ensure_related(Category, user, payload.parent_id, "Parent category")
-        category = Category.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            name=payload.name,
-            code=CatalogService._build_code(Category, user, payload.name, payload.code),
-            parent=parent,
-            description=payload.description or "",
+    while True:
+        record = commonQuery.findOneRecord(
+            model,
+            {field_name: value},
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_category(category)
+        if not record or (exclude_id is not None and record.get("id") == exclude_id):
+            return value
+        counter += 1
+        value = f"{raw_value}-{counter}"
 
+
+def buildCode(model, name, code, request, exclude_id=None):
+    raw_code = (code or "").strip()
+    raw_name = (name or "").strip()
+    base = slugify(raw_code or raw_name or "item") or "item"
+    return buildUniqueValue(model, request, "code", base, exclude_id=exclude_id)
+
+
+def buildSlug(model, name, slug, request, exclude_id=None):
+    raw_slug = (slug or "").strip()
+    raw_name = (name or "").strip()
+    base = slugify(raw_slug or raw_name or "product") or "product"
+    return buildUniqueValue(model, request, "slug", base, exclude_id=exclude_id)
+
+
+class CategoryService:
     @staticmethod
-    def updateCategory(user, category_id, payload):
-        category = CatalogService._get_tenant_object(Category, user, category_id, "Category")
-        if payload.name is not None:
-            category.name = payload.name
-        if payload.code is not None or payload.name is not None:
-            category.code = CatalogService._build_code(
+    def create(data, request):
+        with transaction.atomic():
+            parent = None
+            if data.get("parent_id"):
+                parent = commonQuery.findOneRecord(
+                    Category,
+                    data["parent_id"],
+                    request=request,
+                    tenant_config=True,
+                )
+                if parent is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Parent category not found.")
+
+            category = commonQuery.createRecord(
                 Category,
-                user,
-                payload.name or category.name,
-                payload.code or category.code,
-                exclude_id=category.id,
+                {
+                    **data,
+                    "code": buildCode(Category, data.get("name"), data.get("code"), request),
+                    "parent_id": parent["id"] if parent else None,
+                },
+                request=request,
+                tenant_config=True,
             )
-        if payload.parent_id is not None:
-            category.parent = CatalogService._ensure_related(Category, user, payload.parent_id, "Parent category")
-        if payload.description is not None:
-            category.description = payload.description
-        if payload.status is not None:
-            category.status = payload.status
-        category.save()
-        return CatalogService._serialize_category(category)
+            category_data = dict(category)
+            category_data["parent_name"] = parent["name"] if parent else None
+            return success_response(
+                "Category created successfully.",
+                data=category_data,
+            )
 
     @staticmethod
-    def deleteCategory(user, category_id):
-        category = CatalogService._get_tenant_object(Category, user, category_id, "Category")
-        category.soft_delete()
-        return {"id": category_id}
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["code", True, True]]
+        options = {
+            "attributes": ["id", "name", "code", "description", "parent_id", "status"],
+        }
+        result = commonQuery.fetchPaginatedData(Category, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Categories retrieved successfully.", data=result)
 
     @staticmethod
-    def listBrands(user):
-        brands = CatalogService._tenant_queryset(Brand, user).order_by("name")
-        return [CatalogService._serialize_brand(item) for item in brands]
-
-    @staticmethod
-    def createBrand(user, payload):
-        brand = Brand.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            name=payload.name,
-            code=CatalogService._build_code(Brand, user, payload.name, payload.code),
-            description=payload.description or "",
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            Category,
+            {},
+            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_brand(brand)
+        return success_response("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
-    def updateBrand(user, brand_id, payload):
-        brand = CatalogService._get_tenant_object(Brand, user, brand_id, "Brand")
-        if payload.name is not None:
-            brand.name = payload.name
-        if payload.code is not None or payload.name is not None:
-            brand.code = CatalogService._build_code(
+    def getById(category_id, request):
+        category = commonQuery.findOneRecord(
+            Category,
+            category_id,
+            request=request,
+            tenant_config=True,
+        )
+        if category is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+        category_data = dict(category)
+        category_data["parent_name"] = None
+        if category.get("parent_id"):
+            parent = commonQuery.findOneRecord(
+                Category,
+                category["parent_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            category_data["parent_name"] = parent["name"] if parent else None
+        return success_response(
+            "Category retrieved successfully.",
+            data=category_data,
+        )
+
+    @staticmethod
+    def update(data, request, category_id):
+        with transaction.atomic():
+            category = commonQuery.findOneRecord(
+                Category,
+                category_id,
+                request=request,
+                tenant_config=True,
+            )
+            if category is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+            if data.get("parent_id"):
+                parent = commonQuery.findOneRecord(
+                    Category,
+                    data["parent_id"],
+                    request=request,
+                    tenant_config=True,
+                )
+                if parent is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Parent category not found.")
+                data["parent_id"] = parent["id"]
+            if data.get("code") is not None or data.get("name") is not None:
+                data["code"] = buildCode(
+                    Category,
+                    data.get("name") or category["name"],
+                    data.get("code") or category["code"],
+                    request,
+                    exclude_id=category["id"],
+                )
+            category_data = commonQuery.updateRecordById(
+                Category,
+                category_id,
+                data,
+                request=request,
+                tenant_config=True,
+            )
+            if category_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+            category_data["parent_name"] = None
+            if category_data.get("parent_id"):
+                parent = commonQuery.findOneRecord(
+                    Category,
+                    category_data["parent_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                category_data["parent_name"] = parent["name"] if parent else None
+            return success_response(
+                "Category updated successfully.",
+                data=category_data,
+            )
+
+    @staticmethod
+    def delete(data, request):
+        count = commonQuery.softDeleteById(
+            Category,
+            data.get("ids"),
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+        return success_response("Categories deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            Category,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+        return success_response("Category status updated successfully.", data={"updated_count": count, "status": status})
+
+class BrandService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            brand = commonQuery.createRecord(
                 Brand,
-                user,
-                payload.name or brand.name,
-                payload.code or brand.code,
-                exclude_id=brand.id,
+                {
+                    **data,
+                    "code": buildCode(Brand, data.get("name"), data.get("code"), request),
+                },
+                request=request,
+                tenant_config=True,
             )
-        if payload.description is not None:
-            brand.description = payload.description
-        if payload.status is not None:
-            brand.status = payload.status
-        brand.save()
-        return CatalogService._serialize_brand(brand)
+            return success_response("Brand created successfully.", data=brand)
 
     @staticmethod
-    def deleteBrand(user, brand_id):
-        brand = CatalogService._get_tenant_object(Brand, user, brand_id, "Brand")
-        brand.soft_delete()
-        return {"id": brand_id}
+    def update(data, request, brand_id):
+        with transaction.atomic():
+            brand = commonQuery.findOneRecord(
+                Brand,
+                brand_id,
+                request=request,
+                tenant_config=True,
+            )
+            if brand is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+            if data.get("code") is not None or data.get("name") is not None:
+                data["code"] = buildCode(
+                    Brand,
+                    data.get("name") or brand["name"],
+                    data.get("code") or brand["code"],
+                    request,
+                    exclude_id=brand["id"],
+                )
+            brand_data = commonQuery.updateRecordById(Brand, brand_id, data, request=request, tenant_config=True)
+            if brand_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+            return success_response("Brand updated successfully.", data=brand_data)
 
     @staticmethod
-    def listUnitGroups(user):
-        unit_groups = CatalogService._tenant_queryset(UnitGroup, user).prefetch_related("units").order_by("name")
-        return [CatalogService._serialize_unit_group(item) for item in unit_groups]
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["code", True, True]]
+        options = {"attributes": ["id", "name", "code", "description", "status"]}
+        result = commonQuery.fetchPaginatedData(Brand, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Brands retrieved successfully.", data=result)
 
     @staticmethod
-    def createUnitGroup(user, payload):
-        unit_group = UnitGroup.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            name=payload.name,
-            code=CatalogService._build_code(UnitGroup, user, payload.name, payload.code),
-            description=payload.description or "",
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            Brand,
+            {},
+            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_unit_group(unit_group)
+        return success_response("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
-    def updateUnitGroup(user, unit_group_id, payload):
-        unit_group = CatalogService._get_tenant_object(UnitGroup, user, unit_group_id, "Unit group")
-        if payload.name is not None:
-            unit_group.name = payload.name
-        if payload.code is not None or payload.name is not None:
-            unit_group.code = CatalogService._build_code(
+    def delete(data, request):
+        count = commonQuery.softDeleteById(Brand, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+        return success_response("Brands deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            Brand,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+        return success_response("Brand status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getById(brand_id, request):
+        brand = commonQuery.findOneRecord(
+            Brand,
+            brand_id,
+            request=request,
+            tenant_config=True,
+        )
+        if brand is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+        return success_response("Brand retrieved successfully.", data=brand)
+
+
+class UnitGroupService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            unit_group = commonQuery.createRecord(
                 UnitGroup,
-                user,
-                payload.name or unit_group.name,
-                payload.code or unit_group.code,
-                exclude_id=unit_group.id,
+                {
+                    **data,
+                    "code": buildCode(UnitGroup, data.get("name"), data.get("code"), request),
+                },
+                request=request,
+                tenant_config=True,
             )
-        if payload.description is not None:
-            unit_group.description = payload.description
-        if payload.status is not None:
-            unit_group.status = payload.status
-        unit_group.save()
-        return CatalogService._serialize_unit_group(unit_group)
+            unit_group_data = dict(unit_group)
+            unit_group_data["units_count"] = 0
+            return success_response(
+                "Unit group created successfully.",
+                data=unit_group_data,
+            )
 
     @staticmethod
-    def deleteUnitGroup(user, unit_group_id):
-        unit_group = CatalogService._get_tenant_object(UnitGroup, user, unit_group_id, "Unit group")
-        unit_group.soft_delete()
-        return {"id": unit_group_id}
+    def update(data, request, unit_group_id):
+        with transaction.atomic():
+            unit_group = commonQuery.findOneRecord(
+                UnitGroup,
+                unit_group_id,
+                request=request,
+                tenant_config=True,
+            )
+            if unit_group is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+            if data.get("code") is not None or data.get("name") is not None:
+                data["code"] = buildCode(
+                    UnitGroup,
+                    data.get("name") or unit_group["name"],
+                    data.get("code") or unit_group["code"],
+                    request,
+                    exclude_id=unit_group["id"],
+                )
+            unit_group_data = commonQuery.updateRecordById(
+                UnitGroup,
+                unit_group_id,
+                data,
+                request=request,
+                tenant_config=True,
+            )
+            if unit_group_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+            unit_group_data["units_count"] = commonQuery.countRecords(
+                Unit,
+                {"unit_group_id": unit_group_id},
+                request=request,
+                tenant_config=True,
+            )
+            return success_response(
+                "Unit group updated successfully.",
+                data=unit_group_data,
+            )
 
     @staticmethod
-    def listUnits(user):
-        units = CatalogService._tenant_queryset(Unit, user).select_related("unit_group").order_by("unit_group__name", "name")
-        return [CatalogService._serialize_unit(item) for item in units]
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["code", True, True]]
+        options = {"attributes": ["id", "name", "code", "description", "status"]}
+        result = commonQuery.fetchPaginatedData(UnitGroup, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Unit groups retrieved successfully.", data=result)
 
     @staticmethod
-    @transaction.atomic
-    def createUnit(user, payload):
-        unit_group = CatalogService._ensure_related(UnitGroup, user, payload.unit_group_id, "Unit group")
-        if payload.is_base_unit:
-            Unit.objects.filter(unit_group=unit_group).update(is_base_unit=False)
-        unit = Unit.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            unit_group=unit_group,
-            name=payload.name,
-            short_name=payload.short_name,
-            factor=payload.factor,
-            is_base_unit=payload.is_base_unit,
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            UnitGroup,
+            {},
+            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_unit(unit)
+        return success_response("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
-    @transaction.atomic
-    def updateUnit(user, unit_id, payload):
-        unit = CatalogService._get_tenant_object(Unit, user, unit_id, "Unit")
-        if payload.unit_group_id is not None:
-            unit.unit_group = CatalogService._ensure_related(UnitGroup, user, payload.unit_group_id, "Unit group")
-        if payload.name is not None:
-            unit.name = payload.name
-        if payload.short_name is not None:
-            unit.short_name = payload.short_name
-        if payload.factor is not None:
-            unit.factor = payload.factor
-        if payload.is_base_unit is not None:
-            unit.is_base_unit = payload.is_base_unit
-            if payload.is_base_unit:
-                Unit.objects.filter(unit_group=unit.unit_group).exclude(id=unit.id).update(is_base_unit=False)
-        if payload.status is not None:
-            unit.status = payload.status
-        unit.save()
-        return CatalogService._serialize_unit(unit)
+    def delete(data, request):
+        count = commonQuery.softDeleteById(UnitGroup, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+        return success_response("Unit groups deleted successfully.")
 
     @staticmethod
-    def deleteUnit(user, unit_id):
-        unit = CatalogService._get_tenant_object(Unit, user, unit_id, "Unit")
-        unit.soft_delete()
-        return {"id": unit_id}
-
-    @staticmethod
-    def listTaxGroups(user):
-        tax_groups = CatalogService._tenant_queryset(TaxGroup, user).prefetch_related("taxes").order_by("name")
-        return [CatalogService._serialize_tax_group(item) for item in tax_groups]
-
-    @staticmethod
-    def createTaxGroup(user, payload):
-        tax_group = TaxGroup.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            name=payload.name,
-            code=CatalogService._build_code(TaxGroup, user, payload.name, payload.code),
-            description=payload.description or "",
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            UnitGroup,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_tax_group(tax_group)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+        return success_response("Unit group status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
-    def updateTaxGroup(user, tax_group_id, payload):
-        tax_group = CatalogService._get_tenant_object(TaxGroup, user, tax_group_id, "Tax group")
-        if payload.name is not None:
-            tax_group.name = payload.name
-        if payload.code is not None or payload.name is not None:
-            tax_group.code = CatalogService._build_code(
+    def getById(unit_group_id, request):
+        unit_group = commonQuery.findOneRecord(
+            UnitGroup,
+            unit_group_id,
+            request=request,
+            tenant_config=True,
+        )
+        if unit_group is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+        unit_group_data = dict(unit_group)
+        unit_group_data["units_count"] = commonQuery.countRecords(
+            Unit,
+            {"unit_group_id": unit_group_id},
+            request=request,
+            tenant_config=True,
+        )
+        return success_response(
+            "Unit group retrieved successfully.",
+            data=unit_group_data,
+        )
+
+
+class UnitService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            unit_group = commonQuery.findOneRecord(
+                UnitGroup,
+                data["unit_group_id"],
+                request=request,
+                tenant_config=True,
+            )
+            if unit_group is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+            if data.get("is_base_unit"):
+                Unit.objects.filter(unit_group_id=unit_group["id"]).update(is_base_unit=False)
+            unit = commonQuery.createRecord(
+                Unit,
+                {**data, "unit_group_id": unit_group["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            unit_data = dict(unit)
+            unit_data["unit_group_name"] = unit_group["name"] if unit_group else None
+            return success_response("Unit created successfully.", data=unit_data)
+
+    @staticmethod
+    def update(data, request, unit_id):
+        with transaction.atomic():
+            unit = commonQuery.findOneRecord(
+                Unit,
+                unit_id,
+                request=request,
+                tenant_config=True,
+            )
+            if unit is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+            if data.get("unit_group_id"):
+                unit_group = commonQuery.findOneRecord(
+                    UnitGroup,
+                    data["unit_group_id"],
+                    request=request,
+                    tenant_config=True,
+                )
+                if unit_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+                data["unit_group_id"] = unit_group["id"]
+            if data.get("is_base_unit"):
+                Unit.objects.filter(unit_group_id=data.get("unit_group_id") or unit["unit_group_id"]).exclude(id=unit_id).update(is_base_unit=False)
+            unit_data = commonQuery.updateRecordById(Unit, unit_id, data, request=request, tenant_config=True)
+            if unit_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+            unit_data["unit_group_name"] = None
+            if unit_data.get("unit_group_id"):
+                unit_group = commonQuery.findOneRecord(
+                    UnitGroup,
+                    unit_data["unit_group_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                unit_data["unit_group_name"] = unit_group["name"] if unit_group else None
+            return success_response("Unit updated successfully.", data=unit_data)
+
+    @staticmethod
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["short_name", True, True]]
+        options = {
+            "attributes": ["id", "name", "short_name", "factor", "is_base_unit", "unit_group_id", "status"],
+        }
+        result = commonQuery.fetchPaginatedData(Unit, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Units retrieved successfully.", data=result)
+
+    @staticmethod
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            Unit,
+            {},
+            {"attributes": ["id", "name", "short_name", "unit_group_id"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return success_response("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def delete(data, request):
+        count = commonQuery.softDeleteById(Unit, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+        return success_response("Units deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            Unit,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+        return success_response("Unit status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getById(unit_id, request):
+        unit = commonQuery.findOneRecord(
+            Unit,
+            unit_id,
+            request=request,
+            tenant_config=True,
+        )
+        if unit is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+        unit_data = dict(unit)
+        unit_data["unit_group_name"] = None
+        if unit.get("unit_group_id"):
+            unit_group = commonQuery.findOneRecord(
+                UnitGroup,
+                unit["unit_group_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            unit_data["unit_group_name"] = unit_group["name"] if unit_group else None
+        return success_response("Unit retrieved successfully.", data=unit_data)
+
+
+class TaxGroupService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            tax_group = commonQuery.createRecord(
                 TaxGroup,
-                user,
-                payload.name or tax_group.name,
-                payload.code or tax_group.code,
-                exclude_id=tax_group.id,
+                {
+                    **data,
+                    "code": buildCode(TaxGroup, data.get("name"), data.get("code"), request),
+                },
+                request=request,
+                tenant_config=True,
             )
-        if payload.description is not None:
-            tax_group.description = payload.description
-        if payload.status is not None:
-            tax_group.status = payload.status
-        tax_group.save()
-        return CatalogService._serialize_tax_group(tax_group)
+            tax_group_data = dict(tax_group)
+            tax_group_data["taxes_count"] = 0
+            return success_response(
+                "Tax group created successfully.",
+                data=tax_group_data,
+            )
 
     @staticmethod
-    def deleteTaxGroup(user, tax_group_id):
-        tax_group = CatalogService._get_tenant_object(TaxGroup, user, tax_group_id, "Tax group")
-        tax_group.soft_delete()
-        return {"id": tax_group_id}
+    def update(data, request, tax_group_id):
+        with transaction.atomic():
+            tax_group = commonQuery.findOneRecord(
+                TaxGroup,
+                tax_group_id,
+                request=request,
+                tenant_config=True,
+            )
+            if tax_group is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+            if data.get("code") is not None or data.get("name") is not None:
+                data["code"] = buildCode(
+                    TaxGroup,
+                    data.get("name") or tax_group["name"],
+                    data.get("code") or tax_group["code"],
+                    request,
+                    exclude_id=tax_group["id"],
+                )
+            tax_group_data = commonQuery.updateRecordById(
+                TaxGroup,
+                tax_group_id,
+                data,
+                request=request,
+                tenant_config=True,
+            )
+            if tax_group_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+            tax_group_data["taxes_count"] = commonQuery.countRecords(
+                Tax,
+                {"tax_group_id": tax_group_id},
+                request=request,
+                tenant_config=True,
+            )
+            return success_response(
+                "Tax group updated successfully.",
+                data=tax_group_data,
+            )
 
     @staticmethod
-    def listTaxes(user):
-        taxes = CatalogService._tenant_queryset(Tax, user).select_related("tax_group").order_by("tax_group__name", "name")
-        return [CatalogService._serialize_tax(item) for item in taxes]
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["code", True, True]]
+        options = {"attributes": ["id", "name", "code", "description", "status"]}
+        result = commonQuery.fetchPaginatedData(TaxGroup, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Tax groups retrieved successfully.", data=result)
 
     @staticmethod
-    def createTax(user, payload):
-        tax_group = CatalogService._ensure_related(TaxGroup, user, payload.tax_group_id, "Tax group")
-        tax = Tax.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            tax_group=tax_group,
-            name=payload.name,
-            rate=payload.rate,
-            is_inclusive=payload.is_inclusive,
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            TaxGroup,
+            {},
+            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_tax(tax)
+        return success_response("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
-    def updateTax(user, tax_id, payload):
-        tax = CatalogService._get_tenant_object(Tax, user, tax_id, "Tax")
-        if payload.tax_group_id is not None:
-            tax.tax_group = CatalogService._ensure_related(TaxGroup, user, payload.tax_group_id, "Tax group")
-        if payload.name is not None:
-            tax.name = payload.name
-        if payload.rate is not None:
-            tax.rate = payload.rate
-        if payload.is_inclusive is not None:
-            tax.is_inclusive = payload.is_inclusive
-        if payload.status is not None:
-            tax.status = payload.status
-        tax.save()
-        return CatalogService._serialize_tax(tax)
+    def delete(data, request):
+        count = commonQuery.softDeleteById(TaxGroup, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+        return success_response("Tax groups deleted successfully.")
 
     @staticmethod
-    def deleteTax(user, tax_id):
-        tax = CatalogService._get_tenant_object(Tax, user, tax_id, "Tax")
-        tax.soft_delete()
-        return {"id": tax_id}
-
-    @staticmethod
-    def listProducts(user):
-        products = (
-            CatalogService._tenant_queryset(Product, user)
-            .select_related("category", "brand", "tax_group", "unit_group")
-            .prefetch_related("variants")
-            .order_by("name")
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            TaxGroup,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
         )
-        return [CatalogService._serialize_product(item) for item in products]
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+        return success_response("Tax group status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
-    def createProduct(user, payload):
-        category = CatalogService._ensure_related(Category, user, payload.category_id, "Category")
-        brand = CatalogService._ensure_related(Brand, user, payload.brand_id, "Brand")
-        tax_group = CatalogService._ensure_related(TaxGroup, user, payload.tax_group_id, "Tax group")
-        unit_group = CatalogService._ensure_related(UnitGroup, user, payload.unit_group_id, "Unit group")
-        product = Product.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            category=category,
-            brand=brand,
-            tax_group=tax_group,
-            unit_group=unit_group,
-            name=payload.name,
-            slug=CatalogService._build_slug(Product, user, payload.name, payload.slug),
-            sku=payload.sku,
-            product_type=payload.product_type,
-            description=payload.description or "",
-            purchase_price=payload.purchase_price,
-            selling_price=payload.selling_price,
-            mrp=payload.mrp,
-            min_stock=payload.min_stock,
-            track_stock=payload.track_stock,
-            allow_decimal_qty=payload.allow_decimal_qty,
+    def getById(tax_group_id, request):
+        tax_group = commonQuery.findOneRecord(
+            TaxGroup,
+            tax_group_id,
+            request=request,
+            tenant_config=True,
         )
-        return CatalogService._serialize_product(product)
+        if tax_group is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+        tax_group_data = dict(tax_group)
+        tax_group_data["taxes_count"] = commonQuery.countRecords(
+            Tax,
+            {"tax_group_id": tax_group_id},
+            request=request,
+            tenant_config=True,
+        )
+        return success_response(
+            "Tax group retrieved successfully.",
+            data=tax_group_data,
+        )
+
+
+class TaxService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            tax_group = commonQuery.findOneRecord(
+                TaxGroup,
+                data["tax_group_id"],
+                request=request,
+                tenant_config=True,
+            )
+            if tax_group is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+            tax = commonQuery.createRecord(
+                Tax,
+                {**data, "tax_group_id": tax_group["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            tax_data = dict(tax)
+            tax_data["tax_group_name"] = tax_group["name"] if tax_group else None
+            return success_response("Tax created successfully.", data=tax_data)
 
     @staticmethod
-    def updateProduct(user, product_id, payload):
-        product = CatalogService._get_tenant_object(Product, user, product_id, "Product")
-        if payload.category_id is not None:
-            product.category = CatalogService._ensure_related(Category, user, payload.category_id, "Category")
-        if payload.brand_id is not None:
-            product.brand = CatalogService._ensure_related(Brand, user, payload.brand_id, "Brand")
-        if payload.tax_group_id is not None:
-            product.tax_group = CatalogService._ensure_related(TaxGroup, user, payload.tax_group_id, "Tax group")
-        if payload.unit_group_id is not None:
-            product.unit_group = CatalogService._ensure_related(UnitGroup, user, payload.unit_group_id, "Unit group")
-        if payload.name is not None:
-            product.name = payload.name
-        if payload.slug is not None or payload.name is not None:
-            product.slug = CatalogService._build_slug(
+    def update(data, request, tax_id):
+        with transaction.atomic():
+            tax = commonQuery.findOneRecord(
+                Tax,
+                tax_id,
+                request=request,
+                tenant_config=True,
+            )
+            if tax is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
+            if data.get("tax_group_id"):
+                tax_group = commonQuery.findOneRecord(
+                    TaxGroup,
+                    data["tax_group_id"],
+                    request=request,
+                    tenant_config=True,
+                )
+                if tax_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+                data["tax_group_id"] = tax_group["id"]
+            tax_data = commonQuery.updateRecordById(Tax, tax_id, data, request=request, tenant_config=True)
+            if tax_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
+            tax_data["tax_group_name"] = None
+            if tax_data.get("tax_group_id"):
+                tax_group = commonQuery.findOneRecord(
+                    TaxGroup,
+                    tax_data["tax_group_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                tax_data["tax_group_name"] = tax_group["name"] if tax_group else None
+            return success_response("Tax updated successfully.", data=tax_data)
+
+    @staticmethod
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["rate", False, True]]
+        options = {
+            "attributes": ["id", "name", "rate", "is_inclusive", "tax_group_id", "status"],
+        }
+        result = commonQuery.fetchPaginatedData(Tax, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Taxes retrieved successfully.", data=result)
+
+    @staticmethod
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            Tax,
+            {},
+            {"attributes": ["id", "name", "rate", "tax_group_id"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return success_response("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def delete(data, request):
+        count = commonQuery.softDeleteById(Tax, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
+        return success_response("Taxes deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            Tax,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
+        return success_response("Tax status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getById(tax_id, request):
+        tax = commonQuery.findOneRecord(
+            Tax,
+            tax_id,
+            request=request,
+            tenant_config=True,
+        )
+        if tax is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
+        tax_data = dict(tax)
+        tax_data["tax_group_name"] = None
+        if tax.get("tax_group_id"):
+            tax_group = commonQuery.findOneRecord(
+                TaxGroup,
+                tax["tax_group_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            tax_data["tax_group_name"] = tax_group["name"] if tax_group else None
+        return success_response("Tax retrieved successfully.", data=tax_data)
+
+
+class ProductService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            category = None
+            brand = None
+            tax_group = None
+            unit_group = None
+            if data.get("category_id"):
+                category = commonQuery.findOneRecord(
+                    Category, data["category_id"], request=request, tenant_config=True
+                )
+                if category is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+            if data.get("brand_id"):
+                brand = commonQuery.findOneRecord(
+                    Brand, data["brand_id"], request=request, tenant_config=True
+                )
+                if brand is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+            if data.get("tax_group_id"):
+                tax_group = commonQuery.findOneRecord(
+                    TaxGroup, data["tax_group_id"], request=request, tenant_config=True
+                )
+                if tax_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+            if data.get("unit_group_id"):
+                unit_group = commonQuery.findOneRecord(
+                    UnitGroup, data["unit_group_id"], request=request, tenant_config=True
+                )
+                if unit_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+
+            product = commonQuery.createRecord(
                 Product,
-                user,
-                payload.name or product.name,
-                payload.slug or product.slug,
-                exclude_id=product.id,
+                {
+                    **data,
+                    "slug": buildSlug(Product, data.get("name"), data.get("slug"), request),
+                    "category_id": category["id"] if category else None,
+                    "brand_id": brand["id"] if brand else None,
+                    "tax_group_id": tax_group["id"] if tax_group else None,
+                    "unit_group_id": unit_group["id"] if unit_group else None,
+                },
+                request=request,
+                tenant_config=True,
             )
-        if payload.sku is not None:
-            product.sku = payload.sku
-        if payload.product_type is not None:
-            product.product_type = payload.product_type
-        if payload.description is not None:
-            product.description = payload.description
-        if payload.purchase_price is not None:
-            product.purchase_price = payload.purchase_price
-        if payload.selling_price is not None:
-            product.selling_price = payload.selling_price
-        if payload.mrp is not None:
-            product.mrp = payload.mrp
-        if payload.min_stock is not None:
-            product.min_stock = payload.min_stock
-        if payload.track_stock is not None:
-            product.track_stock = payload.track_stock
-        if payload.allow_decimal_qty is not None:
-            product.allow_decimal_qty = payload.allow_decimal_qty
-        if payload.status is not None:
-            product.status = payload.status
-        product.save()
-        return CatalogService._serialize_product(product)
+            product_data = dict(product)
+            product_data["category_name"] = category["name"] if category else None
+            product_data["brand_name"] = brand["name"] if brand else None
+            product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+            product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+            product_data["variants_count"] = 0
+            return success_response("Product created successfully.", data=product_data)
 
     @staticmethod
-    def deleteProduct(user, product_id):
-        product = CatalogService._get_tenant_object(Product, user, product_id, "Product")
-        product.soft_delete()
-        return {"id": product_id}
+    def update(data, request, product_id):
+        with transaction.atomic():
+            product = commonQuery.findOneRecord(
+                Product,
+                product_id,
+                request=request,
+                tenant_config=True,
+            )
+            if product is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+            if data.get("category_id"):
+                category = commonQuery.findOneRecord(
+                    Category, data["category_id"], request=request, tenant_config=True
+                )
+                if category is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+                data["category_id"] = category["id"]
+            if data.get("brand_id"):
+                brand = commonQuery.findOneRecord(
+                    Brand, data["brand_id"], request=request, tenant_config=True
+                )
+                if brand is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
+                data["brand_id"] = brand["id"]
+            if data.get("tax_group_id"):
+                tax_group = commonQuery.findOneRecord(
+                    TaxGroup, data["tax_group_id"], request=request, tenant_config=True
+                )
+                if tax_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+                data["tax_group_id"] = tax_group["id"]
+            if data.get("unit_group_id"):
+                unit_group = commonQuery.findOneRecord(
+                    UnitGroup, data["unit_group_id"], request=request, tenant_config=True
+                )
+                if unit_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+                data["unit_group_id"] = unit_group["id"]
+            if data.get("slug") is not None or data.get("name") is not None:
+                data["slug"] = buildSlug(
+                    Product,
+                    data.get("name") or product["name"],
+                    data.get("slug") or product["slug"],
+                    request,
+                    exclude_id=product["id"],
+                )
+            product_data = commonQuery.updateRecordById(Product, product_id, data, request=request, tenant_config=True)
+            if product_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+            product_data["category_name"] = None
+            product_data["brand_name"] = None
+            product_data["tax_group_name"] = None
+            product_data["unit_group_name"] = None
+            if product_data.get("category_id"):
+                category = commonQuery.findOneRecord(
+                    Category,
+                    product_data["category_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                product_data["category_name"] = category["name"] if category else None
+            if product_data.get("brand_id"):
+                brand = commonQuery.findOneRecord(
+                    Brand,
+                    product_data["brand_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                product_data["brand_name"] = brand["name"] if brand else None
+            if product_data.get("tax_group_id"):
+                tax_group = commonQuery.findOneRecord(
+                    TaxGroup,
+                    product_data["tax_group_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+            if product_data.get("unit_group_id"):
+                unit_group = commonQuery.findOneRecord(
+                    UnitGroup,
+                    product_data["unit_group_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+            product_data["variants_count"] = Product.objects.get(id=product_id).variants.exclude(status=2).count()
+            return success_response("Product updated successfully.", data=product_data)
+
+    @staticmethod
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["sku", True, True], ["product_type", False, True]]
+        options = {
+            "attributes": [
+                "id",
+                "name",
+                "sku",
+                "slug",
+                "product_type",
+                "purchase_price",
+                "selling_price",
+                "mrp",
+                "min_stock",
+                "track_stock",
+                "allow_decimal_qty",
+                "category_id",
+                "brand_id",
+                "unit_group_id",
+                "tax_group_id",
+                "status",
+            ],
+        }
+        result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
+        return success_response("Products retrieved successfully.", data=result)
+
+    @staticmethod
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            Product,
+            {},
+            {"attributes": ["id", "name", "sku", "selling_price"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return success_response("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def delete(data, request):
+        count = commonQuery.softDeleteById(Product, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        return success_response("Products deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            Product,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        return success_response("Product status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getById(product_id, request):
+        product = commonQuery.findOneRecord(
+            Product,
+            product_id,
+            request=request,
+            tenant_config=True,
+        )
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        product_data = dict(product)
+        product_data["category_name"] = None
+        product_data["brand_name"] = None
+        product_data["tax_group_name"] = None
+        product_data["unit_group_name"] = None
+        if product.get("category_id"):
+            category = commonQuery.findOneRecord(
+                Category,
+                product["category_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["category_name"] = category["name"] if category else None
+        if product.get("brand_id"):
+            brand = commonQuery.findOneRecord(
+                Brand,
+                product["brand_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["brand_name"] = brand["name"] if brand else None
+        if product.get("tax_group_id"):
+            tax_group = commonQuery.findOneRecord(
+                TaxGroup,
+                product["tax_group_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+        if product.get("unit_group_id"):
+            unit_group = commonQuery.findOneRecord(
+                UnitGroup,
+                product["unit_group_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+        product_data["variants_count"] = Product.objects.get(id=product_id).variants.exclude(status=2).count()
+        return success_response("Product retrieved successfully.", data=product_data)

@@ -1,3 +1,4 @@
+# type: ignore
 from datetime import datetime
 import json
 from django.db.models import Q, Sum, Min, Max, F
@@ -77,7 +78,7 @@ def buildWhere(model, where_input=None, tenant_config=True, request=None):
 class commonQuery:
 
     @staticmethod
-    def createRecord(model, data, request=None, tenant_config=True, return_instance=False):
+    def createRecord(model, data, request=None, tenant_config=True):
         enriched = dict(data or {})
         model_fields = modelFieldNames(model)
 
@@ -106,8 +107,6 @@ class commonQuery:
                 _inject("user", "user_id")
 
         instance = model.objects.create(**enriched)
-        if return_instance:
-            return instance
         return serializeModelInstance(instance)
 
     @staticmethod
@@ -279,6 +278,12 @@ class commonQuery:
         return model.objects.filter(q).update(**update_kwargs)
 
     @staticmethod
+    def updateStatusById(model, where_input, status, request=None, tenant_config=True):
+        q = buildWhere(model, where_input, tenant_config, request)
+        update_kwargs = {"status": status}
+        return model.objects.filter(q).update(**update_kwargs)
+
+    @staticmethod
     def hardDeleteRecords(model, where_input, request=None, tenant_config=True):
         q = buildWhere(model, where_input, tenant_config, request)
         return model.objects.filter(q).delete()
@@ -358,11 +363,6 @@ class commonQuery:
             obj.refresh_from_db()
 
         return jsonsafe(commonQuery.serializeWithInclude(obj, include_specs, base_fields)) if obj else None
-
-    @staticmethod
-    def findOneRecordForUpdate(model, where_input=None, request=None, tenant_config=True):
-        q = buildWhere(model, where_input, tenant_config, request)
-        return model.objects.filter(q).select_for_update().first()
 
     @staticmethod
     def countRecords(model, filters=None, request=None, tenant_config=True):

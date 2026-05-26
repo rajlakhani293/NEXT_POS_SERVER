@@ -1,3 +1,4 @@
+# type: ignore
 import secrets
 import random
 import os
@@ -63,18 +64,13 @@ class AccountsService:
         seeded_roles = []
 
         for role_blueprint in ROLE_CATALOG:
-            role = commonQuery.createRecord(
-                Role,
-                {
-                    "company_id": company.id,
-                    "name": role_blueprint["name"],
-                    "code": role_blueprint["code"],
-                    "description": role_blueprint["description"],
-                    "is_cashier": role_blueprint["flags"]["is_cashier"],
-                    "is_store_manager": role_blueprint["flags"]["is_store_manager"],
-                },
-                tenant_config={},
-                return_instance=True,
+            role = Role.objects.create(
+                company_id=company.id,
+                name=role_blueprint["name"],
+                code=role_blueprint["code"],
+                description=role_blueprint["description"],
+                is_cashier=role_blueprint["flags"]["is_cashier"],
+                is_store_manager=role_blueprint["flags"]["is_store_manager"],
             )
 
             permissions = all_permissions if "*" in role_blueprint["permissions"] else [
@@ -203,11 +199,10 @@ class AccountsService:
                 "user_agent": request.META.get("HTTP_USER_AGENT", "") if request else "",
             },
             tenant_config={},
-            return_instance=True,
         )
         return {
-            "token": token.token,
-            "expires_at": token.expires_at,
+            "token": token["token"],
+            "expires_at": token["expires_at"],
             "user": AccountsService.serializeUser(user),
         }
 
@@ -224,31 +219,21 @@ class AccountsService:
         branch_name = "Main Branch"
 
         company_code = AccountsService.generateUniqueCode(Company, placeholder_company_name)
-        company = commonQuery.createRecord(
-            Company,
-            {
-                "name": placeholder_company_name,
-                "legal_name": placeholder_company_name,
-                "code": company_code,
-                "email": email,
-                "phone": phone,
-            },
-            tenant_config={},
-            return_instance=True,
+        company = Company.objects.create(
+            name=placeholder_company_name,
+            legal_name=placeholder_company_name,
+            code=company_code,
+            email=email,
+            phone=phone,
         )
 
         branch_code = AccountsService.generateUniqueCode(Branch, branch_name, company.id)
-        branch = commonQuery.createRecord(
-            Branch,
-            {
-                "company_id": company.id,
-                "name": branch_name,
-                "code": branch_code,
-                "phone": phone,
-                "is_head_office": True,
-            },
-            tenant_config={},
-            return_instance=True,
+        branch = Branch.objects.create(
+            company_id=company.id,
+            name=branch_name,
+            code=branch_code,
+            phone=phone,
+            is_head_office=True,
         )
 
         AccountsService.seedDefaultRoles(company)
@@ -306,14 +291,13 @@ class AccountsService:
                 "expires_at": expires_at,
             },
             tenant_config={},
-            return_instance=True,
         )
 
         return {
-            "phone": otp_request.phone,
-            "purpose": otp_request.purpose,
-            "expires_at": otp_request.expires_at,
-            "otp_code": otp_request.code,
+            "phone": otp_request["phone"],
+            "purpose": otp_request["purpose"],
+            "expires_at": otp_request["expires_at"],
+            "otp_code": otp_request["code"],
             "message": "OTP generated successfully.",
         }
 
@@ -539,18 +523,13 @@ class AccountsService:
                 f"Invalid permissions: {', '.join(invalid_permissions)}",
             )
 
-        role = commonQuery.createRecord(
-            Role,
-            {
-                "company_id": user.company_id,
-                "name": payload.name,
-                "code": slugify(payload.code or payload.name),
-                "description": payload.description,
-                "is_cashier": payload.is_cashier,
-                "is_store_manager": payload.is_store_manager,
-            },
-            tenant_config={},
-            return_instance=True,
+        role = Role.objects.create(
+            company_id=user.company_id,
+            name=payload.name,
+            code=slugify(payload.code or payload.name),
+            description=payload.description,
+            is_cashier=payload.is_cashier,
+            is_store_manager=payload.is_store_manager,
         )
         role.permissions.set([permission_map[code] for code in requested_permissions])
         return AccountsService.serializeRole(role)
