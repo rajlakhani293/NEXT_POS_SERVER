@@ -1,3 +1,4 @@
+# type: ignore
 import uuid
 
 from django.conf import settings
@@ -24,8 +25,14 @@ class SoftDeleteModel(models.Model):
     STATUS_ACTIVE = 0
     STATUS_INACTIVE = 1
     STATUS_DELETED = 2
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_INACTIVE, "Deactive"),
+        (STATUS_DELETED, "Delete"),
+    ]
 
     status = models.IntegerField(
+        choices=STATUS_CHOICES,
         default=STATUS_ACTIVE,
         help_text="0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.",
     )

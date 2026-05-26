@@ -1,3 +1,4 @@
+# type: ignore
 from ninja.errors import HttpError
 
 from apps.common.error_codes import HTTP_STATUS_DEFAULT_CODES

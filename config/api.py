@@ -17,7 +17,7 @@ from apps.reports.api import router as reports_router
 from apps.rewards.api import router as rewards_router
 from apps.sales.api import router as sales_router
 from apps.settingsapi.api import router as settings_router
-from apps.common.responses import error_response, success_response
+from apps.common.responses import errorResponse, successResponse
 
 
 api = NinjaAPI(title="Retail POS API", version="1.0.0")
@@ -48,13 +48,13 @@ def http_error_handler(request, exc: HttpError):
         message = exc.message.get("message", message)
         data = exc.message.get("data")
 
-    payload = error_response(message, data=data)
+    payload = errorResponse(message, data=data)
     return api.create_response(request, payload.dict(), status=exc.status_code)
 
 
 @api.exception_handler(ValidationError)
 def validation_error_handler(request, exc: ValidationError):
-    payload = error_response(
+    payload = errorResponse(
         "Validation failed.",
         data={"errors": exc.errors},
     )
@@ -63,7 +63,7 @@ def validation_error_handler(request, exc: ValidationError):
 
 @api.exception_handler(DjangoValidationError)
 def django_validation_error_handler(request, exc: DjangoValidationError):
-    payload = error_response(
+    payload = errorResponse(
         "Validation failed.",
         data={"errors": exc.messages},
     )
@@ -72,10 +72,10 @@ def django_validation_error_handler(request, exc: DjangoValidationError):
 
 @api.exception_handler(Exception)
 def generic_error_handler(request, exc: Exception):
-    payload = error_response("Something went wrong on the server.")
+    payload = errorResponse("Something went wrong on the server.")
     return api.create_response(request, payload.dict(), status=500)
 
 
 @api.get("/health")
 def health(request):
-    return success_response("Service is healthy.", data={"status": "ok"})
+    return successResponse("Service is healthy.", data={"status": "ok"})

@@ -6,7 +6,7 @@ from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
-from apps.common.responses import success_response
+from apps.common.responses import successResponse
 
 
 def buildUniqueValue(model, request, field_name, raw_value, exclude_id=None):
@@ -67,7 +67,7 @@ class CategoryService:
             )
             category_data = dict(category)
             category_data["parent_name"] = parent["name"] if parent else None
-            return success_response(
+            return successResponse(
                 "Category created successfully.",
                 data=category_data,
             )
@@ -79,7 +79,7 @@ class CategoryService:
             "attributes": ["id", "name", "code", "description", "parent_id", "status"],
         }
         result = commonQuery.fetchPaginatedData(Category, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Categories retrieved successfully.", data=result)
+        return successResponse("Categories retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -90,7 +90,7 @@ class CategoryService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def getById(category_id, request):
@@ -113,7 +113,7 @@ class CategoryService:
                 tenant_config=True,
             )
             category_data["parent_name"] = parent["name"] if parent else None
-        return success_response(
+        return successResponse(
             "Category retrieved successfully.",
             data=category_data,
         )
@@ -166,7 +166,7 @@ class CategoryService:
                     tenant_config=True,
                 )
                 category_data["parent_name"] = parent["name"] if parent else None
-            return success_response(
+            return successResponse(
                 "Category updated successfully.",
                 data=category_data,
             )
@@ -181,7 +181,7 @@ class CategoryService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
-        return success_response("Categories deleted successfully.")
+        return successResponse("Categories deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -197,7 +197,7 @@ class CategoryService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
-        return success_response("Category status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Category status updated successfully.", data={"updated_count": count, "status": status})
 
 class BrandService:
     @staticmethod
@@ -212,7 +212,7 @@ class BrandService:
                 request=request,
                 tenant_config=True,
             )
-            return success_response("Brand created successfully.", data=brand)
+            return successResponse("Brand created successfully.", data=brand)
 
     @staticmethod
     def update(data, request, brand_id):
@@ -236,14 +236,14 @@ class BrandService:
             brand_data = commonQuery.updateRecordById(Brand, brand_id, data, request=request, tenant_config=True)
             if brand_data is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
-            return success_response("Brand updated successfully.", data=brand_data)
+            return successResponse("Brand updated successfully.", data=brand_data)
 
     @staticmethod
     def getAll(data, request):
         fieldConfig = [["name", True, True], ["code", True, True]]
         options = {"attributes": ["id", "name", "code", "description", "status"]}
         result = commonQuery.fetchPaginatedData(Brand, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Brands retrieved successfully.", data=result)
+        return successResponse("Brands retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -254,14 +254,14 @@ class BrandService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Brand, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
-        return success_response("Brands deleted successfully.")
+        return successResponse("Brands deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -277,7 +277,7 @@ class BrandService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
-        return success_response("Brand status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Brand status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
     def getById(brand_id, request):
@@ -289,7 +289,7 @@ class BrandService:
         )
         if brand is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
-        return success_response("Brand retrieved successfully.", data=brand)
+        return successResponse("Brand retrieved successfully.", data=brand)
 
 
 class UnitGroupService:
@@ -307,7 +307,7 @@ class UnitGroupService:
             )
             unit_group_data = dict(unit_group)
             unit_group_data["units_count"] = 0
-            return success_response(
+            return successResponse(
                 "Unit group created successfully.",
                 data=unit_group_data,
             )
@@ -346,7 +346,7 @@ class UnitGroupService:
                 request=request,
                 tenant_config=True,
             )
-            return success_response(
+            return successResponse(
                 "Unit group updated successfully.",
                 data=unit_group_data,
             )
@@ -356,7 +356,7 @@ class UnitGroupService:
         fieldConfig = [["name", True, True], ["code", True, True]]
         options = {"attributes": ["id", "name", "code", "description", "status"]}
         result = commonQuery.fetchPaginatedData(UnitGroup, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Unit groups retrieved successfully.", data=result)
+        return successResponse("Unit groups retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -367,14 +367,14 @@ class UnitGroupService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(UnitGroup, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
-        return success_response("Unit groups deleted successfully.")
+        return successResponse("Unit groups deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -390,7 +390,7 @@ class UnitGroupService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
-        return success_response("Unit group status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Unit group status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
     def getById(unit_group_id, request):
@@ -409,7 +409,7 @@ class UnitGroupService:
             request=request,
             tenant_config=True,
         )
-        return success_response(
+        return successResponse(
             "Unit group retrieved successfully.",
             data=unit_group_data,
         )
@@ -437,7 +437,7 @@ class UnitService:
             )
             unit_data = dict(unit)
             unit_data["unit_group_name"] = unit_group["name"] if unit_group else None
-            return success_response("Unit created successfully.", data=unit_data)
+            return successResponse("Unit created successfully.", data=unit_data)
 
     @staticmethod
     def update(data, request, unit_id):
@@ -475,7 +475,7 @@ class UnitService:
                     tenant_config=True,
                 )
                 unit_data["unit_group_name"] = unit_group["name"] if unit_group else None
-            return success_response("Unit updated successfully.", data=unit_data)
+            return successResponse("Unit updated successfully.", data=unit_data)
 
     @staticmethod
     def getAll(data, request):
@@ -484,7 +484,7 @@ class UnitService:
             "attributes": ["id", "name", "short_name", "factor", "is_base_unit", "unit_group_id", "status"],
         }
         result = commonQuery.fetchPaginatedData(Unit, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Units retrieved successfully.", data=result)
+        return successResponse("Units retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -495,14 +495,14 @@ class UnitService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Unit, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
-        return success_response("Units deleted successfully.")
+        return successResponse("Units deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -518,7 +518,7 @@ class UnitService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
-        return success_response("Unit status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Unit status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
     def getById(unit_id, request):
@@ -541,7 +541,7 @@ class UnitService:
                 tenant_config=True,
             )
             unit_data["unit_group_name"] = unit_group["name"] if unit_group else None
-        return success_response("Unit retrieved successfully.", data=unit_data)
+        return successResponse("Unit retrieved successfully.", data=unit_data)
 
 
 class TaxGroupService:
@@ -559,7 +559,7 @@ class TaxGroupService:
             )
             tax_group_data = dict(tax_group)
             tax_group_data["taxes_count"] = 0
-            return success_response(
+            return successResponse(
                 "Tax group created successfully.",
                 data=tax_group_data,
             )
@@ -598,7 +598,7 @@ class TaxGroupService:
                 request=request,
                 tenant_config=True,
             )
-            return success_response(
+            return successResponse(
                 "Tax group updated successfully.",
                 data=tax_group_data,
             )
@@ -608,7 +608,7 @@ class TaxGroupService:
         fieldConfig = [["name", True, True], ["code", True, True]]
         options = {"attributes": ["id", "name", "code", "description", "status"]}
         result = commonQuery.fetchPaginatedData(TaxGroup, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Tax groups retrieved successfully.", data=result)
+        return successResponse("Tax groups retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -619,14 +619,14 @@ class TaxGroupService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(TaxGroup, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-        return success_response("Tax groups deleted successfully.")
+        return successResponse("Tax groups deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -642,7 +642,7 @@ class TaxGroupService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-        return success_response("Tax group status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Tax group status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
     def getById(tax_group_id, request):
@@ -661,7 +661,7 @@ class TaxGroupService:
             request=request,
             tenant_config=True,
         )
-        return success_response(
+        return successResponse(
             "Tax group retrieved successfully.",
             data=tax_group_data,
         )
@@ -687,7 +687,7 @@ class TaxService:
             )
             tax_data = dict(tax)
             tax_data["tax_group_name"] = tax_group["name"] if tax_group else None
-            return success_response("Tax created successfully.", data=tax_data)
+            return successResponse("Tax created successfully.", data=tax_data)
 
     @staticmethod
     def update(data, request, tax_id):
@@ -723,7 +723,7 @@ class TaxService:
                     tenant_config=True,
                 )
                 tax_data["tax_group_name"] = tax_group["name"] if tax_group else None
-            return success_response("Tax updated successfully.", data=tax_data)
+            return successResponse("Tax updated successfully.", data=tax_data)
 
     @staticmethod
     def getAll(data, request):
@@ -732,7 +732,7 @@ class TaxService:
             "attributes": ["id", "name", "rate", "is_inclusive", "tax_group_id", "status"],
         }
         result = commonQuery.fetchPaginatedData(Tax, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Taxes retrieved successfully.", data=result)
+        return successResponse("Taxes retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -743,14 +743,14 @@ class TaxService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Tax, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
-        return success_response("Taxes deleted successfully.")
+        return successResponse("Taxes deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -766,7 +766,7 @@ class TaxService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
-        return success_response("Tax status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Tax status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
     def getById(tax_id, request):
@@ -789,7 +789,7 @@ class TaxService:
                 tenant_config=True,
             )
             tax_data["tax_group_name"] = tax_group["name"] if tax_group else None
-        return success_response("Tax retrieved successfully.", data=tax_data)
+        return successResponse("Tax retrieved successfully.", data=tax_data)
 
 
 class ProductService:
@@ -844,7 +844,7 @@ class ProductService:
             product_data["tax_group_name"] = tax_group["name"] if tax_group else None
             product_data["unit_group_name"] = unit_group["name"] if unit_group else None
             product_data["variants_count"] = 0
-            return success_response("Product created successfully.", data=product_data)
+            return successResponse("Product created successfully.", data=product_data)
 
     @staticmethod
     def update(data, request, product_id):
@@ -937,7 +937,7 @@ class ProductService:
                 )
                 product_data["unit_group_name"] = unit_group["name"] if unit_group else None
             product_data["variants_count"] = Product.objects.get(id=product_id).variants.exclude(status=2).count()
-            return success_response("Product updated successfully.", data=product_data)
+            return successResponse("Product updated successfully.", data=product_data)
 
     @staticmethod
     def getAll(data, request):
@@ -963,7 +963,7 @@ class ProductService:
             ],
         }
         result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
-        return success_response("Products retrieved successfully.", data=result)
+        return successResponse("Products retrieved successfully.", data=result)
 
     @staticmethod
     def dropdownList(request):
@@ -974,14 +974,14 @@ class ProductService:
             request=request,
             tenant_config=True,
         )
-        return success_response("Dropdown list retrieved successfully.", data=data)
+        return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Product, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
-        return success_response("Products deleted successfully.")
+        return successResponse("Products deleted successfully.")
 
     @staticmethod
     def updateStatus(data, request):
@@ -997,7 +997,7 @@ class ProductService:
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
-        return success_response("Product status updated successfully.", data={"updated_count": count, "status": status})
+        return successResponse("Product status updated successfully.", data={"updated_count": count, "status": status})
 
     @staticmethod
     def getById(product_id, request):
@@ -1051,4 +1051,4 @@ class ProductService:
             )
             product_data["unit_group_name"] = unit_group["name"] if unit_group else None
         product_data["variants_count"] = Product.objects.get(id=product_id).variants.exclude(status=2).count()
-        return success_response("Product retrieved successfully.", data=product_data)
+        return successResponse("Product retrieved successfully.", data=product_data)

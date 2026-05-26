@@ -5,12 +5,11 @@ class SmartModelAdmin(admin.ModelAdmin):
     list_per_page = 25
     ordering = ("-id",)
 
+    @admin.display(description="Record")
     def display_name(self, obj):
         return str(obj)
 
-    display_name.short_description = "Record"
-
-    def get_list_display(self, request):
+    def get_list_display(self, request):  # type: ignore
         fields = ["id", "display_name"]
 
         for field in [
