@@ -39,6 +39,28 @@ api.add_router("/audit/", audit_router)
 api.add_router("/settings/", settings_router)
 
 
+def format_validation_errors(errors):
+    formatted = {}
+
+    for err in errors:
+        loc = err.get("loc") or []
+        field_name = next((part for part in reversed(loc) if isinstance(part, str) and part not in ["body", "payload", "query", "path"]), None)
+        if not field_name:
+            field_name = "non_field_error"
+
+        err_type = err.get("type", "")
+        message = err.get("msg", "Invalid value.")
+
+        if err_type == "missing":
+            message = f"{field_name} is required."
+
+        formatted.setdefault(field_name, [])
+        if message not in formatted[field_name]:
+            formatted[field_name].append(message)
+
+    return formatted
+
+
 @api.exception_handler(HttpError)
 def http_error_handler(request, exc: HttpError):
     message = str(exc.message)
@@ -54,9 +76,10 @@ def http_error_handler(request, exc: HttpError):
 
 @api.exception_handler(ValidationError)
 def validation_error_handler(request, exc: ValidationError):
+    formatted_errors = format_validation_errors(exc.errors)
     payload = errorResponse(
         "Validation failed.",
-        data={"errors": exc.errors},
+        data={"errors": formatted_errors},
     )
     return api.create_response(request, payload.dict(), status=422)
 

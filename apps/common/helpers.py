@@ -3,8 +3,6 @@ from decimal import Decimal
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
-from django.forms.models import model_to_dict
-
 
 def getAuthContext(request):
     if request is None:
@@ -52,7 +50,7 @@ def serializeModelInstance(instance):
     if not hasattr(instance, "_meta"):
         raise ImproperlyConfigured("serializeModelInstance expects a Django model instance or dict.")
 
-    data = model_to_dict(instance)
+    data = {}
 
     for field in instance._meta.fields:
         if field.primary_key:
