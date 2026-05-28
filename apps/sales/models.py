@@ -78,7 +78,6 @@ class SaleOrder(TenantAwareModel):
 class SaleItem(TenantAwareModel):
     sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="sale_items")
-    variant = models.ForeignKey("catalog.ProductVariant", on_delete=models.PROTECT, related_name="sale_items")
     unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)

@@ -9,10 +9,6 @@ from apps.catalog.schemas import (
     DeleteSchema,
     ProductIn,
     ProductUpdateIn,
-    ProductVariantBranchIn,
-    ProductVariantBranchUpdateIn,
-    ProductVariantIn,
-    ProductVariantUpdateIn,
     StatusUpdateSchema,
     TaxGroupIn,
     TaxGroupUpdateIn,
@@ -27,8 +23,6 @@ from apps.catalog.services import (
     BrandService,
     CategoryService,
     ProductService,
-    ProductVariantBranchService,
-    ProductVariantService,
     TaxGroupService,
     TaxService,
     UnitGroupService,
@@ -339,59 +333,3 @@ def getProductById(request, product_id: int):
 @permission_required("products_update")
 def updateProduct(request, product_id: int, payload: ProductUpdateIn):
     return ProductService.update(payload.dict(exclude_none=True), request, product_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
-
-@router.post("/product-variants/", response=ApiResponse)
-@permission_required("products_create")
-def createProductVariant(request, payload: ProductVariantIn):
-    return ProductVariantService.create(payload.dict(), request)
-
-
-@router.post("/product-variants/get-transactions", response=ApiResponse)
-@permission_required("products_view")
-def getAllProductVariants(request, payload: Optional[dict] = None):
-    return ProductVariantService.getAll(payload, request)
-
-
-@router.get("/product-variants/dropdown-list", response=ApiResponse)
-@permission_required("products_view")
-def getProductVariantDropdown(request):
-    return ProductVariantService.dropdownList(request)
-
-
-@router.delete("/product-variants/delete", response=ApiResponse)
-@permission_required("products_delete")
-def deleteProductVariants(request, payload: DeleteSchema):
-    return ProductVariantService.delete(payload.dict(), request)
-
-
-@router.patch("/product-variants/status", response=ApiResponse)
-@permission_required("products_update")
-def updateProductVariantStatus(request, payload: StatusUpdateSchema):
-    return ProductVariantService.updateStatus(payload.dict(), request)
-
-
-@router.get("/product-variants/{variant_id}", response=ApiResponse)
-@permission_required("products_view")
-def getProductVariantById(request, variant_id: int):
-    return ProductVariantService.getById(variant_id, request)
-
-
-@router.put("/product-variants/{variant_id}", response=ApiResponse)
-@permission_required("products_update")
-def updateProductVariant(request, variant_id: int, payload: ProductVariantUpdateIn):
-    return ProductVariantService.update(payload.dict(exclude_none=True), request, variant_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
-
-@router.post("/product-variant-branches/", response=ApiResponse)
-@permission_required("products_update")
-def createProductVariantBranch(request, payload: ProductVariantBranchIn):
-    return ProductVariantBranchService.create(payload.dict(), request)
-
-
-@router.put("/product-variant-branches/{branch_setting_id}", response=ApiResponse)
-@permission_required("products_update")
-def updateProductVariantBranch(request, branch_setting_id: int, payload: ProductVariantBranchUpdateIn):
-    return ProductVariantBranchService.update(payload.dict(exclude_none=True), request, branch_setting_id)

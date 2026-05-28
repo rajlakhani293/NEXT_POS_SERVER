@@ -4,12 +4,8 @@ from apps.catalog.models import (
     Brand,
     Category,
     Product,
-    ProductBarcode,
-    ProductBranch,
     ProductBundleItem,
     ProductImage,
-    ProductVariant,
-    ProductVariantBranch,
     Tax,
     TaxGroup,
     Unit,
@@ -25,9 +21,5 @@ admin.site.register(Unit, TenantModelAdmin)
 admin.site.register(TaxGroup, TenantModelAdmin)
 admin.site.register(Tax, TenantModelAdmin)
 admin.site.register(Product, TenantModelAdmin)
-admin.site.register(ProductBranch, TenantModelAdmin)
-admin.site.register(ProductVariant, TenantModelAdmin)
-admin.site.register(ProductVariantBranch, TenantModelAdmin)
-admin.site.register(ProductBarcode, TenantModelAdmin)
 admin.site.register(ProductImage, TenantModelAdmin)
 admin.site.register(ProductBundleItem, TenantModelAdmin)

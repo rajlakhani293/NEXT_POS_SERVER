@@ -4,7 +4,7 @@ from apps.common.models import TenantAwareModel
 
 
 class StockLot(TenantAwareModel):
-    variant = models.ForeignKey("catalog.ProductVariant", on_delete=models.CASCADE, related_name="stock_lots")
+    product = models.ForeignKey("catalog.Product", on_delete=models.CASCADE, related_name="stock_lots")
     purchase_item = models.ForeignKey(
         "purchases.PurchaseItem",
         on_delete=models.SET_NULL,
@@ -31,7 +31,7 @@ class StockLedger(TenantAwareModel):
         ("opening_stock", "Opening Stock"),
     ]
 
-    variant = models.ForeignKey("catalog.ProductVariant", on_delete=models.CASCADE, related_name="stock_entries")
+    product = models.ForeignKey("catalog.Product", on_delete=models.CASCADE, related_name="stock_entries")
     lot = models.ForeignKey(StockLot, on_delete=models.SET_NULL, null=True, blank=True, related_name="ledger_entries")
     entry_type = models.CharField(max_length=20, choices=ENTRY_TYPES)
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
@@ -74,13 +74,12 @@ class StockTransfer(TenantAwareModel):
 
 class StockTransferItem(TenantAwareModel):
     transfer = models.ForeignKey(StockTransfer, on_delete=models.CASCADE, related_name="items")
-    variant = models.ForeignKey("catalog.ProductVariant", on_delete=models.PROTECT, related_name="transfer_items")
+    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="transfer_items")
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     received_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
 
 
 class LowStockAlert(TenantAwareModel):
     product = models.ForeignKey("catalog.Product", on_delete=models.CASCADE, related_name="low_stock_alerts")
-    variant = models.ForeignKey("catalog.ProductVariant", on_delete=models.CASCADE, related_name="low_stock_alerts")
     threshold_quantity = models.DecimalField(max_digits=12, decimal_places=3)
     last_notified_at = models.DateTimeField(blank=True, null=True)
