@@ -102,35 +102,125 @@ class TaxUpdateIn(Schema):
 class ProductIn(Schema):
     name: str
     sku: str
+    barcode: Optional[str] = None
     slug: Optional[str] = None
+    image: Optional[str] = None
+    weight: Decimal = Decimal("0")
     category_id: Optional[int] = None
     brand_id: Optional[int] = None
     tax_group_id: Optional[int] = None
+    unit_id: Optional[int] = None
     unit_group_id: Optional[int] = None
     product_type: str = "stock"
-    description: str = ""
+    description: Optional[str] = None
     purchase_price: Decimal = Decimal("0")
     selling_price: Decimal = Decimal("0")
     mrp: Decimal = Decimal("0")
+    wholesale_price: Decimal = Decimal("0")
+    is_tax_inclusive: bool = False
+    current_stock: Decimal = Decimal("0")
+    opening_stock: Decimal = Decimal("0")
     min_stock: Decimal = Decimal("0")
+    max_stock: Decimal = Decimal("0")
+    reorder_level: Decimal = Decimal("0")
     track_stock: bool = True
     allow_decimal_qty: bool = False
+    stock_alert_enabled: bool = True
+    expiry_tracking_enabled: bool = False
 
 
 class ProductUpdateIn(Schema):
     name: Optional[str] = None
     sku: Optional[str] = None
+    barcode: Optional[str] = None
     slug: Optional[str] = None
+    image: Optional[str] = None
+    weight: Optional[Decimal] = None
     category_id: Optional[int] = None
     brand_id: Optional[int] = None
     tax_group_id: Optional[int] = None
+    unit_id: Optional[int] = None
     unit_group_id: Optional[int] = None
     product_type: Optional[str] = None
     description: Optional[str] = None
     purchase_price: Optional[Decimal] = None
     selling_price: Optional[Decimal] = None
     mrp: Optional[Decimal] = None
+    wholesale_price: Optional[Decimal] = None
+    is_tax_inclusive: Optional[bool] = None
+    current_stock: Optional[Decimal] = None
+    opening_stock: Optional[Decimal] = None
     min_stock: Optional[Decimal] = None
+    max_stock: Optional[Decimal] = None
+    reorder_level: Optional[Decimal] = None
     track_stock: Optional[bool] = None
     allow_decimal_qty: Optional[bool] = None
+    stock_alert_enabled: Optional[bool] = None
+    expiry_tracking_enabled: Optional[bool] = None
+    status: Optional[int] = None
+
+
+class ProductVariantIn(Schema):
+    product_id: int
+    name: str
+    sku: str
+    barcode: Optional[str] = None
+    unit_id: Optional[int] = None
+    purchase_price: Decimal = Decimal("0")
+    selling_price: Decimal = Decimal("0")
+    mrp: Decimal = Decimal("0")
+    wholesale_price: Decimal = Decimal("0")
+    current_stock: Decimal = Decimal("0")
+    opening_stock: Decimal = Decimal("0")
+    min_stock: Decimal = Decimal("0")
+    max_stock: Decimal = Decimal("0")
+    reorder_level: Decimal = Decimal("0")
+    stock_alert_enabled: bool = True
+
+
+class ProductVariantUpdateIn(Schema):
+    product_id: Optional[int] = None
+    name: Optional[str] = None
+    sku: Optional[str] = None
+    barcode: Optional[str] = None
+    unit_id: Optional[int] = None
+    purchase_price: Optional[Decimal] = None
+    selling_price: Optional[Decimal] = None
+    mrp: Optional[Decimal] = None
+    wholesale_price: Optional[Decimal] = None
+    current_stock: Optional[Decimal] = None
+    opening_stock: Optional[Decimal] = None
+    min_stock: Optional[Decimal] = None
+    max_stock: Optional[Decimal] = None
+    reorder_level: Optional[Decimal] = None
+    stock_alert_enabled: Optional[bool] = None
+    status: Optional[int] = None
+
+
+class ProductVariantBranchIn(Schema):
+    variant_id: int
+    purchase_price: Decimal = Decimal("0")
+    selling_price: Decimal = Decimal("0")
+    mrp: Decimal = Decimal("0")
+    wholesale_price: Decimal = Decimal("0")
+    current_stock: Decimal = Decimal("0")
+    opening_stock: Decimal = Decimal("0")
+    min_stock: Decimal = Decimal("0")
+    max_stock: Decimal = Decimal("0")
+    reorder_level: Decimal = Decimal("0")
+    stock_alert_enabled: bool = True
+
+
+class ProductVariantBranchUpdateIn(Schema):
+    variant_id: Optional[int] = None
+    purchase_price: Optional[Decimal] = None
+    selling_price: Optional[Decimal] = None
+    mrp: Optional[Decimal] = None
+    wholesale_price: Optional[Decimal] = None
+    current_stock: Optional[Decimal] = None
+    opening_stock: Optional[Decimal] = None
+    min_stock: Optional[Decimal] = None
+    max_stock: Optional[Decimal] = None
+    reorder_level: Optional[Decimal] = None
+    stock_alert_enabled: Optional[bool] = None
     status: Optional[int] = None

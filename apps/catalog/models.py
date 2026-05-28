@@ -1,7 +1,7 @@
 # type: ignore
 from django.db import models
 
-from apps.common.models import TenantAwareModel
+from apps.common.models import CompanyAwareModel, TenantAwareModel
 
 
 class Category(TenantAwareModel):
@@ -73,7 +73,7 @@ class Tax(TenantAwareModel):
         ordering = ["name"]
 
 
-class Product(TenantAwareModel):
+class Product(CompanyAwareModel):
     PRODUCT_TYPES = [
         ("stock", "Stock"),
         ("service", "Service"),
@@ -83,44 +83,82 @@ class Product(TenantAwareModel):
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     tax_group = models.ForeignKey(TaxGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     unit_group = models.ForeignKey(UnitGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     name = models.CharField(max_length=255)
     slug = models.SlugField(max_length=255)
     sku = models.CharField(max_length=120)
+    barcode = models.CharField(max_length=120, blank=True, null=True)
+    image = models.URLField(blank=True)
+    weight = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     product_type = models.CharField(max_length=20, choices=PRODUCT_TYPES, default="stock")
     description = models.TextField(blank=True)
-    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    mrp = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    min_stock = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    is_tax_inclusive = models.BooleanField(default=False)
     track_stock = models.BooleanField(default=True)
     allow_decimal_qty = models.BooleanField(default=False)
+    expiry_tracking_enabled = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = [("branch", "sku"), ("branch", "slug")]
+        unique_together = [("company", "sku"), ("company", "barcode"), ("company", "slug")]
         ordering = ["name"]
 
     def __str__(self):
         return self.name
 
 
-class ProductVariant(TenantAwareModel):
+class ProductBranch(TenantAwareModel):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="branch_settings")
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    mrp = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    wholesale_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    current_stock = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    opening_stock = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    min_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    max_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    stock_alert_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("branch", "product")]
+
+    def __str__(self):
+        return f"{self.product.name} - {self.branch.name}"
+
+
+class ProductVariant(CompanyAwareModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="variants")
     unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="variants")
     name = models.CharField(max_length=120)
     sku = models.CharField(max_length=120)
-    barcode = models.CharField(max_length=120, blank=True)
-    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    mrp = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    current_stock = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    barcode = models.CharField(max_length=120, blank=True, null=True)
 
     class Meta:
-        unique_together = [("branch", "sku"), ("branch", "barcode")]
+        unique_together = [("company", "sku"), ("company", "barcode")]
         ordering = ["product__name", "name"]
 
     def __str__(self):
         return f"{self.product.name} - {self.name}"
+
+
+class ProductVariantBranch(TenantAwareModel):
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, related_name="branch_settings")
+    purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    selling_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    mrp = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    wholesale_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    current_stock = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    opening_stock = models.DecimalField(max_digits=14, decimal_places=3, default=0)
+    min_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    max_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    stock_alert_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = [("branch", "variant")]
+
+    def __str__(self):
+        return f"{self.variant.name} - {self.branch.name}"
 
 
 class ProductBarcode(TenantAwareModel):

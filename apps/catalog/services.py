@@ -1,7 +1,18 @@
 # type: ignore
 from django.db import transaction
 from django.utils.text import slugify
-from apps.catalog.models import Brand, Category, Product, Tax, TaxGroup, Unit, UnitGroup
+from apps.catalog.models import (
+    Brand,
+    Category,
+    Product,
+    ProductBranch,
+    ProductVariant,
+    ProductVariantBranch,
+    Tax,
+    TaxGroup,
+    Unit,
+    UnitGroup,
+)
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -793,12 +804,54 @@ class TaxService:
 
 
 class ProductService:
+    BRANCH_FIELDS = [
+        "purchase_price",
+        "selling_price",
+        "mrp",
+        "wholesale_price",
+        "current_stock",
+        "opening_stock",
+        "min_stock",
+        "max_stock",
+        "reorder_level",
+        "stock_alert_enabled",
+    ]
+
+    @staticmethod
+    def branchDataFromPayload(data):
+        return {field: data[field] for field in ProductService.BRANCH_FIELDS if field in data}
+
+    @staticmethod
+    def masterDataFromPayload(data):
+        return {key: value for key, value in data.items() if key not in ProductService.BRANCH_FIELDS}
+
+    @staticmethod
+    def attachBranchData(product_data, request):
+        product_branch = commonQuery.findOneRecord(
+            ProductBranch,
+            {"product_id": product_data["id"]},
+            request=request,
+            tenant_config=True,
+        )
+
+        for field in ProductService.BRANCH_FIELDS:
+            product_data[field] = product_branch.get(field) if product_branch else 0
+        if not product_branch:
+            product_data["stock_alert_enabled"] = True
+        return product_data
+
     @staticmethod
     def create(data, request):
         with transaction.atomic():
+            branch_data = ProductService.branchDataFromPayload(data)
+            data = ProductService.masterDataFromPayload(data)
+            if data.get("barcode") == "":
+                data["barcode"] = None
+
             category = None
             brand = None
             tax_group = None
+            unit = None
             unit_group = None
             if data.get("category_id"):
                 category = commonQuery.findOneRecord(
@@ -818,12 +871,25 @@ class ProductService:
                 )
                 if tax_group is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
+            if data.get("unit_id"):
+                unit = commonQuery.findOneRecord(
+                    Unit, data["unit_id"], request=request, tenant_config=True
+                )
+                if unit is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
             if data.get("unit_group_id"):
                 unit_group = commonQuery.findOneRecord(
                     UnitGroup, data["unit_group_id"], request=request, tenant_config=True
                 )
                 if unit_group is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+            if unit and not unit_group and unit.get("unit_group_id"):
+                unit_group = commonQuery.findOneRecord(
+                    UnitGroup,
+                    unit["unit_group_id"],
+                    request=request,
+                    tenant_config=True,
+                )
 
             product = commonQuery.createRecord(
                 Product,
@@ -833,15 +899,27 @@ class ProductService:
                     "category_id": category["id"] if category else None,
                     "brand_id": brand["id"] if brand else None,
                     "tax_group_id": tax_group["id"] if tax_group else None,
+                    "unit_id": unit["id"] if unit else None,
                     "unit_group_id": unit_group["id"] if unit_group else None,
                 },
                 request=request,
                 tenant_config=True,
             )
+            commonQuery.createRecord(
+                ProductBranch,
+                {
+                    **branch_data,
+                    "product_id": product["id"],
+                },
+                request=request,
+                tenant_config=True,
+            )
             product_data = dict(product)
+            product_data = ProductService.attachBranchData(product_data, request)
             product_data["category_name"] = category["name"] if category else None
             product_data["brand_name"] = brand["name"] if brand else None
             product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+            product_data["unit_name"] = unit["name"] if unit else None
             product_data["unit_group_name"] = unit_group["name"] if unit_group else None
             product_data["variants_count"] = 0
             return successResponse("Product created successfully.", data=product_data)
@@ -849,6 +927,11 @@ class ProductService:
     @staticmethod
     def update(data, request, product_id):
         with transaction.atomic():
+            branch_data = ProductService.branchDataFromPayload(data)
+            data = ProductService.masterDataFromPayload(data)
+            if data.get("barcode") == "":
+                data["barcode"] = None
+
             product = commonQuery.findOneRecord(
                 Product,
                 product_id,
@@ -878,6 +961,13 @@ class ProductService:
                 if tax_group is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
                 data["tax_group_id"] = tax_group["id"]
+            if data.get("unit_id"):
+                unit = commonQuery.findOneRecord(
+                    Unit, data["unit_id"], request=request, tenant_config=True
+                )
+                if unit is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+                data["unit_id"] = unit["id"]
             if data.get("unit_group_id"):
                 unit_group = commonQuery.findOneRecord(
                     UnitGroup, data["unit_group_id"], request=request, tenant_config=True
@@ -896,9 +986,36 @@ class ProductService:
             product_data = commonQuery.updateRecordById(Product, product_id, data, request=request, tenant_config=True)
             if product_data is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+            if branch_data:
+                product_branch = commonQuery.findOneRecord(
+                    ProductBranch,
+                    {"product_id": product_id},
+                    request=request,
+                    tenant_config=True,
+                )
+                if product_branch:
+                    commonQuery.updateRecordById(
+                        ProductBranch,
+                        product_branch["id"],
+                        branch_data,
+                        request=request,
+                        tenant_config=True,
+                    )
+                else:
+                    commonQuery.createRecord(
+                        ProductBranch,
+                        {
+                            **branch_data,
+                            "product_id": product_id,
+                        },
+                        request=request,
+                        tenant_config=True,
+                    )
+            product_data = ProductService.attachBranchData(product_data, request)
             product_data["category_name"] = None
             product_data["brand_name"] = None
             product_data["tax_group_name"] = None
+            product_data["unit_name"] = None
             product_data["unit_group_name"] = None
             if product_data.get("category_id"):
                 category = commonQuery.findOneRecord(
@@ -927,6 +1044,15 @@ class ProductService:
                     tenant_config=True,
                 )
                 product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+            if product_data.get("unit_id"):
+                unit = commonQuery.findOneRecord(
+                    Unit,
+                    product_data["unit_id"],
+                    options={"attributes": ["name"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                product_data["unit_name"] = unit["name"] if unit else None
             if product_data.get("unit_group_id"):
                 unit_group = commonQuery.findOneRecord(
                     UnitGroup,
@@ -947,22 +1073,25 @@ class ProductService:
                 "id",
                 "name",
                 "sku",
+                "barcode",
                 "slug",
+                "image",
+                "weight",
                 "product_type",
-                "purchase_price",
-                "selling_price",
-                "mrp",
-                "min_stock",
+                "is_tax_inclusive",
                 "track_stock",
                 "allow_decimal_qty",
+                "expiry_tracking_enabled",
                 "category_id",
                 "brand_id",
+                "unit_id",
                 "unit_group_id",
                 "tax_group_id",
                 "status",
             ],
         }
         result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
+        result["items"] = [ProductService.attachBranchData(item, request) for item in result["items"]]
         return successResponse("Products retrieved successfully.", data=result)
 
     @staticmethod
@@ -970,10 +1099,11 @@ class ProductService:
         data = commonQuery.findAllRecords(
             Product,
             {},
-            {"attributes": ["id", "name", "sku", "selling_price"], "order": ["name"]},
+            {"attributes": ["id", "name", "sku", "barcode"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
+        data = [ProductService.attachBranchData(item, request) for item in data]
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
@@ -1010,9 +1140,11 @@ class ProductService:
         if product is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
         product_data = dict(product)
+        product_data = ProductService.attachBranchData(product_data, request)
         product_data["category_name"] = None
         product_data["brand_name"] = None
         product_data["tax_group_name"] = None
+        product_data["unit_name"] = None
         product_data["unit_group_name"] = None
         if product.get("category_id"):
             category = commonQuery.findOneRecord(
@@ -1041,6 +1173,15 @@ class ProductService:
                 tenant_config=True,
             )
             product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+        if product.get("unit_id"):
+            unit = commonQuery.findOneRecord(
+                Unit,
+                product["unit_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["unit_name"] = unit["name"] if unit else None
         if product.get("unit_group_id"):
             unit_group = commonQuery.findOneRecord(
                 UnitGroup,
@@ -1052,3 +1193,305 @@ class ProductService:
             product_data["unit_group_name"] = unit_group["name"] if unit_group else None
         product_data["variants_count"] = Product.objects.get(id=product_id).variants.exclude(status=2).count()
         return successResponse("Product retrieved successfully.", data=product_data)
+
+
+class ProductVariantService:
+    BRANCH_FIELDS = [
+        "purchase_price",
+        "selling_price",
+        "mrp",
+        "wholesale_price",
+        "current_stock",
+        "opening_stock",
+        "min_stock",
+        "max_stock",
+        "reorder_level",
+        "stock_alert_enabled",
+    ]
+
+    @staticmethod
+    def branchDataFromPayload(data):
+        return {field: data[field] for field in ProductVariantService.BRANCH_FIELDS if field in data}
+
+    @staticmethod
+    def masterDataFromPayload(data):
+        return {key: value for key, value in data.items() if key not in ProductVariantService.BRANCH_FIELDS}
+
+    @staticmethod
+    def attachBranchData(variant_data, request):
+        variant_branch = commonQuery.findOneRecord(
+            ProductVariantBranch,
+            {"variant_id": variant_data["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        for field in ProductVariantService.BRANCH_FIELDS:
+            variant_data[field] = variant_branch.get(field) if variant_branch else 0
+        if not variant_branch:
+            variant_data["stock_alert_enabled"] = True
+        return variant_data
+
+    @staticmethod
+    def validateProduct(product_id, request):
+        product = commonQuery.findOneRecord(Product, product_id, request=request, tenant_config=True)
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        return product
+
+    @staticmethod
+    def validateUnit(unit_id, request):
+        if not unit_id:
+            return None
+        unit = commonQuery.findOneRecord(Unit, unit_id, request=request, tenant_config=True)
+        if unit is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+        return unit
+
+    @staticmethod
+    def ensureUnique(data, request, exclude_id=None):
+        if data.get("sku"):
+            existing = commonQuery.findOneRecord(
+                ProductVariant,
+                {"sku": data["sku"]},
+                request=request,
+                tenant_config=True,
+            )
+            if existing and existing.get("id") != exclude_id:
+                raise api_error(400, ErrorCodes.VALIDATION_ERROR, "SKU already exists.")
+        if data.get("barcode"):
+            existing = commonQuery.findOneRecord(
+                ProductVariant,
+                {"barcode": data["barcode"]},
+                request=request,
+                tenant_config=True,
+            )
+            if existing and existing.get("id") != exclude_id:
+                raise api_error(400, ErrorCodes.VALIDATION_ERROR, "Barcode already exists.")
+
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            branch_data = ProductVariantService.branchDataFromPayload(data)
+            data = ProductVariantService.masterDataFromPayload(data)
+            if data.get("barcode") == "":
+                data["barcode"] = None
+
+            product = ProductVariantService.validateProduct(data.get("product_id"), request)
+            unit = ProductVariantService.validateUnit(data.get("unit_id"), request)
+            ProductVariantService.ensureUnique(data, request)
+
+            variant = commonQuery.createRecord(
+                ProductVariant,
+                {
+                    **data,
+                    "product_id": product["id"],
+                    "unit_id": unit["id"] if unit else None,
+                },
+                request=request,
+                tenant_config=True,
+            )
+            commonQuery.createRecord(
+                ProductVariantBranch,
+                {
+                    **branch_data,
+                    "variant_id": variant["id"],
+                },
+                request=request,
+                tenant_config=True,
+            )
+            variant_data = ProductVariantService.attachBranchData(dict(variant), request)
+            variant_data["product_name"] = product["name"]
+            variant_data["unit_name"] = unit["name"] if unit else None
+            return successResponse("Product variant created successfully.", data=variant_data)
+
+    @staticmethod
+    def getAll(data, request):
+        fieldConfig = [["name", True, True], ["sku", True, True], ["barcode", True, True]]
+        options = {
+            "attributes": ["id", "product_id", "unit_id", "name", "sku", "barcode", "status"],
+        }
+        result = commonQuery.fetchPaginatedData(ProductVariant, data, fieldConfig, options, request=request, tenant_config=True)
+        result["items"] = [ProductVariantService.attachBranchData(item, request) for item in result["items"]]
+        return successResponse("Product variants retrieved successfully.", data=result)
+
+    @staticmethod
+    def dropdownList(request):
+        data = commonQuery.findAllRecords(
+            ProductVariant,
+            {},
+            {"attributes": ["id", "product_id", "name", "sku", "barcode"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        data = [ProductVariantService.attachBranchData(item, request) for item in data]
+        return successResponse("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def delete(data, request):
+        count = commonQuery.softDeleteById(ProductVariant, data.get("ids"), request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+        return successResponse("Product variants deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            ProductVariant,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+        return successResponse("Product variant status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getById(variant_id, request):
+        variant = commonQuery.findOneRecord(ProductVariant, variant_id, request=request, tenant_config=True)
+        if variant is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+        variant_data = ProductVariantService.attachBranchData(dict(variant), request)
+        variant_data["product_name"] = None
+        variant_data["unit_name"] = None
+        if variant.get("product_id"):
+            product = commonQuery.findOneRecord(
+                Product,
+                variant["product_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            variant_data["product_name"] = product["name"] if product else None
+        if variant.get("unit_id"):
+            unit = commonQuery.findOneRecord(
+                Unit,
+                variant["unit_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            variant_data["unit_name"] = unit["name"] if unit else None
+        return successResponse("Product variant retrieved successfully.", data=variant_data)
+
+    @staticmethod
+    def update(data, request, variant_id):
+        with transaction.atomic():
+            branch_data = ProductVariantService.branchDataFromPayload(data)
+            data = ProductVariantService.masterDataFromPayload(data)
+            if data.get("barcode") == "":
+                data["barcode"] = None
+
+            variant = commonQuery.findOneRecord(ProductVariant, variant_id, request=request, tenant_config=True)
+            if variant is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+            if data.get("product_id"):
+                product = ProductVariantService.validateProduct(data.get("product_id"), request)
+                data["product_id"] = product["id"]
+            if data.get("unit_id"):
+                unit = ProductVariantService.validateUnit(data.get("unit_id"), request)
+                data["unit_id"] = unit["id"]
+            ProductVariantService.ensureUnique(data, request, exclude_id=variant["id"])
+
+            variant_data = commonQuery.updateRecordById(
+                ProductVariant,
+                variant_id,
+                data,
+                request=request,
+                tenant_config=True,
+            )
+            if variant_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+            if branch_data:
+                variant_branch = commonQuery.findOneRecord(
+                    ProductVariantBranch,
+                    {"variant_id": variant_id},
+                    request=request,
+                    tenant_config=True,
+                )
+                if variant_branch:
+                    commonQuery.updateRecordById(
+                        ProductVariantBranch,
+                        variant_branch["id"],
+                        branch_data,
+                        request=request,
+                        tenant_config=True,
+                    )
+                else:
+                    commonQuery.createRecord(
+                        ProductVariantBranch,
+                        {
+                            **branch_data,
+                            "variant_id": variant_id,
+                        },
+                        request=request,
+                        tenant_config=True,
+                    )
+            variant_data = ProductVariantService.attachBranchData(variant_data, request)
+            return successResponse("Product variant updated successfully.", data=variant_data)
+
+
+class ProductVariantBranchService:
+    @staticmethod
+    def create(data, request):
+        with transaction.atomic():
+            variant = commonQuery.findOneRecord(
+                ProductVariant,
+                data.get("variant_id"),
+                request=request,
+                tenant_config=True,
+            )
+            if variant is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+            existing = commonQuery.findOneRecord(
+                ProductVariantBranch,
+                {"variant_id": variant["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            if existing:
+                branch_data = commonQuery.updateRecordById(
+                    ProductVariantBranch,
+                    existing["id"],
+                    data,
+                    request=request,
+                    tenant_config=True,
+                )
+                return successResponse("Product variant branch updated successfully.", data=branch_data)
+            branch_data = commonQuery.createRecord(
+                ProductVariantBranch,
+                {
+                    **data,
+                    "variant_id": variant["id"],
+                },
+                request=request,
+                tenant_config=True,
+            )
+            return successResponse("Product variant branch created successfully.", data=branch_data)
+
+    @staticmethod
+    def update(data, request, branch_setting_id):
+        with transaction.atomic():
+            if data.get("variant_id"):
+                variant = commonQuery.findOneRecord(
+                    ProductVariant,
+                    data.get("variant_id"),
+                    request=request,
+                    tenant_config=True,
+                )
+                if variant is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant not found.")
+                data["variant_id"] = variant["id"]
+            branch_data = commonQuery.updateRecordById(
+                ProductVariantBranch,
+                branch_setting_id,
+                data,
+                request=request,
+                tenant_config=True,
+            )
+            if branch_data is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product variant branch not found.")
+            return successResponse("Product variant branch updated successfully.", data=branch_data)

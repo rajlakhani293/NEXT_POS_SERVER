@@ -61,6 +61,17 @@ class BaseModel(UUIDModel, TimeStampedModel, SoftDeleteModel):
         abstract = True
 
 
+class CompanyAwareModel(BaseModel):
+    company = models.ForeignKey(
+        "organizations.Company",
+        on_delete=models.CASCADE,
+        related_name="%(class)ss",
+    )
+
+    class Meta:
+        abstract = True
+
+
 class TenantAwareModel(BaseModel):
     company = models.ForeignKey(
         "organizations.Company",
