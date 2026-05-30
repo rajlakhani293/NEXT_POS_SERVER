@@ -1,5 +1,6 @@
 from typing import Optional
-from ninja import Router
+from ninja import File, Form, Router
+from ninja.files import UploadedFile
 from apps.accounts.auth import auth_bearer
 from apps.catalog.schemas import (
     BrandIn,
@@ -295,8 +296,8 @@ def updateTax(request, tax_id: int, payload: TaxUpdateIn):
 
 @router.post("/products/", response=ApiResponse)
 @permission_required("products_create")
-def createProduct(request, payload: ProductIn):
-    return ProductService.create(payload.dict(), request)
+def createProduct(request, payload: Form[ProductIn], image: File[Optional[UploadedFile]] = None):
+    return ProductService.create(payload.dict(exclude_none=True), request, image=image)
 
 
 @router.post("/products/get-transactions", response=ApiResponse)
@@ -331,5 +332,10 @@ def getProductById(request, product_id: int):
 
 @router.put("/products/{product_id}", response=ApiResponse)
 @permission_required("products_update")
-def updateProduct(request, product_id: int, payload: ProductUpdateIn):
-    return ProductService.update(payload.dict(exclude_none=True), request, product_id)
+def updateProduct(
+    request,
+    product_id: int,
+    payload: Form[ProductUpdateIn],
+    image: File[Optional[UploadedFile]] = None,
+):
+    return ProductService.update(payload.dict(exclude_none=True), request, product_id, image=image)

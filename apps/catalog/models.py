@@ -38,6 +38,9 @@ class UnitGroup(TenantAwareModel):
     class Meta:
         unique_together = [("branch", "code")]
 
+    def __str__(self):
+        return self.name
+
 
 class Unit(TenantAwareModel):
     unit_group = models.ForeignKey(UnitGroup, on_delete=models.CASCADE, related_name="units")
@@ -60,6 +63,9 @@ class TaxGroup(TenantAwareModel):
 
     class Meta:
         unique_together = [("branch", "code")]
+
+    def __str__(self):
+        return self.name
 
 
 class Tax(TenantAwareModel):
@@ -85,8 +91,8 @@ class Product(TenantAwareModel):
     unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     unit_group = models.ForeignKey(UnitGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     name = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=255)
-    sku = models.CharField(max_length=120)
+    slug = models.SlugField(max_length=255, blank=True, null=True)
+    sku = models.CharField(max_length=120, blank=True, null=True)
     barcode = models.CharField(max_length=120, blank=True, null=True)
     image = models.URLField(blank=True)
     weight = models.DecimalField(max_digits=12, decimal_places=3, default=0)
@@ -113,13 +119,6 @@ class Product(TenantAwareModel):
 
     def __str__(self):
         return self.name
-
-
-class ProductImage(TenantAwareModel):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="images")
-    image = models.URLField()
-    alt_text = models.CharField(max_length=255, blank=True)
-    is_primary = models.BooleanField(default=False)
 
 
 class ProductBundleItem(TenantAwareModel):

@@ -2,7 +2,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.core.files.storage import FileSystemStorage
+from django.utils.text import slugify
 
 def getAuthContext(request):
     if request is None:
@@ -61,3 +64,54 @@ def serializeModelInstance(instance):
             data[field.name] = getattr(instance, field.name)
 
     return jsonsafe(data)
+
+
+def buildUniqueValue(model, request, field_name, raw_value, exclude_id=None):
+    from apps.common.commonQuery import commonQuery
+
+    value = raw_value
+    counter = 1
+
+    while True:
+        record = commonQuery.findOneRecord(
+            model,
+            {field_name: value},
+            request=request,
+            tenant_config=True,
+        )
+        if not record or (exclude_id is not None and record.get("id") == exclude_id):
+            return value
+        counter += 1
+        value = f"{raw_value}-{counter}"
+
+
+def buildCode(model, name, code, request, exclude_id=None):
+    raw_code = (code or "").strip()
+    raw_name = (name or "").strip()
+    base = slugify(raw_code or raw_name or "item") or "item"
+    return buildUniqueValue(model, request, "code", base, exclude_id=exclude_id)
+
+
+def buildSlug(model, name, slug, request, exclude_id=None):
+    raw_slug = (slug or "").strip()
+    raw_name = (name or "").strip()
+    base = slugify(raw_slug or raw_name or "product") or "product"
+    return buildUniqueValue(model, request, "slug", base, exclude_id=exclude_id)
+
+
+def buildSku(model, name, sku, request, exclude_id=None):
+    raw_sku = (sku or "").strip()
+    raw_name = (name or "").strip()
+    base = (slugify(raw_sku or raw_name or "item") or "item").upper()
+    return buildUniqueValue(model, request, "sku", base, exclude_id=exclude_id)
+
+
+def saveProductImage(image, request):
+    if not image:
+        return None
+    storage = FileSystemStorage(
+        location=settings.UPLOAD_ROOT,
+        base_url=settings.UPLOAD_URL,
+    )
+    file_path = storage.save(f"product/{image.name}", image)
+    return request.build_absolute_uri(storage.url(file_path))

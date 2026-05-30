@@ -101,16 +101,14 @@ class TaxUpdateIn(Schema):
 
 class ProductIn(Schema):
     name: str
-    sku: str
+    sku: Optional[str] = None
     barcode: Optional[str] = None
     slug: Optional[str] = None
-    image: Optional[str] = None
     weight: Decimal = Decimal("0")
     category_id: Optional[int] = None
     brand_id: Optional[int] = None
     tax_group_id: Optional[int] = None
-    unit_id: Optional[int] = None
-    unit_group_id: Optional[int] = None
+    unit_id: int
     product_type: str = "stock"
     description: Optional[str] = None
     purchase_price: Decimal = Decimal("0")
@@ -134,13 +132,11 @@ class ProductUpdateIn(Schema):
     sku: Optional[str] = None
     barcode: Optional[str] = None
     slug: Optional[str] = None
-    image: Optional[str] = None
     weight: Optional[Decimal] = None
     category_id: Optional[int] = None
     brand_id: Optional[int] = None
     tax_group_id: Optional[int] = None
     unit_id: Optional[int] = None
-    unit_group_id: Optional[int] = None
     product_type: Optional[str] = None
     description: Optional[str] = None
     purchase_price: Optional[Decimal] = None
@@ -148,8 +144,6 @@ class ProductUpdateIn(Schema):
     mrp: Optional[Decimal] = None
     wholesale_price: Optional[Decimal] = None
     is_tax_inclusive: Optional[bool] = None
-    current_stock: Optional[Decimal] = None
-    opening_stock: Optional[Decimal] = None
     min_stock: Optional[Decimal] = None
     max_stock: Optional[Decimal] = None
     reorder_level: Optional[Decimal] = None

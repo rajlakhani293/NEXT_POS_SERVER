@@ -1,3 +1,6 @@
+import traceback
+
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from ninja import NinjaAPI
 from ninja.errors import HttpError, ValidationError
@@ -95,6 +98,8 @@ def django_validation_error_handler(request, exc: DjangoValidationError):
 
 @api.exception_handler(Exception)
 def generic_error_handler(request, exc: Exception):
+    if settings.DEBUG:
+        traceback.print_exc()
     payload = errorResponse("Something went wrong on the server.")
     return api.create_response(request, payload.dict(), status=500)
 

@@ -1,6 +1,5 @@
 # type: ignore
 from django.db import transaction
-from django.utils.text import slugify
 from apps.catalog.models import (
     Brand,
     Category,
@@ -13,38 +12,8 @@ from apps.catalog.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
+from apps.common.helpers import buildCode, buildSlug, buildSku, saveProductImage
 from apps.common.responses import successResponse
-
-
-def buildUniqueValue(model, request, field_name, raw_value, exclude_id=None):
-    value = raw_value
-    counter = 1
-
-    while True:
-        record = commonQuery.findOneRecord(
-            model,
-            {field_name: value},
-            request=request,
-            tenant_config=True,
-        )
-        if not record or (exclude_id is not None and record.get("id") == exclude_id):
-            return value
-        counter += 1
-        value = f"{raw_value}-{counter}"
-
-
-def buildCode(model, name, code, request, exclude_id=None):
-    raw_code = (code or "").strip()
-    raw_name = (name or "").strip()
-    base = slugify(raw_code or raw_name or "item") or "item"
-    return buildUniqueValue(model, request, "code", base, exclude_id=exclude_id)
-
-
-def buildSlug(model, name, slug, request, exclude_id=None):
-    raw_slug = (slug or "").strip()
-    raw_name = (name or "").strip()
-    base = slugify(raw_slug or raw_name or "product") or "product"
-    return buildUniqueValue(model, request, "slug", base, exclude_id=exclude_id)
 
 
 class CategoryService:
@@ -801,10 +770,73 @@ class TaxService:
 
 class ProductService:
     @staticmethod
-    def create(data, request):
+    def attachDisplayData(product_data, request):
+        product_data["category_name"] = None
+        product_data["brand_name"] = None
+        product_data["tax_group_name"] = None
+        product_data["unit_name"] = None
+        product_data["unit_group_name"] = None
+
+        if product_data.get("category_id"):
+            category = commonQuery.findOneRecord(
+                Category,
+                product_data["category_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["category_name"] = category["name"] if category else None
+        if product_data.get("brand_id"):
+            brand = commonQuery.findOneRecord(
+                Brand,
+                product_data["brand_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["brand_name"] = brand["name"] if brand else None
+        if product_data.get("tax_group_id"):
+            tax_group = commonQuery.findOneRecord(
+                TaxGroup,
+                product_data["tax_group_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["tax_group_name"] = tax_group["name"] if tax_group else None
+        if product_data.get("unit_id"):
+            unit = commonQuery.findOneRecord(
+                Unit,
+                product_data["unit_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["unit_name"] = unit["name"] if unit else None
+        if product_data.get("unit_group_id"):
+            unit_group = commonQuery.findOneRecord(
+                UnitGroup,
+                product_data["unit_group_id"],
+                options={"attributes": ["name"]},
+                request=request,
+                tenant_config=True,
+            )
+            product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+
+        return product_data
+
+    @staticmethod
+    def create(data, request, image=None):
         with transaction.atomic():
+            if data.get("sku") == "":
+                data["sku"] = None
             if data.get("barcode") == "":
                 data["barcode"] = None
+            data["sku"] = buildSku(Product, data.get("name"), data.get("sku"), request)
+            data["current_stock"] = data.get("opening_stock", 0)
+            image_url = saveProductImage(image, request)
+            if image_url:
+                data["image"] = image_url
 
             category = None
             brand = None
@@ -829,29 +861,24 @@ class ProductService:
                 )
                 if tax_group is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-            if data.get("unit_id"):
-                unit = commonQuery.findOneRecord(
-                    Unit, data["unit_id"], request=request, tenant_config=True
-                )
-                if unit is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
-            if data.get("unit_group_id"):
-                unit_group = commonQuery.findOneRecord(
-                    UnitGroup, data["unit_group_id"], request=request, tenant_config=True
-                )
-                if unit_group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
-            if unit and not unit_group and unit.get("unit_group_id"):
+            unit = commonQuery.findOneRecord(
+                Unit, data["unit_id"], request=request, tenant_config=True
+            )
+            if unit is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+            if unit.get("unit_group_id"):
                 unit_group = commonQuery.findOneRecord(
                     UnitGroup,
                     unit["unit_group_id"],
                     request=request,
                     tenant_config=True,
                 )
+                if unit_group is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
 
             product = commonQuery.createRecord(
                 Product,
-                {
+                { 
                     **data,
                     "slug": buildSlug(Product, data.get("name"), data.get("slug"), request),
                     "category_id": category["id"] if category else None,
@@ -864,18 +891,19 @@ class ProductService:
                 tenant_config=True,
             )
             product_data = dict(product)
-            product_data["category_name"] = category["name"] if category else None
-            product_data["brand_name"] = brand["name"] if brand else None
-            product_data["tax_group_name"] = tax_group["name"] if tax_group else None
-            product_data["unit_name"] = unit["name"] if unit else None
-            product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+            product_data = ProductService.attachDisplayData(product_data, request)
             return successResponse("Product created successfully.", data=product_data)
 
     @staticmethod
-    def update(data, request, product_id):
+    def update(data, request, product_id, image=None):
         with transaction.atomic():
+            if data.get("sku") == "":
+                data["sku"] = None
             if data.get("barcode") == "":
                 data["barcode"] = None
+            image_url = saveProductImage(image, request)
+            if image_url:
+                data["image"] = image_url
 
             product = commonQuery.findOneRecord(
                 Product,
@@ -913,13 +941,7 @@ class ProductService:
                 if unit is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
                 data["unit_id"] = unit["id"]
-            if data.get("unit_group_id"):
-                unit_group = commonQuery.findOneRecord(
-                    UnitGroup, data["unit_group_id"], request=request, tenant_config=True
-                )
-                if unit_group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
-                data["unit_group_id"] = unit_group["id"]
+                data["unit_group_id"] = unit["unit_group_id"]
             if data.get("slug") is not None or data.get("name") is not None:
                 data["slug"] = buildSlug(
                     Product,
@@ -928,59 +950,18 @@ class ProductService:
                     request,
                     exclude_id=product["id"],
                 )
+            if "sku" in data:
+                data["sku"] = buildSku(
+                    Product,
+                    data.get("name") or product["name"],
+                    data.get("sku") or product["sku"],
+                    request,
+                    exclude_id=product["id"],
+                )
             product_data = commonQuery.updateRecordById(Product, product_id, data, request=request, tenant_config=True)
             if product_data is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
-            product_data["category_name"] = None
-            product_data["brand_name"] = None
-            product_data["tax_group_name"] = None
-            product_data["unit_name"] = None
-            product_data["unit_group_name"] = None
-            if product_data.get("category_id"):
-                category = commonQuery.findOneRecord(
-                    Category,
-                    product_data["category_id"],
-                    options={"attributes": ["name"]},
-                    request=request,
-                    tenant_config=True,
-                )
-                product_data["category_name"] = category["name"] if category else None
-            if product_data.get("brand_id"):
-                brand = commonQuery.findOneRecord(
-                    Brand,
-                    product_data["brand_id"],
-                    options={"attributes": ["name"]},
-                    request=request,
-                    tenant_config=True,
-                )
-                product_data["brand_name"] = brand["name"] if brand else None
-            if product_data.get("tax_group_id"):
-                tax_group = commonQuery.findOneRecord(
-                    TaxGroup,
-                    product_data["tax_group_id"],
-                    options={"attributes": ["name"]},
-                    request=request,
-                    tenant_config=True,
-                )
-                product_data["tax_group_name"] = tax_group["name"] if tax_group else None
-            if product_data.get("unit_id"):
-                unit = commonQuery.findOneRecord(
-                    Unit,
-                    product_data["unit_id"],
-                    options={"attributes": ["name"]},
-                    request=request,
-                    tenant_config=True,
-                )
-                product_data["unit_name"] = unit["name"] if unit else None
-            if product_data.get("unit_group_id"):
-                unit_group = commonQuery.findOneRecord(
-                    UnitGroup,
-                    product_data["unit_group_id"],
-                    options={"attributes": ["name"]},
-                    request=request,
-                    tenant_config=True,
-                )
-                product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+            product_data = ProductService.attachDisplayData(product_data, request)
             return successResponse("Product updated successfully.", data=product_data)
 
     @staticmethod
@@ -1019,6 +1000,7 @@ class ProductService:
             ],
         }
         result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
+        result["items"] = [ProductService.attachDisplayData(item, request) for item in result["items"]]
         return successResponse("Products retrieved successfully.", data=result)
 
     @staticmethod
@@ -1066,54 +1048,5 @@ class ProductService:
         if product is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
         product_data = dict(product)
-        product_data["category_name"] = None
-        product_data["brand_name"] = None
-        product_data["tax_group_name"] = None
-        product_data["unit_name"] = None
-        product_data["unit_group_name"] = None
-        if product.get("category_id"):
-            category = commonQuery.findOneRecord(
-                Category,
-                product["category_id"],
-                options={"attributes": ["name"]},
-                request=request,
-                tenant_config=True,
-            )
-            product_data["category_name"] = category["name"] if category else None
-        if product.get("brand_id"):
-            brand = commonQuery.findOneRecord(
-                Brand,
-                product["brand_id"],
-                options={"attributes": ["name"]},
-                request=request,
-                tenant_config=True,
-            )
-            product_data["brand_name"] = brand["name"] if brand else None
-        if product.get("tax_group_id"):
-            tax_group = commonQuery.findOneRecord(
-                TaxGroup,
-                product["tax_group_id"],
-                options={"attributes": ["name"]},
-                request=request,
-                tenant_config=True,
-            )
-            product_data["tax_group_name"] = tax_group["name"] if tax_group else None
-        if product.get("unit_id"):
-            unit = commonQuery.findOneRecord(
-                Unit,
-                product["unit_id"],
-                options={"attributes": ["name"]},
-                request=request,
-                tenant_config=True,
-            )
-            product_data["unit_name"] = unit["name"] if unit else None
-        if product.get("unit_group_id"):
-            unit_group = commonQuery.findOneRecord(
-                UnitGroup,
-                product["unit_group_id"],
-                options={"attributes": ["name"]},
-                request=request,
-                tenant_config=True,
-            )
-            product_data["unit_group_name"] = unit_group["name"] if unit_group else None
+        product_data = ProductService.attachDisplayData(product_data, request)
         return successResponse("Product retrieved successfully.", data=product_data)
