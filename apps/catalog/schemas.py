@@ -15,14 +15,12 @@ class StatusUpdateSchema(Schema):
 
 class CategoryIn(Schema):
     name: str
-    code: Optional[str] = None
     parent_id: Optional[int] = None
     description: str = ""
 
 
 class CategoryUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
     parent_id: Optional[int] = None
     description: Optional[str] = None
     status: Optional[int] = None
@@ -30,26 +28,22 @@ class CategoryUpdateIn(Schema):
 
 class BrandIn(Schema):
     name: str
-    code: Optional[str] = None
     description: str = ""
 
 
 class BrandUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
     description: Optional[str] = None
     status: Optional[int] = None
 
 
 class UnitGroupIn(Schema):
     name: str
-    code: Optional[str] = None
     description: str = ""
 
 
 class UnitGroupUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
     description: Optional[str] = None
     status: Optional[int] = None
 
@@ -73,13 +67,11 @@ class UnitUpdateIn(Schema):
 
 class TaxGroupIn(Schema):
     name: str
-    code: Optional[str] = None
     description: str = ""
 
 
 class TaxGroupUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
     description: Optional[str] = None
     status: Optional[int] = None
 

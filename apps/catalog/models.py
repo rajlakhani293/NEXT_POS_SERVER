@@ -5,12 +5,10 @@ from apps.common.models import TenantAwareModel
 
 class Category(TenantAwareModel):
     name = models.CharField(max_length=150)
-    code = models.SlugField(max_length=150)
     parent = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="children")
     description = models.TextField(blank=True)
 
     class Meta:
-        unique_together = [("branch", "code")]
         ordering = ["name"]
 
     def __str__(self):
@@ -19,11 +17,9 @@ class Category(TenantAwareModel):
 
 class Brand(TenantAwareModel):
     name = models.CharField(max_length=150)
-    code = models.SlugField(max_length=150)
     description = models.TextField(blank=True)
 
     class Meta:
-        unique_together = [("branch", "code")]
         ordering = ["name"]
 
     def __str__(self):
@@ -32,11 +28,7 @@ class Brand(TenantAwareModel):
 
 class UnitGroup(TenantAwareModel):
     name = models.CharField(max_length=120)
-    code = models.SlugField(max_length=120)
     description = models.TextField(blank=True)
-
-    class Meta:
-        unique_together = [("branch", "code")]
 
     def __str__(self):
         return self.name
@@ -58,11 +50,7 @@ class Unit(TenantAwareModel):
 
 class TaxGroup(TenantAwareModel):
     name = models.CharField(max_length=120)
-    code = models.SlugField(max_length=120)
     description = models.TextField(blank=True)
-
-    class Meta:
-        unique_together = [("branch", "code")]
 
     def __str__(self):
         return self.name

@@ -12,7 +12,7 @@ from apps.catalog.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode, buildSlug, buildSku, saveProductImage
+from apps.common.helpers import buildSlug, buildSku, saveProductImage
 from apps.common.responses import successResponse
 
 
@@ -35,7 +35,6 @@ class CategoryService:
                 Category,
                 {
                     **data,
-                    "code": buildCode(Category, data.get("name"), data.get("code"), request),
                     "parent_id": parent["id"] if parent else None,
                 },
                 request=request,
@@ -50,9 +49,9 @@ class CategoryService:
 
     @staticmethod
     def getAll(data, request):
-        fieldConfig = [["name", True, True], ["code", True, True]]
+        fieldConfig = [["name", True, True]]
         options = {
-            "attributes": ["id", "name", "code", "description", "parent_id", "status"],
+            "attributes": ["id", "name", "description", "parent_id", "status"],
         }
         result = commonQuery.fetchPaginatedData(Category, data, fieldConfig, options, request=request, tenant_config=True)
         return successResponse("Categories retrieved successfully.", data=result)
@@ -62,7 +61,7 @@ class CategoryService:
         data = commonQuery.findAllRecords(
             Category,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
@@ -115,14 +114,6 @@ class CategoryService:
                 if parent is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Parent category not found.")
                 data["parent_id"] = parent["id"]
-            if data.get("code") is not None or data.get("name") is not None:
-                data["code"] = buildCode(
-                    Category,
-                    data.get("name") or category["name"],
-                    data.get("code") or category["code"],
-                    request,
-                    exclude_id=category["id"],
-                )
             category_data = commonQuery.updateRecordById(
                 Category,
                 category_id,
@@ -181,10 +172,7 @@ class BrandService:
         with transaction.atomic():
             brand = commonQuery.createRecord(
                 Brand,
-                {
-                    **data,
-                    "code": buildCode(Brand, data.get("name"), data.get("code"), request),
-                },
+                data,
                 request=request,
                 tenant_config=True,
             )
@@ -201,14 +189,6 @@ class BrandService:
             )
             if brand is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
-            if data.get("code") is not None or data.get("name") is not None:
-                data["code"] = buildCode(
-                    Brand,
-                    data.get("name") or brand["name"],
-                    data.get("code") or brand["code"],
-                    request,
-                    exclude_id=brand["id"],
-                )
             brand_data = commonQuery.updateRecordById(Brand, brand_id, data, request=request, tenant_config=True)
             if brand_data is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
@@ -216,8 +196,8 @@ class BrandService:
 
     @staticmethod
     def getAll(data, request):
-        fieldConfig = [["name", True, True], ["code", True, True]]
-        options = {"attributes": ["id", "name", "code", "description", "status"]}
+        fieldConfig = [["name", True, True]]
+        options = {"attributes": ["id", "name", "description", "status"]}
         result = commonQuery.fetchPaginatedData(Brand, data, fieldConfig, options, request=request, tenant_config=True)
         return successResponse("Brands retrieved successfully.", data=result)
 
@@ -226,7 +206,7 @@ class BrandService:
         data = commonQuery.findAllRecords(
             Brand,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
@@ -274,10 +254,7 @@ class UnitGroupService:
         with transaction.atomic():
             unit_group = commonQuery.createRecord(
                 UnitGroup,
-                {
-                    **data,
-                    "code": buildCode(UnitGroup, data.get("name"), data.get("code"), request),
-                },
+                data,
                 request=request,
                 tenant_config=True,
             )
@@ -299,14 +276,6 @@ class UnitGroupService:
             )
             if unit_group is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
-            if data.get("code") is not None or data.get("name") is not None:
-                data["code"] = buildCode(
-                    UnitGroup,
-                    data.get("name") or unit_group["name"],
-                    data.get("code") or unit_group["code"],
-                    request,
-                    exclude_id=unit_group["id"],
-                )
             unit_group_data = commonQuery.updateRecordById(
                 UnitGroup,
                 unit_group_id,
@@ -329,8 +298,8 @@ class UnitGroupService:
 
     @staticmethod
     def getAll(data, request):
-        fieldConfig = [["name", True, True], ["code", True, True]]
-        options = {"attributes": ["id", "name", "code", "description", "status"]}
+        fieldConfig = [["name", True, True]]
+        options = {"attributes": ["id", "name", "description", "status"]}
         result = commonQuery.fetchPaginatedData(UnitGroup, data, fieldConfig, options, request=request, tenant_config=True)
         return successResponse("Unit groups retrieved successfully.", data=result)
 
@@ -339,7 +308,7 @@ class UnitGroupService:
         data = commonQuery.findAllRecords(
             UnitGroup,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
@@ -526,10 +495,7 @@ class TaxGroupService:
         with transaction.atomic():
             tax_group = commonQuery.createRecord(
                 TaxGroup,
-                {
-                    **data,
-                    "code": buildCode(TaxGroup, data.get("name"), data.get("code"), request),
-                },
+                data,
                 request=request,
                 tenant_config=True,
             )
@@ -551,14 +517,6 @@ class TaxGroupService:
             )
             if tax_group is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-            if data.get("code") is not None or data.get("name") is not None:
-                data["code"] = buildCode(
-                    TaxGroup,
-                    data.get("name") or tax_group["name"],
-                    data.get("code") or tax_group["code"],
-                    request,
-                    exclude_id=tax_group["id"],
-                )
             tax_group_data = commonQuery.updateRecordById(
                 TaxGroup,
                 tax_group_id,
@@ -581,8 +539,8 @@ class TaxGroupService:
 
     @staticmethod
     def getAll(data, request):
-        fieldConfig = [["name", True, True], ["code", True, True]]
-        options = {"attributes": ["id", "name", "code", "description", "status"]}
+        fieldConfig = [["name", True, True]]
+        options = {"attributes": ["id", "name", "description", "status"]}
         result = commonQuery.fetchPaginatedData(TaxGroup, data, fieldConfig, options, request=request, tenant_config=True)
         return successResponse("Tax groups retrieved successfully.", data=result)
 
@@ -591,7 +549,7 @@ class TaxGroupService:
         data = commonQuery.findAllRecords(
             TaxGroup,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
