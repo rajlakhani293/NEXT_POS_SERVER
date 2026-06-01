@@ -651,7 +651,7 @@ class TaxService:
     def getAll(data, request):
         fieldConfig = [["name", True, True], ["rate", False, True]]
         options = {
-            "attributes": ["id", "name", "rate", "is_inclusive", "tax_group_id", "tax_group__name", "status"]
+            "attributes": ["id", "name", "rate", "tax_group_id", "tax_group__name", "status"]
         }
         result = commonQuery.fetchPaginatedData(Tax, data, fieldConfig, options, request=request, tenant_config=True)
         return successResponse("Taxes retrieved successfully.", data=result)

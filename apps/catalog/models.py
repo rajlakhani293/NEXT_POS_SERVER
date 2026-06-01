@@ -60,7 +60,6 @@ class Tax(TenantAwareModel):
     tax_group = models.ForeignKey(TaxGroup, on_delete=models.CASCADE, related_name="taxes")
     name = models.CharField(max_length=120)
     rate = models.DecimalField(max_digits=8, decimal_places=2)
-    is_inclusive = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["name"]

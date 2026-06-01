@@ -80,14 +80,12 @@ class TaxIn(Schema):
     tax_group_id: int
     name: str
     rate: Decimal
-    is_inclusive: bool = False
 
 
 class TaxUpdateIn(Schema):
     tax_group_id: Optional[int] = None
     name: Optional[str] = None
     rate: Optional[Decimal] = None
-    is_inclusive: Optional[bool] = None
     status: Optional[int] = None
 
 
