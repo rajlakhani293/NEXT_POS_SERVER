@@ -95,7 +95,6 @@ class ProductIn(Schema):
     name: str
     sku: Optional[str] = None
     barcode: Optional[str] = None
-    slug: Optional[str] = None
     weight: Decimal = Decimal("0")
     category_id: Optional[int] = None
     brand_id: Optional[int] = None
@@ -123,7 +122,6 @@ class ProductUpdateIn(Schema):
     name: Optional[str] = None
     sku: Optional[str] = None
     barcode: Optional[str] = None
-    slug: Optional[str] = None
     weight: Optional[Decimal] = None
     category_id: Optional[int] = None
     brand_id: Optional[int] = None

@@ -8,7 +8,6 @@ from apps.catalog.models import (
     Brand,
     Category,
     Product,
-    ProductBundleItem,
     Tax,
     TaxGroup,
     Unit,
@@ -113,4 +112,3 @@ admin.site.register(Unit, TenantModelAdmin)
 admin.site.register(TaxGroup, TenantModelAdmin)
 admin.site.register(Tax, TenantModelAdmin)
 admin.site.register(Product, ProductAdmin)
-admin.site.register(ProductBundleItem, TenantModelAdmin)

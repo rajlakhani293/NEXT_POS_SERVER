@@ -70,16 +70,13 @@ class Product(TenantAwareModel):
     PRODUCT_TYPES = [
         ("stock", "Stock"),
         ("service", "Service"),
-        ("bundle", "Bundle"),
     ]
 
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     brand = models.ForeignKey(Brand, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     tax_group = models.ForeignKey(TaxGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
-    unit_group = models.ForeignKey(UnitGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     name = models.CharField(max_length=255)
-    slug = models.SlugField(max_length=255, blank=True, null=True)
     sku = models.CharField(max_length=120, blank=True, null=True)
     barcode = models.CharField(max_length=120, blank=True, null=True)
     image = models.URLField(blank=True)
@@ -102,17 +99,8 @@ class Product(TenantAwareModel):
     expiry_tracking_enabled = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = [("branch", "sku"), ("branch", "barcode"), ("branch", "slug")]
+        unique_together = [("branch", "sku"), ("branch", "barcode")]
         ordering = ["name"]
 
     def __str__(self):
         return self.name
-
-
-class ProductBundleItem(TenantAwareModel):
-    bundle = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="bundle_items")
-    item = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="used_in_bundles")
-    quantity = models.DecimalField(max_digits=12, decimal_places=3, default=1)
-
-    class Meta:
-        unique_together = [("bundle", "item")]
