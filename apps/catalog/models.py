@@ -92,10 +92,8 @@ class Product(TenantAwareModel):
     opening_stock = models.DecimalField(max_digits=14, decimal_places=3, default=0)
     min_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     max_stock = models.DecimalField(max_digits=12, decimal_places=3, default=0)
-    reorder_level = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     track_stock = models.BooleanField(default=True)
     allow_decimal_qty = models.BooleanField(default=False)
-    stock_alert_enabled = models.BooleanField(default=True)
     expiry_tracking_enabled = models.BooleanField(default=False)
 
     class Meta:

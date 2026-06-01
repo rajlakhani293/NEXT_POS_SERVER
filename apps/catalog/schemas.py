@@ -111,10 +111,8 @@ class ProductIn(Schema):
     opening_stock: Decimal = Decimal("0")
     min_stock: Decimal = Decimal("0")
     max_stock: Decimal = Decimal("0")
-    reorder_level: Decimal = Decimal("0")
     track_stock: bool = True
     allow_decimal_qty: bool = False
-    stock_alert_enabled: bool = True
     expiry_tracking_enabled: bool = False
 
 
@@ -136,9 +134,7 @@ class ProductUpdateIn(Schema):
     is_tax_inclusive: Optional[bool] = None
     min_stock: Optional[Decimal] = None
     max_stock: Optional[Decimal] = None
-    reorder_level: Optional[Decimal] = None
     track_stock: Optional[bool] = None
     allow_decimal_qty: Optional[bool] = None
-    stock_alert_enabled: Optional[bool] = None
     expiry_tracking_enabled: Optional[bool] = None
     status: Optional[int] = None
