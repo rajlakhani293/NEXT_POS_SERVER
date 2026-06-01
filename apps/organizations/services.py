@@ -1,13 +1,25 @@
 # type: ignore
 from django.db import transaction
+from django.utils.text import slugify
 
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
+from apps.common.commonQuery import commonQuery
 from apps.organizations.models import Branch, Company
 
 
 class OrganizationsService:
+    @staticmethod
+    def generateBranchCode(company_id, name, code=""):
+        base_code = slugify(code or name) or "branch"
+        branch_code = base_code
+        counter = 1
+        while Branch.objects.filter(company_id=company_id, code=branch_code).exists():
+            counter += 1
+            branch_code = f"{base_code}-{counter}"
+        return branch_code
+
     @staticmethod
     def getCurrentOrganization(user):
         company = Company.objects.filter(id=user.company_id, status__in=[0, 1]).first()
@@ -60,3 +72,104 @@ class OrganizationsService:
             "branch": serializeModelInstance(branch),
             "onboarding_completed": True,
         }
+
+    @staticmethod
+    def listBranches(data, request):
+        field_config = [["name", True, True], ["code", True, True], ["phone", True, False]]
+        result = commonQuery.fetchPaginatedData(
+            Branch,
+            data,
+            field_config,
+            {"attributes": ["id", "name", "code", "phone", "city", "state", "country", "is_head_office", "status"]},
+            request=request,
+            tenant_config={"company_id": True},
+        )
+        return result
+
+    @staticmethod
+    def branchDropdown(request):
+        return commonQuery.findAllRecords(
+            Branch,
+            {},
+            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            request=request,
+            tenant_config={"company_id": True},
+        )
+
+    @staticmethod
+    def createBranch(user, data, request):
+        with transaction.atomic():
+            code = OrganizationsService.generateBranchCode(user.company_id, data.get("name"), data.get("code"))
+            return commonQuery.createRecord(
+                Branch,
+                {**data, "code": code},
+                request=request,
+                tenant_config={"company_id": True},
+            )
+
+    @staticmethod
+    def getBranch(branch_id, request):
+        branch = commonQuery.findOneRecord(
+            Branch,
+            branch_id,
+            request=request,
+            tenant_config={"company_id": True},
+        )
+        if branch is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+        return branch
+
+    @staticmethod
+    def updateBranch(user, branch_id, data, request):
+        with transaction.atomic():
+            branch = commonQuery.findOneRecord(
+                Branch,
+                branch_id,
+                request=request,
+                tenant_config={"company_id": True},
+            )
+            if branch is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+            if data.get("code"):
+                exists = Branch.objects.filter(company_id=user.company_id, code=slugify(data["code"])).exclude(id=branch_id).exists()
+                if exists:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Branch code already exists.")
+                data["code"] = slugify(data["code"])
+            updated = commonQuery.updateRecordById(
+                Branch,
+                branch_id,
+                data,
+                request=request,
+                tenant_config={"company_id": True},
+            )
+            if updated is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+            return updated
+
+    @staticmethod
+    def deleteBranches(data, request):
+        count = commonQuery.softDeleteById(
+            Branch,
+            data.get("ids"),
+            request=request,
+            tenant_config={"company_id": True},
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+        return {"deleted_count": count}
+
+    @staticmethod
+    def updateBranchStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        count = commonQuery.updateStatusById(
+            Branch,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config={"company_id": True},
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+        return {"updated_count": count, "status": status}

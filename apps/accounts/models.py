@@ -1,7 +1,8 @@
+# type: ignore
 from django.contrib.auth.models import AbstractUser, Permission
 from django.db import models
 from django.utils import timezone
-from apps.common.models import BaseModel
+from apps.common.models import BaseModel, SoftDeleteModel
 
 
 class Role(BaseModel):
@@ -62,6 +63,12 @@ class User(AbstractUser):
     onboarding_completed = models.BooleanField(default=False)
     is_cashier = models.BooleanField(default=False)
     is_store_manager = models.BooleanField(default=False)
+    status = models.IntegerField(
+        choices=SoftDeleteModel.STATUS_CHOICES,
+        default=SoftDeleteModel.STATUS_ACTIVE,
+        help_text="0: Active, 1: Inactive, 2: Deleted.",
+    )
+    deleted_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return self.full_name or self.phone or self.email or self.username

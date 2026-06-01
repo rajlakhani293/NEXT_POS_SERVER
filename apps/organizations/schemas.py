@@ -25,6 +25,23 @@ class BranchUpdateIn(Schema):
     postal_code: Optional[str] = Field("", description="Branch postal code.", example="395002")
 
 
+class BranchIn(BranchUpdateIn):
+    code: Optional[str] = Field("", description="Optional branch code. Auto-generated from branch name when blank.", example="main")
+
+
+class BranchPatchIn(Schema):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
+    postal_code: Optional[str] = None
+    is_head_office: Optional[bool] = None
+    status: Optional[int] = None
+
+
 class OrganizationSetupIn(Schema):
     company: CompanyUpdateIn = Field(
         ...,

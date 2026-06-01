@@ -1,3 +1,4 @@
+# type: ignore
 from datetime import datetime
 from typing import List, Optional
 
@@ -53,6 +54,24 @@ class RoleUpdateIn(Schema):
 
 class RoleAssignIn(Schema):
     role_id: int = Field(..., example=2)
+
+
+class UserIn(Schema):
+    full_name: str = Field(..., example="Counter Staff")
+    phone: str = Field("", example="9999999999")
+    email: str = Field("", example="staff@example.com")
+    branch_id: Optional[int] = None
+    role_id: Optional[int] = None
+    status: int = 0
+
+
+class UserUpdateIn(Schema):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    branch_id: Optional[int] = None
+    role_id: Optional[int] = None
+    status: Optional[int] = None
 
 
 class LoginOut(Schema):

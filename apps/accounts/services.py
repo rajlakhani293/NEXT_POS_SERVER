@@ -502,6 +502,148 @@ class AccountsService:
         }
 
     @staticmethod
+    def listUsers(user: User, data):
+        field_config = [["full_name", True, True], ["phone", True, False], ["email", True, False]]
+        return commonQuery.fetchPaginatedData(
+            User,
+            data,
+            field_config,
+            {
+                "attributes": [
+                    "id",
+                    "full_name",
+                    "phone",
+                    "email",
+                    "branch_id",
+                    "branch__name",
+                    "role_id",
+                    "role__name",
+                    "auth_provider",
+                    "is_cashier",
+                    "is_store_manager",
+                    "status",
+                ]
+            },
+            tenant_config={},
+            custom_where={"company_id": user.company_id},
+        )
+
+    @staticmethod
+    def userDropdown(user: User):
+        return list(
+            User.objects.filter(company_id=user.company_id, status__in=[0, 1])
+            .order_by("full_name")
+            .values("id", "full_name", "phone", "email")
+        )
+
+    @staticmethod
+    def getUser(user: User, user_id: int):
+        target_user = (
+            User.objects.filter(company_id=user.company_id, id=user_id, status__in=[0, 1])
+            .select_related("branch", "role")
+            .first()
+        )
+        if target_user is None:
+            raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
+        return AccountsService.serializeUser(target_user)
+
+    @staticmethod
+    def createUser(user: User, payload):
+        data = payload.dict(exclude_unset=True)
+        branch_id = data.get("branch_id") or user.branch_id
+        role_id = data.get("role_id")
+
+        branch = Branch.objects.filter(company_id=user.company_id, id=branch_id, status__in=[0, 1]).first()
+        if branch is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+
+        role = None
+        if role_id:
+            role = Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1]).first()
+            if role is None:
+                raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
+
+        full_name = data.get("full_name") or "Staff User"
+        phone = data.get("phone") or ""
+        email = data.get("email") or ""
+        if phone and User.objects.filter(phone=phone, status__in=[0, 1]).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Phone already exists.")
+        if email and User.objects.filter(email=email, status__in=[0, 1]).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Email already exists.")
+
+        target_user = User(
+            username=f"user-{secrets.token_hex(8)}",
+            company_id=user.company_id,
+            branch=branch,
+            role=role,
+            full_name=full_name,
+            phone=phone,
+            email=email,
+            auth_provider="otp" if phone else "google",
+            is_cashier=role.is_cashier if role else False,
+            is_store_manager=role.is_store_manager if role else False,
+            status=data.get("status", 0),
+        )
+        target_user.set_unusable_password()
+        target_user.save()
+        return AccountsService.serializeUser(target_user)
+
+    @staticmethod
+    def updateUser(user: User, user_id: int, payload):
+        target_user = User.objects.filter(company_id=user.company_id, id=user_id, status__in=[0, 1]).first()
+        if target_user is None:
+            raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
+
+        data = payload.dict(exclude_unset=True)
+        if data.get("phone") and User.objects.filter(phone=data["phone"], status__in=[0, 1]).exclude(id=user_id).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Phone already exists.")
+        if data.get("email") and User.objects.filter(email=data["email"], status__in=[0, 1]).exclude(id=user_id).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Email already exists.")
+        if data.get("branch_id"):
+            branch = Branch.objects.filter(company_id=user.company_id, id=data["branch_id"], status__in=[0, 1]).first()
+            if branch is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+            target_user.branch = branch
+        if data.get("role_id"):
+            role = Role.objects.filter(company_id=user.company_id, id=data["role_id"], status__in=[0, 1]).first()
+            if role is None:
+                raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
+            target_user.role = role
+            target_user.is_cashier = role.is_cashier
+            target_user.is_store_manager = role.is_store_manager
+
+        for field in ["full_name", "phone", "email"]:
+            if field in data:
+                setattr(target_user, field, data[field] or "")
+        if "status" in data:
+            target_user.status = data["status"]
+        target_user.save()
+        return AccountsService.serializeUser(target_user)
+
+    @staticmethod
+    def deleteUsers(user: User, data):
+        ids = data.get("ids", [])
+        if not isinstance(ids, list):
+            ids = [ids]
+        count = User.objects.filter(company_id=user.company_id, id__in=ids).update(status=2, deleted_at=timezone.now())
+        if count == 0:
+            raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
+        return {"deleted_count": count}
+
+    @staticmethod
+    def updateUserStatus(user: User, data):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        ids = data.get("ids", [])
+        if not isinstance(ids, list):
+            ids = [ids]
+        count = User.objects.filter(company_id=user.company_id, id__in=ids).update(status=status)
+        if count == 0:
+            raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
+        return {"updated_count": count, "status": status}
+
+    @staticmethod
     def listRoles(user: User):
         AccountsService.ensurePermissions()
         roles = (

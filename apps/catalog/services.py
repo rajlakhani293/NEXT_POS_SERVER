@@ -549,10 +549,29 @@ class TaxGroupService:
         data = commonQuery.findAllRecords(
             TaxGroup,
             {},
-            {"attributes": ["id", "name"], "order": ["name"]},
+            {
+                "attributes": ["id", "name"],
+                "include": [{"path": "taxes", "fields": ["id", "name", "rate", "status"]}],
+                "order": ["name"],
+            },
             request=request,
             tenant_config=True,
         )
+        for group in data:
+            taxes = group.pop("taxes", None) or []
+            active_taxes = []
+            total_rate = 0.0
+            for tax in taxes:
+                if tax.get("status") != 2:
+                    rate_val = float(tax.get("rate") or 0)
+                    total_rate += rate_val
+                    active_taxes.append({
+                        "id": tax.get("id"),
+                        "name": tax.get("name"),
+                        "rate": rate_val,
+                    })
+            group["rate"] = total_rate
+            group["taxes"] = active_taxes
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
