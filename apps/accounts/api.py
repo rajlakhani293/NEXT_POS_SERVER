@@ -109,6 +109,14 @@ def createRole(request, payload: RoleIn):
     return successResponse("Role created successfully.", data=data)
 
 
+@router.get("/roles/{role_id}", auth=auth_bearer, response=ApiResponse)
+@permission_required("roles_view")
+def getRoleById(request, role_id: int):
+    """Return one company role with assigned permissions."""
+    data = AccountsService.getRole(request.user, role_id)
+    return successResponse("Role fetched successfully.", data=data)
+
+
 @router.put("/roles/{role_id}", auth=auth_bearer, response=ApiResponse)
 @permission_required("roles_update")
 def updateRole(request, role_id: int, payload: RoleUpdateIn):

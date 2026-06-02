@@ -654,6 +654,18 @@ class AccountsService:
         return [AccountsService.serializeRole(role) for role in roles]
 
     @staticmethod
+    def getRole(user: User, role_id: int):
+        AccountsService.ensurePermissions()
+        role = (
+            Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1])
+            .prefetch_related("permissions")
+            .first()
+        )
+        if role is None:
+            raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
+        return AccountsService.serializeRole(role)
+
+    @staticmethod
     def createRole(user: User, payload):
         permission_map = AccountsService.ensurePermissions()
         requested_permissions = payload.permission_codenames or []
