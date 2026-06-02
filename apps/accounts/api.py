@@ -64,11 +64,11 @@ def googleLogin(request, payload: GoogleLoginIn):
     return successResponse("Google login successful.", data=data)
 
 
-@router.get("/me", auth=auth_bearer, response=ApiResponse)
-def me(request):
+@router.get("/session-data", auth=auth_bearer, response=ApiResponse)
+def sessionData(request):
     """Return the authenticated user with role and effective permissions."""
     data = AccountsService.currentUser(request.user)
-    return successResponse("Current user fetched successfully.", data=data)
+    return successResponse("Session data fetched successfully.", data=data)
 
 
 @router.post("/logout", auth=auth_bearer, response=ApiResponse)

@@ -1,3 +1,4 @@
+# type: ignore
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
@@ -106,12 +107,20 @@ def buildSku(model, name, sku, request, exclude_id=None):
     return buildUniqueValue(model, request, "sku", base, exclude_id=exclude_id)
 
 
-def saveProductImage(image, request):
+def saveUploadedFile(image, request, folder):
     if not image:
         return None
     storage = FileSystemStorage(
         location=settings.UPLOAD_ROOT,
         base_url=settings.UPLOAD_URL,
     )
-    file_path = storage.save(f"product/{image.name}", image)
+    file_path = storage.save(f"{folder}/{image.name}", image)
     return request.build_absolute_uri(storage.url(file_path))
+
+
+def saveProductImage(image, request):
+    return saveUploadedFile(image, request, "product")
+
+
+def saveCompanyLogo(image, request):
+    return saveUploadedFile(image, request, "company-logo")

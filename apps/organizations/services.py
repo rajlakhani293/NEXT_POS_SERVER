@@ -4,7 +4,7 @@ from django.utils.text import slugify
 
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import serializeModelInstance
+from apps.common.helpers import saveCompanyLogo, serializeModelInstance
 from apps.common.commonQuery import commonQuery
 from apps.organizations.models import Branch, Company, StateMaster
 
@@ -42,10 +42,12 @@ class OrganizationsService:
         }
 
     @staticmethod
-    def updateCurrentOrganization(user, company_payload, branch_payload):
+    def updateCurrentOrganization(user, company_payload, branch_payload=None, logo=None, request=None):
         company = Company.objects.filter(id=user.company_id, status__in=[0, 1]).first()
-        branch = Branch.objects.filter(id=user.branch_id, company_id=user.company_id, status__in=[0, 1]).first()
-        if company is None or branch is None:
+        branch = None
+        if branch_payload is not None:
+            branch = Branch.objects.filter(id=user.branch_id, company_id=user.company_id, status__in=[0, 1]).first()
+        if company is None or (branch_payload is not None and branch is None):
             raise api_error(
                 404,
                 ErrorCodes.ORGANIZATION_NOT_FOUND,
@@ -54,7 +56,6 @@ class OrganizationsService:
 
         with transaction.atomic():
             company_state = OrganizationsService.ensureState(company_payload.state_id)
-            branch_state = OrganizationsService.ensureState(branch_payload.state_id)
 
             company.name = company_payload.name
             company.legal_name = company_payload.legal_name or company_payload.name
@@ -64,16 +65,21 @@ class OrganizationsService:
             company.city_name = company_payload.city_name or ""
             company.state = company_state
             company.address = company_payload.address or ""
-            company.logo = company_payload.logo or ""
+            if logo:
+                company.logo = saveCompanyLogo(logo, request) or ""
+            else:
+                company.logo = company_payload.logo or ""
             company.save()
 
-            branch.name = branch_payload.name
-            branch.phone = branch_payload.phone or ""
-            branch.address = branch_payload.address or ""
-            branch.city = branch_payload.city or ""
-            branch.state = branch_state
-            branch.postal_code = branch_payload.postal_code or ""
-            branch.save()
+            if branch_payload is not None:
+                branch_state = OrganizationsService.ensureState(branch_payload.state_id)
+                branch.name = branch_payload.name
+                branch.phone = branch_payload.phone or ""
+                branch.address = branch_payload.address or ""
+                branch.city = branch_payload.city or ""
+                branch.state = branch_state
+                branch.postal_code = branch_payload.postal_code or ""
+                branch.save()
 
             if getattr(user, "onboarding_completed", False) is False:
                 user.onboarding_completed = True

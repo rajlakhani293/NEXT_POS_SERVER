@@ -1,5 +1,5 @@
+# type: ignore
 from typing import Optional
-
 from ninja import Schema
 from pydantic import Field
 
@@ -57,8 +57,8 @@ class OrganizationSetupIn(Schema):
             "logo": "https://example.com/logo.png",
         },
     )
-    branch: BranchUpdateIn = Field(
-        ...,
+    branch: Optional[BranchUpdateIn] = Field(
+        None,
         description="Primary branch data. The initial branch starts as Main Branch and can be renamed later.",
         example={
             "name": "Main Branch",

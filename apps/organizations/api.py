@@ -1,8 +1,11 @@
+import json
 from typing import Optional
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
+from apps.common.error_codes import ErrorCodes
+from apps.common.exceptions import api_error
 from apps.common.responses import ApiResponse, successResponse
 from apps.organizations.controllers import OrganizationsController
 from apps.organizations.schemas import BranchIn, BranchPatchIn, OrganizationSetupIn
@@ -13,43 +16,41 @@ from apps.catalog.schemas import DeleteSchema, StatusUpdateSchema
 router = Router(tags=["organizations"])
 
 
-@router.get("/me", auth=auth_bearer, response=ApiResponse)
-def getCurrentOrganization(request):
+@router.get("/session-data", auth=auth_bearer, response=ApiResponse)
+def sessionData(request):
     """Return the current company and active branch for the signed-in user."""
-    return OrganizationsController.getCurrentOrganization(request)
+    return OrganizationsController.sessionData(request)
 
 
-@router.put("/me", auth=auth_bearer, response=ApiResponse)
-@permission_required("settings_update", "branches_update")
-def updateCurrentOrganization(request, payload: OrganizationSetupIn):
-    """Update the placeholder company and Main Branch profile shown after login.
+@router.get("/company", auth=auth_bearer, response=ApiResponse)
+@permission_required("settings_view")
+def getCompany(request):
+    """Return company profile data for the company settings page."""
+    return OrganizationsController.getCompany(request)
 
-    Example request body:
-    {
-      "company": {
-        "name": "Raj Retail Private Limited",
-        "legal_name": "Raj Retail Private Limited",
-        "email": "owner@rajretail.com",
-        "phone": "9999999999",
-        "gst_number": "24ABCDE1234F1Z5",
-        "address": "Ring Road, Surat, Gujarat",
-        "state_id": 11,
-        "logo": "https://example.com/logo.png"
-      },
-      "branch": {
-        "name": "Main Branch",
-        "phone": "9999999999",
-        "address": "Ground Floor, Ring Road",
-        "city": "Surat",
-        "state_id": 11,
-        "postal_code": "395002"
-      }
-    }
-    """
-    return OrganizationsController.updateCurrentOrganization(
+
+@router.put("/company", auth=auth_bearer, response=ApiResponse)
+@permission_required("settings_update")
+def updateCompany(request):
+    logo = None
+    try:
+        if request.content_type and request.content_type.startswith("multipart/form-data"):
+            raw_payload = request.POST.get("payload")
+            if not raw_payload:
+                raise ValueError("Missing payload.")
+            payload_data = json.loads(raw_payload)
+            logo = request.FILES.get("logo")
+        else:
+            payload_data = json.loads(request.body.decode("utf-8") or "{}")
+        payload = OrganizationSetupIn(**payload_data)
+    except Exception:
+        raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid organization payload.")
+
+    return OrganizationsController.updateCompany(
         request,
         payload.company,
         payload.branch,
+        logo,
     )
 
 
