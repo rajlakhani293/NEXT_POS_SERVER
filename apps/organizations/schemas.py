@@ -10,9 +10,10 @@ class CompanyUpdateIn(Schema):
     email: Optional[str] = Field("", description="Primary company email address.", example="owner@rajretail.com")
     phone: Optional[str] = Field("", description="Primary company phone number.", example="9999999999")
     gst_number: Optional[str] = Field("", description="GST or tax number.", example="24ABCDE1234F1Z5")
+    city_name: Optional[str] = Field("", description="Company city name.", example="Surat")
+    state_id: Optional[int] = Field(None, description="Company state master id.", example=11)
     address: Optional[str] = Field("", description="Company address.", example="Ring Road, Surat, Gujarat")
-    timezone: Optional[str] = Field("Asia/Kolkata", description="Preferred company timezone.", example="Asia/Kolkata")
-    currency: Optional[str] = Field("INR", description="Default business currency.", example="INR")
+    logo: Optional[str] = Field("", description="Company logo URL.", example="https://example.com/logo.png")
 
 
 class BranchUpdateIn(Schema):
@@ -20,8 +21,7 @@ class BranchUpdateIn(Schema):
     phone: Optional[str] = Field("", description="Branch contact phone.", example="9999999999")
     address: Optional[str] = Field("", description="Branch street address.", example="Ground Floor, Ring Road")
     city: Optional[str] = Field("", description="Branch city.", example="Surat")
-    state: Optional[str] = Field("", description="Branch state.", example="Gujarat")
-    country: Optional[str] = Field("India", description="Branch country.", example="India")
+    state_id: Optional[int] = Field(None, description="Branch state master id.", example=11)
     postal_code: Optional[str] = Field("", description="Branch postal code.", example="395002")
 
 
@@ -35,8 +35,7 @@ class BranchPatchIn(Schema):
     phone: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
-    state: Optional[str] = None
-    country: Optional[str] = None
+    state_id: Optional[int] = None
     postal_code: Optional[str] = None
     is_head_office: Optional[bool] = None
     status: Optional[int] = None
@@ -52,9 +51,10 @@ class OrganizationSetupIn(Schema):
             "email": "owner@rajretail.com",
             "phone": "9999999999",
             "gst_number": "24ABCDE1234F1Z5",
+            "city_name": "Surat",
+            "state_id": 11,
             "address": "Ring Road, Surat, Gujarat",
-            "timezone": "Asia/Kolkata",
-            "currency": "INR",
+            "logo": "https://example.com/logo.png",
         },
     )
     branch: BranchUpdateIn = Field(
@@ -65,8 +65,7 @@ class OrganizationSetupIn(Schema):
             "phone": "9999999999",
             "address": "Ground Floor, Ring Road",
             "city": "Surat",
-            "state": "Gujarat",
-            "country": "India",
+            "state_id": 11,
             "postal_code": "395002",
         },
     )

@@ -33,16 +33,15 @@ def updateCurrentOrganization(request, payload: OrganizationSetupIn):
         "phone": "9999999999",
         "gst_number": "24ABCDE1234F1Z5",
         "address": "Ring Road, Surat, Gujarat",
-        "timezone": "Asia/Kolkata",
-        "currency": "INR"
+        "state_id": 11,
+        "logo": "https://example.com/logo.png"
       },
       "branch": {
         "name": "Main Branch",
         "phone": "9999999999",
         "address": "Ground Floor, Ring Road",
         "city": "Surat",
-        "state": "Gujarat",
-        "country": "India",
+        "state_id": 11,
         "postal_code": "395002"
       }
     }
@@ -52,6 +51,12 @@ def updateCurrentOrganization(request, payload: OrganizationSetupIn):
         payload.company,
         payload.branch,
     )
+
+
+@router.get("/states/dropdown-list", auth=auth_bearer, response=ApiResponse)
+def stateDropdown(request):
+    data = OrganizationsService.stateDropdown()
+    return successResponse("State dropdown retrieved successfully.", data=data)
 
 
 @router.post("/branches/", auth=auth_bearer, response=ApiResponse)

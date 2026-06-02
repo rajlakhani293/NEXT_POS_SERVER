@@ -6,10 +6,19 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
 from apps.common.commonQuery import commonQuery
-from apps.organizations.models import Branch, Company
+from apps.organizations.models import Branch, Company, StateMaster
 
 
 class OrganizationsService:
+    @staticmethod
+    def ensureState(state_id):
+        if not state_id:
+            return None
+        state = StateMaster.objects.filter(id=state_id, status=0).first()
+        if state is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "State not found.")
+        return state
+
     @staticmethod
     def generateBranchCode(company_id, name, code=""):
         base_code = slugify(code or name) or "branch"
@@ -44,22 +53,25 @@ class OrganizationsService:
             )
 
         with transaction.atomic():
+            company_state = OrganizationsService.ensureState(company_payload.state_id)
+            branch_state = OrganizationsService.ensureState(branch_payload.state_id)
+
             company.name = company_payload.name
             company.legal_name = company_payload.legal_name or company_payload.name
             company.email = company_payload.email or ""
             company.phone = company_payload.phone or ""
             company.gst_number = company_payload.gst_number or ""
+            company.city_name = company_payload.city_name or ""
+            company.state = company_state
             company.address = company_payload.address or ""
-            company.timezone = company_payload.timezone or "Asia/Kolkata"
-            company.currency = company_payload.currency or "INR"
+            company.logo = company_payload.logo or ""
             company.save()
 
             branch.name = branch_payload.name
             branch.phone = branch_payload.phone or ""
             branch.address = branch_payload.address or ""
             branch.city = branch_payload.city or ""
-            branch.state = branch_payload.state or ""
-            branch.country = branch_payload.country or "India"
+            branch.state = branch_state
             branch.postal_code = branch_payload.postal_code or ""
             branch.save()
 
@@ -74,13 +86,21 @@ class OrganizationsService:
         }
 
     @staticmethod
+    def stateDropdown():
+        return list(
+            StateMaster.objects.filter(status=0)
+            .order_by("name")
+            .values("id", "name", "code")
+        )
+
+    @staticmethod
     def listBranches(data, request):
         field_config = [["name", True, True], ["code", True, True], ["phone", True, False]]
         result = commonQuery.fetchPaginatedData(
             Branch,
             data,
             field_config,
-            {"attributes": ["id", "name", "code", "phone", "city", "state", "country", "is_head_office", "status"]},
+            {"attributes": ["id", "name", "code", "phone", "city", "state_id", "state__name", "is_head_office", "status"]},
             request=request,
             tenant_config={"company_id": True},
         )
@@ -99,6 +119,7 @@ class OrganizationsService:
     @staticmethod
     def createBranch(user, data, request):
         with transaction.atomic():
+            OrganizationsService.ensureState(data.get("state_id"))
             code = OrganizationsService.generateBranchCode(user.company_id, data.get("name"), data.get("code"))
             return commonQuery.createRecord(
                 Branch,
@@ -135,6 +156,8 @@ class OrganizationsService:
                 if exists:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Branch code already exists.")
                 data["code"] = slugify(data["code"])
+            if data.get("state_id"):
+                OrganizationsService.ensureState(data.get("state_id"))
             updated = commonQuery.updateRecordById(
                 Branch,
                 branch_id,
