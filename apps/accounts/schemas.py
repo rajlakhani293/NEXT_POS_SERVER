@@ -56,6 +56,10 @@ class RoleAssignIn(Schema):
     role_id: int = Field(..., example=2)
 
 
+class BranchSwitchIn(Schema):
+    branch_id: int = Field(..., example=1)
+
+
 class UserIn(Schema):
     full_name: str = Field(..., example="Counter Staff")
     phone: str = Field("", example="9999999999")

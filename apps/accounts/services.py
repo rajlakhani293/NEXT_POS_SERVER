@@ -116,6 +116,22 @@ class AccountsService:
         }
 
     @staticmethod
+    def buildSessionData(user: User):
+        company = Company.objects.filter(id=user.company_id, status__in=[0, 1]).first()
+        branch = Branch.objects.filter(id=user.branch_id, company_id=user.company_id, status__in=[0, 1]).first()
+        branch_list = list(
+            Branch.objects.filter(company_id=user.company_id, status=0)
+            .order_by("name")
+            .values("id", "name", "code", "city", "phone", "is_head_office")
+        )
+        return {
+            "user": AccountsService.serializeUser(user),
+            "company": serializeModelInstance(company),
+            "branch": serializeModelInstance(branch),
+            "branch_list": branch_list,
+        }
+
+    @staticmethod
     def getDefaultRoleBlueprint():
         return {
             "permissions": AccountsService.buildPermissionDefinitions(),
@@ -435,7 +451,33 @@ class AccountsService:
 
     @staticmethod
     def currentUser(user: User):
-        return AccountsService.serializeUser(user)
+        return AccountsService.buildSessionData(user)
+
+    @staticmethod
+    def switchBranch(user: User, branch_id: int, request, token_value: str = ""):
+        branch = Branch.objects.filter(
+            id=branch_id,
+            company_id=user.company_id,
+            status=0,
+        ).first()
+        if branch is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
+
+        user.branch = branch
+        user.save(update_fields=["branch"])
+
+        if token_value:
+            AccessToken.objects.filter(token=token_value).update(
+                status=1,
+                deleted_at=timezone.now(),
+            )
+
+        token_data = AccountsService.issueAccessToken(user, "Branch Switch", request)
+        return {
+            "token": token_data["token"],
+            "expires_at": token_data["expires_at"],
+            "session": AccountsService.buildSessionData(user),
+        }
 
     @staticmethod
     def logout(token_value: str):

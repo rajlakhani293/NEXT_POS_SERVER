@@ -2,7 +2,7 @@ from typing import Optional
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
-from apps.accounts.schemas import GoogleLoginIn, IdentityAuthIn, RoleAssignIn, RoleIn, RoleUpdateIn, SendOtpIn, UserIn, UserUpdateIn, VerifyOtpIn
+from apps.accounts.schemas import BranchSwitchIn, GoogleLoginIn, IdentityAuthIn, RoleAssignIn, RoleIn, RoleUpdateIn, SendOtpIn, UserIn, UserUpdateIn, VerifyOtpIn
 from apps.accounts.services import AccountsService
 from apps.catalog.schemas import DeleteSchema, StatusUpdateSchema
 from apps.common.authz import permission_required
@@ -77,6 +77,14 @@ def logout(request):
     token_value = request.auth.get("token")
     AccountsService.logout(token_value)
     return successResponse("Logged out successfully.")
+
+
+@router.post("/switch-branch", auth=auth_bearer, response=ApiResponse)
+def switchBranch(request, payload: BranchSwitchIn):
+    """Switch the active branch and issue a fresh token for the new branch context."""
+    token_value = request.auth.get("token")
+    data = AccountsService.switchBranch(request.user, payload.branch_id, request, token_value)
+    return successResponse("Branch switched successfully.", data=data)
 
 
 @router.delete("/workspace", auth=auth_bearer, response=ApiResponse)
