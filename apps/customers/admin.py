@@ -29,11 +29,11 @@ class CustomerAdmin(TenantModelAdmin):
         "status",
     )
     search_fields = (
-        "first_name",
-        "last_name",
+        "name",
         "phone",
         "email",
         "company_name",
+        "gst_number",
         "code",
     )
     list_filter = ("company", "branch", "group", "customer_type", "status")

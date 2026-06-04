@@ -1,5 +1,5 @@
+# type: ignore
 from django.db import models
-
 from apps.common.models import TenantAwareModel
 
 
@@ -39,15 +39,15 @@ class Customer(TenantAwareModel):
         related_name="customers",
     )
     customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPES, default="retail")
-    first_name = models.CharField(max_length=120)
-    last_name = models.CharField(max_length=120, blank=True)
+    name = models.CharField(max_length=255)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
     code = models.CharField(max_length=50, blank=True)
     gender = models.CharField(max_length=20, blank=True)
     birth_date = models.DateField(blank=True, null=True)
-    tax_number = models.CharField(max_length=50, blank=True)
+    gst_number = models.CharField(max_length=50, blank=True)
     company_name = models.CharField(max_length=255, blank=True)
+    opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     credit_limit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     owed_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -55,17 +55,16 @@ class Customer(TenantAwareModel):
     total_sales_count = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ["first_name", "last_name", "id"]
+        ordering = ["name", "id"]
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name}".strip()
+        return self.name
 
 
 class CustomerAddress(TenantAwareModel):
     ADDRESS_TYPES = [
         ("billing", "Billing"),
         ("shipping", "Shipping"),
-        ("other", "Other"),
     ]
 
     customer = models.ForeignKey(
@@ -74,17 +73,16 @@ class CustomerAddress(TenantAwareModel):
         related_name="addresses",
     )
     address_type = models.CharField(max_length=20, choices=ADDRESS_TYPES)
-    first_name = models.CharField(max_length=120, blank=True)
-    last_name = models.CharField(max_length=120, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
-    company = models.CharField(max_length=255, blank=True)
-    address_1 = models.CharField(max_length=255, blank=True)
-    address_2 = models.CharField(max_length=255, blank=True)
+    address_line_1 = models.CharField(max_length=255, blank=True)
+    pincode = models.CharField(max_length=20, blank=True)
     city = models.CharField(max_length=120, blank=True)
-    state = models.CharField(max_length=120, blank=True)
-    country = models.CharField(max_length=120, blank=True)
-    postal_code = models.CharField(max_length=20, blank=True)
+    state = models.ForeignKey(
+        "organizations.StateMaster",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="customer_addresses",
+    )
 
     class Meta:
         ordering = ["customer_id", "address_type"]

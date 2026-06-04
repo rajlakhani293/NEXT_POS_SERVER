@@ -1,5 +1,5 @@
+# type: ignore
 from django.db import models
-
 from apps.common.models import TenantAwareModel
 
 
@@ -13,7 +13,7 @@ class RewardSystem(TenantAwareModel):
         blank=True,
         related_name="reward_systems",
     )
-    target_points = models.PositiveIntegerField(default=0)
+    target = models.PositiveIntegerField(default=0)
     description = models.TextField(blank=True)
 
     class Meta:
@@ -23,12 +23,12 @@ class RewardSystem(TenantAwareModel):
 
 class RewardRule(TenantAwareModel):
     reward_system = models.ForeignKey(RewardSystem, on_delete=models.CASCADE, related_name="rules")
-    min_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    max_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    points = models.PositiveIntegerField(default=0)
+    from_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    to_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    reward = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ["min_amount"]
+        ordering = ["from_amount"]
 
 
 class CustomerRewardBalance(TenantAwareModel):
