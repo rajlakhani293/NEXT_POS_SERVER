@@ -5,19 +5,15 @@ from apps.common.models import TenantAwareModel
 
 class RewardSystem(TenantAwareModel):
     name = models.CharField(max_length=150)
-    code = models.SlugField(max_length=150)
     coupon = models.ForeignKey(
         "promotions.Coupon",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.PROTECT,
         related_name="reward_systems",
     )
     target = models.PositiveIntegerField(default=0)
     description = models.TextField(blank=True)
 
     class Meta:
-        unique_together = [("branch", "code")]
         ordering = ["name"]
 
 

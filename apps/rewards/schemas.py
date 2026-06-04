@@ -21,8 +21,7 @@ class RewardRuleIn(Schema):
 
 class RewardSystemIn(Schema):
     name: str
-    code: Optional[str] = None
-    coupon_id: Optional[int] = None
+    coupon_id: int
     target: int = 0
     description: str = ""
     from_amount: Decimal = Decimal("0")
@@ -33,7 +32,6 @@ class RewardSystemIn(Schema):
 
 class RewardSystemUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
     coupon_id: Optional[int] = None
     target: Optional[int] = None
     description: Optional[str] = None

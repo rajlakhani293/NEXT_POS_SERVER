@@ -5,7 +5,6 @@ from django.db.models import F
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.customers.models import Customer
 from apps.rewards.models import (
@@ -128,7 +127,6 @@ class RewardSystemService:
     def create(data, request):
         with transaction.atomic():
             rules = normalizeRules(data)
-            data["code"] = buildCode(RewardSystem, data.get("name"), data.get("code"), request)
             system = commonQuery.createRecord(
                 RewardSystem,
                 data,
@@ -143,9 +141,9 @@ class RewardSystemService:
 
     @staticmethod
     def getAll(data, request):
-        fieldConfig = [["name", True, True], ["code", True, True]]
+        fieldConfig = [["name", True, True]]
         options = {
-            "attributes": ["id", "name", "code", "coupon_id", "target", "description", "status"],
+            "attributes": ["id", "name", "coupon_id", "target", "description", "status"],
         }
         result = commonQuery.fetchPaginatedData(
             RewardSystem,
@@ -180,18 +178,9 @@ class RewardSystemService:
     @staticmethod
     def update(data, request, reward_system_id):
         with transaction.atomic():
-            reward_system = ensureRewardSystem(reward_system_id, request)
             has_rule_update = "rules" in data or any(key in data for key in ["from_amount", "to_amount", "reward"])
             rules = normalizeRules(data) if has_rule_update else []
-
-            if "code" in data:
-                data["code"] = buildCode(
-                    RewardSystem,
-                    data.get("name") or reward_system.get("name"),
-                    data.get("code"),
-                    request,
-                    exclude_id=reward_system_id,
-                )
+            ensureRewardSystem(reward_system_id, request)
 
             updated = commonQuery.updateRecordById(
                 RewardSystem,
