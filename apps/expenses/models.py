@@ -1,6 +1,7 @@
+# type: ignore
 from django.db import models
-
 from apps.common.models import TenantAwareModel
+from apps.payments.models import PAYMENT_TYPES
 
 
 class ExpenseCategory(TenantAwareModel):
@@ -18,12 +19,6 @@ class ExpenseEntry(TenantAwareModel):
     shift = models.ForeignKey("registers.CashierShift", on_delete=models.SET_NULL, null=True, blank=True, related_name="expenses")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     expense_date = models.DateField()
-    payment_method = models.ForeignKey(
-        "payments.PaymentMethod",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="expenses",
-    )
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, blank=True, default="")
     note = models.TextField(blank=True)
     reference_number = models.CharField(max_length=120, blank=True)

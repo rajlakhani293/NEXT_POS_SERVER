@@ -1,6 +1,7 @@
+# type: ignore
 from django.db import models
-
 from apps.common.models import TenantAwareModel
+from apps.payments.models import PAYMENT_TYPES
 
 
 class Supplier(TenantAwareModel):
@@ -57,7 +58,7 @@ class PurchaseItem(TenantAwareModel):
 
 class PurchasePayment(TenantAwareModel):
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="payments")
-    payment_method = models.ForeignKey("payments.PaymentMethod", on_delete=models.PROTECT, related_name="purchase_payments")
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, default="cash")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     paid_at = models.DateTimeField()
     reference_number = models.CharField(max_length=120, blank=True)

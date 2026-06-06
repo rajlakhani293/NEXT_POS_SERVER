@@ -1,18 +1,27 @@
 # type: ignore
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models import F
+from django.utils.text import slugify
 
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
+from apps.common.helpers import buildUniqueValue
 from apps.common.responses import successResponse
-from apps.customers.models import Customer
+from apps.customers.models import Customer, CustomerGroup
+from apps.promotions.models import Coupon, CustomerCoupon
 from apps.rewards.models import (
     CustomerRewardBalance,
     RewardRedemption,
     RewardRule,
     RewardSystem,
 )
+
+
+def money(value):
+    return Decimal(str(value or 0))
 
 
 def getRewardRules(system_id, request):
@@ -39,13 +48,13 @@ def attachRewardRule(system, request):
 
 
 def normalizeRules(data):
-    if "rules" in data:
-        return data.pop("rules") or []
     legacy_rule = {
         "from_amount": data.pop("from_amount", 0) or 0,
         "to_amount": data.pop("to_amount", 0) or 0,
         "reward": data.pop("reward", 0) or 0,
     }
+    if "rules" in data:
+        return data.pop("rules") or []
     return [legacy_rule] if legacy_rule["reward"] else []
 
 
@@ -97,6 +106,34 @@ def ensureRewardSystem(reward_system_id, request):
     return reward_system
 
 
+def getCustomerRewardSystem(customer, request):
+    group_id = customer.get("group_id")
+    if not group_id:
+        return None
+
+    group = commonQuery.findOneRecord(
+        CustomerGroup,
+        group_id,
+        request=request,
+        tenant_config=True,
+    )
+    if not group or not group.get("reward_system_id"):
+        return None
+
+    return ensureRewardSystem(group["reward_system_id"], request)
+
+
+def findMatchingRule(reward_system_id, cart_total, request):
+    amount = money(cart_total)
+    rules = getRewardRules(reward_system_id, request)
+    for rule in rules:
+        from_amount = money(rule.get("from_amount"))
+        to_amount = money(rule.get("to_amount"))
+        if amount >= from_amount and (to_amount <= 0 or amount <= to_amount):
+            return rule
+    return None
+
+
 def getOrCreateBalance(customer_id, reward_system_id, request):
     balance = commonQuery.findOneRecord(
         CustomerRewardBalance,
@@ -120,6 +157,81 @@ def getOrCreateBalance(customer_id, reward_system_id, request):
         request=request,
         tenant_config=True,
     )
+
+
+def buildCustomerCouponCode(coupon, customer_id, request):
+    base = slugify(f"{coupon.get('code') or 'reward'}-{customer_id}").upper()
+    return buildUniqueValue(CustomerCoupon, request, "code", base)
+
+
+def issueEligibleRewardCoupons(customer_id, reward_system, balance, request, note=""):
+    target = int(reward_system.get("target") or 0)
+    current_points = int(balance.get("points") or 0)
+    issued_coupons = []
+
+    if target <= 0 or current_points < target:
+        return {
+            "balance": balance,
+            "issued_coupons": issued_coupons,
+            "redeemed_points": 0,
+        }
+
+    coupon = commonQuery.findOneRecord(
+        Coupon,
+        reward_system.get("coupon_id"),
+        request=request,
+        tenant_config=True,
+    )
+    if coupon is None:
+        return {
+            "balance": balance,
+            "issued_coupons": issued_coupons,
+            "redeemed_points": 0,
+        }
+
+    redeemed_points = 0
+    while current_points >= target:
+        customer_coupon = commonQuery.createRecord(
+            CustomerCoupon,
+            {
+                "coupon_id": coupon["id"],
+                "customer_id": customer_id,
+                "code": buildCustomerCouponCode(coupon, customer_id, request),
+                "expires_at": coupon.get("valid_until"),
+            },
+            request=request,
+            tenant_config=True,
+        )
+        commonQuery.createRecord(
+            RewardRedemption,
+            {
+                "customer_id": customer_id,
+                "reward_system_id": reward_system["id"],
+                "customer_coupon_id": customer_coupon["id"],
+                "points_redeemed": target,
+                "note": note or "Reward coupon issued automatically.",
+            },
+            request=request,
+            tenant_config=True,
+        )
+        CustomerRewardBalance.objects.filter(id=balance["id"]).update(
+            points=F("points") - target,
+        )
+        current_points -= target
+        redeemed_points += target
+        issued_coupons.append(customer_coupon)
+
+    updated_balance = commonQuery.findOneRecord(
+        CustomerRewardBalance,
+        balance["id"],
+        request=request,
+        tenant_config=True,
+    )
+    return {
+        "balance": updated_balance,
+        "issued_coupons": issued_coupons,
+        "redeemed_points": redeemed_points,
+    }
 
 
 class RewardSystemService:
@@ -254,19 +366,106 @@ class CustomerRewardService:
         if points <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Points must be greater than 0.")
         ensureCustomer(data.get("customer_id"), request)
-        ensureRewardSystem(data.get("reward_system_id"), request)
-        balance = getOrCreateBalance(data["customer_id"], data["reward_system_id"], request)
-        CustomerRewardBalance.objects.filter(id=balance["id"]).update(
-            points=F("points") + points,
-            lifetime_points=F("lifetime_points") + points,
-        )
-        updated = commonQuery.findOneRecord(
-            CustomerRewardBalance,
-            balance["id"],
-            request=request,
-            tenant_config=True,
-        )
-        return successResponse("Reward points added successfully.", data=updated)
+        reward_system = ensureRewardSystem(data.get("reward_system_id"), request)
+        with transaction.atomic():
+            balance = getOrCreateBalance(data["customer_id"], data["reward_system_id"], request)
+            CustomerRewardBalance.objects.filter(id=balance["id"]).update(
+                points=F("points") + points,
+                lifetime_points=F("lifetime_points") + points,
+            )
+            updated = commonQuery.findOneRecord(
+                CustomerRewardBalance,
+                balance["id"],
+                request=request,
+                tenant_config=True,
+            )
+            issued = issueEligibleRewardCoupons(
+                data["customer_id"],
+                reward_system,
+                updated,
+                request,
+                data.get("note") or "Reward points adjusted manually.",
+            )
+            return successResponse(
+                "Reward points added successfully.",
+                data={
+                    "earned_points": points,
+                    "balance": issued["balance"],
+                    "issued_coupons": issued["issued_coupons"],
+                    "redeemed_points": issued["redeemed_points"],
+                },
+            )
+
+    @staticmethod
+    def processSaleReward(data, request):
+        customer = ensureCustomer(data.get("customer_id"), request)
+        cart_total = money(data.get("cart_total"))
+        if cart_total <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Cart total must be greater than 0.")
+
+        reward_system = getCustomerRewardSystem(customer, request)
+        if not reward_system:
+            return {
+                "earned_points": 0,
+                "issued_coupons": [],
+                "balance": None,
+                "matched_rule": None,
+                "reward_system": None,
+                "sale_order_id": data.get("sale_order_id"),
+                "message": "No reward system configured for this customer.",
+            }
+
+        rule = findMatchingRule(reward_system["id"], cart_total, request)
+        if not rule:
+            balance = getOrCreateBalance(customer["id"], reward_system["id"], request)
+            return {
+                "earned_points": 0,
+                "issued_coupons": [],
+                "balance": balance,
+                "matched_rule": None,
+                "reward_system": reward_system,
+                "sale_order_id": data.get("sale_order_id"),
+                "message": "No reward rule matched this cart value.",
+            }
+
+        earned_points = int(rule.get("reward") or 0)
+        with transaction.atomic():
+            balance = getOrCreateBalance(customer["id"], reward_system["id"], request)
+            CustomerRewardBalance.objects.filter(id=balance["id"]).update(
+                points=F("points") + earned_points,
+                lifetime_points=F("lifetime_points") + earned_points,
+            )
+            updated = commonQuery.findOneRecord(
+                CustomerRewardBalance,
+                balance["id"],
+                request=request,
+                tenant_config=True,
+            )
+            issued = issueEligibleRewardCoupons(
+                customer["id"],
+                reward_system,
+                updated,
+                request,
+                data.get("note") or f"Reward earned from sale #{data.get('sale_order_id') or ''}".strip(),
+            )
+
+        return {
+            "customer_id": customer["id"],
+            "cart_total": cart_total,
+            "earned_points": earned_points,
+            "matched_rule": rule,
+            "reward_system": reward_system,
+            "balance": issued["balance"],
+            "issued_coupons": issued["issued_coupons"],
+            "redeemed_points": issued["redeemed_points"],
+            "sale_order_id": data.get("sale_order_id"),
+            "message": "Reward points processed successfully.",
+        }
+
+    @staticmethod
+    def earnFromSale(data, request):
+        result = CustomerRewardService.processSaleReward(data, request)
+        return successResponse(result.get("message") or "Reward points processed successfully.", data=result)
 
     @staticmethod
     def redeem(data, request):

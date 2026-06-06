@@ -1,3 +1,4 @@
+# type: ignore
 from django.apps import AppConfig
 
 

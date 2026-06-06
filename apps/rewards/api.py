@@ -9,6 +9,7 @@ from apps.rewards.schemas import (
     DeleteSchema,
     RewardBalanceAdjustIn,
     RewardRedeemIn,
+    RewardSaleEarnIn,
     RewardSystemIn,
     RewardSystemUpdateIn,
     StatusUpdateSchema,
@@ -71,6 +72,12 @@ def getCustomerRewardBalance(request, customer_id: int):
 @permission_required("rewards_update")
 def earnCustomerReward(request, payload: RewardBalanceAdjustIn):
     return CustomerRewardService.earn(payload.dict(), request)
+
+
+@router.post("/customers/earn-from-sale", response=ApiResponse)
+@permission_required("rewards_update")
+def earnCustomerRewardFromSale(request, payload: RewardSaleEarnIn):
+    return CustomerRewardService.earnFromSale(payload.dict(), request)
 
 
 @router.post("/customers/redeem", response=ApiResponse)

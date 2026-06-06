@@ -49,6 +49,13 @@ class RewardBalanceAdjustIn(Schema):
     note: str = ""
 
 
+class RewardSaleEarnIn(Schema):
+    customer_id: int
+    cart_total: Decimal
+    sale_order_id: Optional[int] = None
+    note: str = ""
+
+
 class RewardRedeemIn(Schema):
     customer_id: int
     reward_system_id: int

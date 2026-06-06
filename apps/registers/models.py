@@ -1,6 +1,7 @@
+# type: ignore
 from django.db import models
-
 from apps.common.models import TenantAwareModel
+from apps.payments.models import PAYMENT_TYPES
 
 
 class CashRegister(TenantAwareModel):
@@ -49,13 +50,7 @@ class CashRegisterEntry(TenantAwareModel):
     shift = models.ForeignKey(CashierShift, on_delete=models.CASCADE, related_name="entries")
     register = models.ForeignKey(CashRegister, on_delete=models.CASCADE, related_name="entries")
     cashier = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="register_entries")
-    payment_method = models.ForeignKey(
-        "payments.PaymentMethod",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="register_entries",
-    )
+    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, blank=True, default="")
     entry_type = models.CharField(max_length=20, choices=ENTRY_TYPES)
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     balance_before = models.DecimalField(max_digits=12, decimal_places=2, default=0)

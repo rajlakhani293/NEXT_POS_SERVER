@@ -35,7 +35,6 @@ class SmartModelAdmin(admin.ModelAdmin):
             "customer_type",
             "entry_type",
             "payment_type",
-            "payment_method",
             "register",
             "cashier",
         ]:
