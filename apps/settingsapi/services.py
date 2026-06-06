@@ -1,3 +1,4 @@
+# type: ignore
 from apps.common.responses import successResponse
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -49,6 +50,14 @@ class BusinessSettingService:
 
     @staticmethod
     def get(user):
+        data = BusinessSettingService.buildSessionSettings(user)
+        return successResponse(
+            "Business settings retrieved successfully.",
+            data=data,
+        )
+
+    @staticmethod
+    def buildSessionSettings(user):
         settings = BusinessSettingService.ensureSettings(user)
         setting_data = {field: getattr(settings, field) for field in BUSINESS_SETTING_FIELDS}
         if not setting_data["order_types"]:
@@ -57,13 +66,10 @@ class BusinessSettingService:
             {"value": option["value"], "label": option["label"], "enabled": option["value"] in setting_data["order_types"]}
             for option in ORDER_TYPE_OPTIONS
         ]
-        return successResponse(
-            "Business settings retrieved successfully.",
-            data={
-                "settings": setting_data,
-                "order_types": order_types,
-            },
-        )
+        return {
+            "settings": setting_data,
+            "order_types": order_types,
+        }
 
     @staticmethod
     def update(user, data):

@@ -21,6 +21,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
 from apps.organizations.models import Branch, Company
+from apps.settingsapi.services import BusinessSettingService
 
 
 class AccountsService:
@@ -129,6 +130,7 @@ class AccountsService:
             "company": serializeModelInstance(company),
             "branch": serializeModelInstance(branch),
             "branch_list": branch_list,
+            "business_settings": BusinessSettingService.buildSessionSettings(user),
         }
 
     @staticmethod
