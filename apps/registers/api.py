@@ -3,7 +3,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
-from apps.registers.schemas import CloseShiftIn, OpenShiftIn
+from apps.registers.schemas import CashMovementIn, CloseShiftIn, OpenShiftIn
 from apps.registers.services import CashierShiftService, RegisterService
 
 
@@ -47,3 +47,15 @@ def closeShift(request, payload: CloseShiftIn):
 @permission_required("cash_register_view")
 def getAllShifts(request, payload: dict = None):
     return CashierShiftService.getAll(payload, request)
+
+
+@router.post("/shifts/cash-in", response=ApiResponse)
+@permission_required("cash_register_cash_in")
+def cashIn(request, payload: CashMovementIn):
+    return CashierShiftService.cashMovement(payload.dict(), request, "cash_in")
+
+
+@router.post("/shifts/cash-out", response=ApiResponse)
+@permission_required("cash_register_cash_out")
+def cashOut(request, payload: CashMovementIn):
+    return CashierShiftService.cashMovement(payload.dict(), request, "cash_out")

@@ -220,3 +220,50 @@ class CashierShiftService:
             hydrated = hydrateShift(item)
             item.update(hydrated or {})
         return successResponse("Shifts retrieved successfully.", data=result)
+
+    @staticmethod
+    def cashMovement(data, request, movement_type):
+        if movement_type not in ["cash_in", "cash_out"]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid cash movement.")
+        amount = Decimal(str(data.get("amount") or 0))
+        if amount <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
+
+        with transaction.atomic():
+            where = {"id": data.get("shift_id")} if data.get("shift_id") else {"cashier_id": request.user.id, "shift_status": "open"}
+            shift = commonQuery.findOneRecord(CashierShift, where, request=request, tenant_config=True)
+            if shift is None or shift.get("shift_status") != "open":
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Open shift not found.")
+
+            balance_before = Decimal(str(shift.get("expected_cash") or 0))
+            balance_after = balance_before + amount if movement_type == "cash_in" else balance_before - amount
+            shift_updates = {"expected_cash": balance_after}
+            if movement_type == "cash_in":
+                shift_updates["total_cash_in"] = Decimal(str(shift.get("total_cash_in") or 0)) + amount
+            else:
+                shift_updates["total_cash_out"] = Decimal(str(shift.get("total_cash_out") or 0)) + amount
+
+            updated = commonQuery.updateRecordById(
+                CashierShift,
+                shift["id"],
+                shift_updates,
+                request=request,
+                tenant_config=True,
+            )
+            entry = commonQuery.createRecord(
+                CashRegisterEntry,
+                {
+                    "shift_id": shift["id"],
+                    "register_id": shift["register_id"],
+                    "cashier_id": request.user.id,
+                    "entry_type": movement_type,
+                    "amount": amount,
+                    "balance_before": balance_before,
+                    "balance_after": balance_after,
+                    "note": data.get("note") or movement_type.replace("_", " ").title(),
+                },
+                request=request,
+                tenant_config=True,
+            )
+            updated["entry"] = entry
+            return successResponse(f"{movement_type.replace('_', ' ').title()} recorded successfully.", data=hydrateShift(updated))

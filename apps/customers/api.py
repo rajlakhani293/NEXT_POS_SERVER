@@ -6,6 +6,7 @@ from apps.common.responses import ApiResponse
 from apps.customers.schemas import (
     CustomerGroupIn,
     CustomerGroupUpdateIn,
+    CustomerCreditIn,
     CustomerIn,
     CustomerUpdateIn,
     DeleteSchema,
@@ -99,3 +100,15 @@ def getCustomerById(request, customer_id: int):
 @permission_required("customers_update")
 def updateCustomer(request, customer_id: int, payload: CustomerUpdateIn):
     return CustomerService.update(payload.dict(exclude_none=True), request, customer_id)
+
+
+@router.post("/{customer_id}/credit-adjustment", response=ApiResponse)
+@permission_required("customers_update")
+def adjustCustomerCredit(request, customer_id: int, payload: CustomerCreditIn):
+    return CustomerService.adjustCredit(customer_id, payload.dict(), request)
+
+
+@router.post("/{customer_id}/credit-ledger", response=ApiResponse)
+@permission_required("customers_view")
+def getCustomerCreditLedger(request, customer_id: int, payload: Optional[dict] = None):
+    return CustomerService.creditLedger(customer_id, payload, request)

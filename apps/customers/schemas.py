@@ -75,3 +75,10 @@ class CustomerUpdateIn(Schema):
     shipping_city: Optional[str] = None
     shipping_state_id: Optional[int] = None
     status: Optional[int] = None
+
+
+class CustomerCreditIn(Schema):
+    amount: Decimal
+    direction: str = "increase"
+    reason: str = "adjustment"
+    note: str = ""

@@ -23,3 +23,9 @@ class CloseShiftIn(Schema):
     shift_id: Optional[int] = None
     declared_cash: Decimal = Decimal("0")
     note: str = ""
+
+
+class CashMovementIn(Schema):
+    shift_id: Optional[int] = None
+    amount: Decimal
+    note: str = ""

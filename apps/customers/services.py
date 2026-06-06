@@ -6,7 +6,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
-from apps.customers.models import Customer, CustomerAddress, CustomerGroup
+from apps.customers.models import Customer, CustomerAddress, CustomerCreditLedger, CustomerGroup
 from apps.organizations.models import StateMaster
 from apps.rewards.models import RewardSystem
 
@@ -298,6 +298,77 @@ class CustomerService:
             "Customer status updated successfully.",
             data={"updated_count": count, "status": status},
         )
+
+    @staticmethod
+    def adjustCredit(customer_id, data, request):
+        from decimal import Decimal
+
+        amount = Decimal(str(data.get("amount") or 0))
+        direction = data.get("direction")
+        if direction not in ["increase", "decrease"]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Direction must be increase or decrease.")
+        if amount <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
+
+        with transaction.atomic():
+            customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+            if customer is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+            current_balance = Decimal(str(customer.get("owed_amount") or 0))
+            balance_after = current_balance + amount if direction == "increase" else current_balance - amount
+            updated = commonQuery.updateRecordById(
+                Customer,
+                customer_id,
+                {"owed_amount": balance_after},
+                request=request,
+                tenant_config=True,
+            )
+            ledger = commonQuery.createRecord(
+                CustomerCreditLedger,
+                {
+                    "customer_id": customer_id,
+                    "amount": amount,
+                    "direction": direction,
+                    "balance_after": balance_after,
+                    "reason": data.get("reason") or "adjustment",
+                    "reference_type": "manual_adjustment",
+                    "note": data.get("note") or "",
+                },
+                request=request,
+                tenant_config=True,
+            )
+            updated["credit_ledger"] = ledger
+            return successResponse("Customer credit updated successfully.", data=updated)
+
+    @staticmethod
+    def creditLedger(customer_id, data, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        result = commonQuery.fetchPaginatedData(
+            CustomerCreditLedger,
+            data,
+            [["direction", True, True], ["reason", True, True], ["note", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "customer_id",
+                    "amount",
+                    "direction",
+                    "balance_after",
+                    "reason",
+                    "reference_type",
+                    "reference_id",
+                    "note",
+                    "created_at",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+            custom_where={"customer_id": customer_id},
+        )
+        return successResponse("Customer credit ledger retrieved successfully.", data=result)
 
 
 class CustomerGroupService:
