@@ -35,3 +35,33 @@ class SaleCreateIn(Schema):
     coupon_codes: List[str] = []
     items: List[SaleItemIn]
     payments: List[SalePaymentIn] = []
+
+
+class SaleListIn(Schema):
+    page: int = 1
+    limit: int = 10
+    search: Optional[str] = None
+    status: Optional[int] = None
+    startDate: Optional[str] = None
+    endDate: Optional[str] = None
+    sortBy: Optional[str] = None
+    sortDirection: Optional[str] = None
+    filter: Optional[dict] = None
+
+
+class SaleReturnItemIn(Schema):
+    sale_item_id: int
+    quantity: Decimal
+    unit_price: Optional[Decimal] = None
+    condition: str = "good"
+    note: str = ""
+
+
+class SaleReturnCreateIn(Schema):
+    return_type: str = "refund"
+    payment_type: Optional[str] = None
+    shift_id: Optional[int] = None
+    exchange_sale_id: Optional[int] = None
+    reference_number: str = ""
+    note: str = ""
+    items: List[SaleReturnItemIn]
