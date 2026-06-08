@@ -32,5 +32,6 @@ class SaleCreateIn(Schema):
     tax_amount: Decimal = Decimal("0")
     tendered_amount: Decimal = Decimal("0")
     note: str = ""
+    coupon_codes: List[str] = []
     items: List[SaleItemIn]
     payments: List[SalePaymentIn] = []
