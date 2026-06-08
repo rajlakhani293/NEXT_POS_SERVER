@@ -13,7 +13,7 @@ from apps.payments.models import DEFAULT_PAYMENT_TYPES, LEGACY_PAYMENT_TYPE_ALIA
 class PaymentTypeService:
     @staticmethod
     def normalizeIdentifier(identifier: str, label: str):
-        return slugify(identifier or label).replace("-", "_")
+        return slugify(identifier or label)
 
     @staticmethod
     def ensureDefaultPaymentTypes(company, branch):
