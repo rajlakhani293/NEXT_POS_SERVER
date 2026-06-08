@@ -14,7 +14,7 @@ from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.inventory.models import StockLedger
 from apps.notifications.services import NotificationService
-from apps.payments.models import normalizePaymentType, paymentTypeValues
+from apps.payments.services import PaymentTypeService
 from apps.purchases.models import PurchaseItem, PurchaseOrder, PurchasePayment, Supplier
 
 
@@ -264,9 +264,7 @@ class PurchaseOrderService:
         amount = money(data.get("amount"))
         if amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment amount must be greater than 0.")
-        data["payment_type"] = normalizePaymentType(data.get("payment_type"))
-        if data.get("payment_type") not in paymentTypeValues():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
+        data["payment_type"] = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
         with transaction.atomic():
             order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
             if order is None:

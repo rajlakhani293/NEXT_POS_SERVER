@@ -13,7 +13,8 @@ from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCreditLedger
 from apps.inventory.models import StockLedger
-from apps.payments.models import SalePayment, normalizePaymentType, paymentTypeValues
+from apps.payments.models import SalePayment
+from apps.payments.services import PaymentTypeService
 from apps.registers.models import CashierShift, CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import SaleItem, SaleOrder
@@ -110,9 +111,10 @@ class SalePaymentService:
             if amount <= 0:
                 continue
 
-            payment_type = normalizePaymentType(payment.get("payment_type"))
-            if payment_type not in paymentTypeValues():
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
+            payment_type = PaymentTypeService.resolvePaymentType(
+                payment.get("payment_type"),
+                request,
+            )
 
             sale_payment = commonQuery.createRecord(
                 SalePayment,

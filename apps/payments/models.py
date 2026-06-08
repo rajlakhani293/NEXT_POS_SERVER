@@ -69,7 +69,7 @@ class PaymentType(TenantAwareModel):
 
 class SalePayment(TenantAwareModel):
     sale_order = models.ForeignKey("sales.SaleOrder", on_delete=models.CASCADE, related_name="payments")
-    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, default="cash-payment")
+    payment_type = models.CharField(max_length=80, default="cash-payment")
     shift = models.ForeignKey("registers.CashierShift", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_payments")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     paid_at = models.DateTimeField()
@@ -79,7 +79,7 @@ class SalePayment(TenantAwareModel):
 
 class RefundPayment(TenantAwareModel):
     return_order = models.ForeignKey("sales.ReturnOrder", on_delete=models.CASCADE, related_name="refund_payments")
-    payment_type = models.CharField(max_length=20, choices=PAYMENT_TYPES, default="cash-payment")
+    payment_type = models.CharField(max_length=80, default="cash-payment")
     shift = models.ForeignKey("registers.CashierShift", on_delete=models.SET_NULL, null=True, blank=True, related_name="refund_payments")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     refunded_at = models.DateTimeField()

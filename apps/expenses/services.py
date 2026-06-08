@@ -12,7 +12,7 @@ from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.expenses.models import ExpenseCategory, ExpenseEntry
 from apps.notifications.services import NotificationService
-from apps.payments.models import normalizePaymentType, paymentTypeValues
+from apps.payments.services import PaymentTypeService
 from apps.registers.models import CashierShift, CashRegisterEntry
 
 
@@ -99,9 +99,10 @@ class ExpenseEntryService:
         if money(data.get("amount")) <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
         if data.get("payment_type"):
-            data["payment_type"] = normalizePaymentType(data.get("payment_type"))
-        if data.get("payment_type") and data.get("payment_type") not in paymentTypeValues():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
+            data["payment_type"] = PaymentTypeService.resolvePaymentType(
+                data.get("payment_type"),
+                request,
+            )
         if data.get("shift_id"):
             shift = commonQuery.findOneRecord(CashierShift, data["shift_id"], request=request, tenant_config=True)
             if shift is None:

@@ -51,6 +51,28 @@ class PaymentTypeService:
         return seeded
 
     @staticmethod
+    def resolvePaymentType(identifier, request, required=True):
+        normalized = PaymentTypeService.normalizeIdentifier(
+            LEGACY_PAYMENT_TYPE_ALIASES.get(identifier, identifier) or "",
+            LEGACY_PAYMENT_TYPE_ALIASES.get(identifier, identifier) or "",
+        )
+        if not normalized:
+            if required:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment type is required.")
+            return ""
+
+        payment_type = PaymentType.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            identifier=normalized,
+            status=0,
+            is_enabled=True,
+        ).first()
+        if payment_type is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
+        return payment_type.identifier
+
+    @staticmethod
     def dropdownList(request):
         items = (
             PaymentType.objects.filter(

@@ -67,7 +67,7 @@ class AccountingService:
         }
         if payment_type in payment_accounts:
             return payment_accounts[payment_type]
-        return "cash"
+        return "bank"
 
     @staticmethod
     def getOrCreateSystemAccount(code, request):
