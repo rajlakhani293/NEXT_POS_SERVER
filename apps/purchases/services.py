@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from apps.accounting.services import AccountingService
 from apps.catalog.models import Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
@@ -12,7 +13,8 @@ from apps.common.exceptions import api_error
 from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.inventory.models import StockLedger
-from apps.payments.models import paymentTypeValues
+from apps.notifications.services import NotificationService
+from apps.payments.models import normalizePaymentType, paymentTypeValues
 from apps.purchases.models import PurchaseItem, PurchaseOrder, PurchasePayment, Supplier
 
 
@@ -236,6 +238,20 @@ class PurchaseOrderService:
                     tenant_config=True,
                 )
                 received_now += receive_qty
+                try:
+                    product_after = Product.objects.filter(id=item["product_id"]).values("name", "current_stock", "min_stock").first()
+                    if product_after and product_after.get("current_stock") <= product_after.get("min_stock"):
+                        NotificationService.push(
+                            title="Low stock alert",
+                            message=f"{product_after['name']} is at or below minimum stock.",
+                            notification_type="warning",
+                            source_type="inventory",
+                            source_id=item["product_id"],
+                            action_url=f"/inventory/products/{item['product_id']}",
+                            request=request,
+                        )
+                except Exception:
+                    pass
             for item in PurchaseItem.objects.filter(purchase_order_id=order_id):
                 total_ordered += item.ordered_quantity
                 total_received += item.received_quantity
@@ -248,6 +264,7 @@ class PurchaseOrderService:
         amount = money(data.get("amount"))
         if amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment amount must be greater than 0.")
+        data["payment_type"] = normalizePaymentType(data.get("payment_type"))
         if data.get("payment_type") not in paymentTypeValues():
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
         with transaction.atomic():
@@ -260,7 +277,7 @@ class PurchaseOrderService:
                     "purchase_order_id": order_id,
                     "amount": amount,
                     "paid_at": data.get("paid_at") or timezone.now(),
-                    "payment_type": data.get("payment_type") or "cash",
+                    "payment_type": data.get("payment_type") or "cash-payment",
                     "reference_number": data.get("reference_number") or "",
                     "note": data.get("note") or "",
                 },
@@ -269,6 +286,19 @@ class PurchaseOrderService:
             )
             PurchaseOrder.objects.filter(id=order_id).update(paid_amount=F("paid_amount") + amount)
             Supplier.objects.filter(id=order["supplier_id"]).update(payable_amount=F("payable_amount") - amount)
+            AccountingService.record(
+                account_code=AccountingService.accountForPaymentType(data.get("payment_type")),
+                name=f"Purchase payment {order['code']}",
+                transaction_type="expense",
+                action_type="debit",
+                amount=amount,
+                source_type="purchase",
+                source_id=order_id,
+                transaction_date=data.get("paid_at") or timezone.now(),
+                description=data.get("note") or "Purchase payment",
+                reference_number=data.get("reference_number") or "",
+                request=request,
+            )
             return successResponse("Purchase payment recorded successfully.", data=payment)
 
     @staticmethod

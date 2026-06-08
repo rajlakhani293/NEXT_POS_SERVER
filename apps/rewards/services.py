@@ -342,6 +342,56 @@ class RewardSystemService:
 
 class CustomerRewardService:
     @staticmethod
+    def getBalances(data, request):
+        result = commonQuery.fetchPaginatedData(
+            CustomerRewardBalance,
+            data,
+            [["customer__name", True, True], ["reward_system__name", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "customer_id",
+                    "customer__name",
+                    "reward_system_id",
+                    "reward_system__name",
+                    "points",
+                    "lifetime_points",
+                    "target_points",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Reward balances retrieved successfully.", data=result)
+
+    @staticmethod
+    def getRedemptions(data, request):
+        result = commonQuery.fetchPaginatedData(
+            RewardRedemption,
+            data,
+            [["customer__name", True, True], ["reward_system__name", True, True], ["note", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "customer_id",
+                    "customer__name",
+                    "reward_system_id",
+                    "reward_system__name",
+                    "customer_coupon_id",
+                    "customer_coupon__code",
+                    "points_redeemed",
+                    "note",
+                    "created_at",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Reward redemptions retrieved successfully.", data=result)
+
+    @staticmethod
     def getBalance(customer_id, request):
         ensureCustomer(customer_id, request)
         systems = commonQuery.findAllRecords(

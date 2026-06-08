@@ -96,6 +96,32 @@ class SaleTax(TenantAwareModel):
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2)
 
 
+class SaleCoupon(TenantAwareModel):
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="coupons")
+    coupon = models.ForeignKey("promotions.Coupon", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_coupons")
+    code = models.CharField(max_length=120)
+    discount_type = models.CharField(max_length=30, blank=True)
+    discount_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+
+class SaleStorage(TenantAwareModel):
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="storage_records")
+    key = models.CharField(max_length=120)
+    value = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        unique_together = [("sale_order", "key")]
+
+
+class SaleSetting(TenantAwareModel):
+    sale_order = models.OneToOneField(SaleOrder, on_delete=models.CASCADE, related_name="settings")
+    settings = models.JSONField(default=dict, blank=True)
+    allow_refund = models.BooleanField(default=True)
+    allow_exchange = models.BooleanField(default=True)
+    print_receipt = models.BooleanField(default=True)
+
+
 class SaleAddress(TenantAwareModel):
     ADDRESS_TYPES = [("billing", "Billing"), ("shipping", "Shipping")]
 
@@ -158,6 +184,13 @@ class ReturnItem(TenantAwareModel):
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     total = models.DecimalField(max_digits=14, decimal_places=2)
     condition = models.CharField(max_length=20, default="good")
+
+
+class ReturnItemTax(TenantAwareModel):
+    return_item = models.ForeignKey(ReturnItem, on_delete=models.CASCADE, related_name="tax_lines")
+    tax = models.ForeignKey("catalog.Tax", on_delete=models.PROTECT, related_name="return_item_taxes")
+    tax_rate = models.DecimalField(max_digits=8, decimal_places=2)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2)
 
 
 class ExchangeOrderLink(TenantAwareModel):

@@ -123,3 +123,17 @@ class CustomerCreditLedger(TenantAwareModel):
     reference_type = models.CharField(max_length=50, blank=True)
     reference_id = models.PositiveBigIntegerField(blank=True, null=True)
     note = models.TextField(blank=True)
+
+
+class CustomerAccountHistory(TenantAwareModel):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="account_history")
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    action = models.CharField(max_length=20, choices=[("credit", "Credit"), ("debit", "Debit")])
+    balance_before = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    balance_after = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    reference_type = models.CharField(max_length=50, blank=True)
+    reference_id = models.PositiveBigIntegerField(blank=True, null=True)
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]

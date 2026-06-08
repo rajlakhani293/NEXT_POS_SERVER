@@ -79,6 +79,6 @@ class PurchaseReceiveIn(Schema):
 class PurchasePaymentIn(Schema):
     amount: Decimal
     paid_at: Optional[str] = None
-    payment_type: str = "cash"
+    payment_type: str = "cash-payment"
     reference_number: str = ""
     note: str = ""

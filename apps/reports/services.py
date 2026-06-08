@@ -3,13 +3,16 @@ from decimal import Decimal
 
 from django.db.models import Count, DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from apps.common.commonQuery import commonQuery
+from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCreditLedger
 from apps.expenses.models import ExpenseEntry
 from apps.inventory.models import StockLedger
 from apps.purchases.models import PurchaseOrder, Supplier
+from apps.reports.models import DashboardDay, DashboardMonth
 from apps.sales.models import SaleOrder
 
 
@@ -72,6 +75,47 @@ class ReportService:
                 "suppliers": suppliers,
             },
         )
+
+    @staticmethod
+    def refreshDashboardSnapshot(data, request):
+        target_date = timezone.localdate()
+        if data and data.get("date"):
+            target_date = timezone.datetime.fromisoformat(str(data.get("date"))).date()
+        start = timezone.make_aware(timezone.datetime.combine(target_date, timezone.datetime.min.time()))
+        end = timezone.make_aware(timezone.datetime.combine(target_date, timezone.datetime.max.time()))
+
+        summary_payload = ReportService.dashboardSummary({"startDate": start, "endDate": end}, request).data
+        sales = summary_payload.get("sales", {})
+        purchases = summary_payload.get("purchases", {})
+        expenses = summary_payload.get("expenses", {})
+        customers = summary_payload.get("customers", {})
+        suppliers = summary_payload.get("suppliers", {})
+
+        defaults = {
+            "total_sales": sales.get("total_sales") or 0,
+            "total_purchases": purchases.get("total_purchase") or 0,
+            "total_expenses": expenses.get("total_expense") or 0,
+            "total_customer_due": customers.get("total_customer_due") or 0,
+            "total_supplier_payable": suppliers.get("total_supplier_payable") or 0,
+            "order_count": sales.get("order_count") or 0,
+            "purchase_count": purchases.get("purchase_count") or 0,
+            "expense_count": expenses.get("expense_count") or 0,
+            "summary": jsonsafe(summary_payload),
+        }
+        day, _ = DashboardDay.objects.update_or_create(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            dashboard_date=target_date,
+            defaults=defaults,
+        )
+        DashboardMonth.objects.update_or_create(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            year=target_date.year,
+            month=target_date.month,
+            defaults=defaults,
+        )
+        return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
 
     @staticmethod
     def customerDue(data, request):

@@ -4,13 +4,15 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import F
 
+from apps.accounting.services import AccountingService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.expenses.models import ExpenseCategory, ExpenseEntry
-from apps.payments.models import paymentTypeValues
+from apps.notifications.services import NotificationService
+from apps.payments.models import normalizePaymentType, paymentTypeValues
 from apps.registers.models import CashierShift, CashRegisterEntry
 
 
@@ -96,6 +98,8 @@ class ExpenseEntryService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Expense category not found.")
         if money(data.get("amount")) <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
+        if data.get("payment_type"):
+            data["payment_type"] = normalizePaymentType(data.get("payment_type"))
         if data.get("payment_type") and data.get("payment_type") not in paymentTypeValues():
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
         if data.get("shift_id"):
@@ -109,7 +113,7 @@ class ExpenseEntryService:
         with transaction.atomic():
             ExpenseEntryService.validatePayload(data, request)
             expense = commonQuery.createRecord(ExpenseEntry, data, request=request, tenant_config=True)
-            if data.get("payment_type") == "cash" and data.get("shift_id"):
+            if data.get("payment_type") == "cash-payment" and data.get("shift_id"):
                 amount = money(data.get("amount"))
                 shift = commonQuery.findOneRecord(CashierShift, data["shift_id"], request=request, tenant_config=True)
                 balance_before = money(shift.get("expected_cash"))
@@ -124,7 +128,7 @@ class ExpenseEntryService:
                         "shift_id": shift["id"],
                         "register_id": shift["register_id"],
                         "cashier_id": request.user.id,
-                        "payment_type": "cash",
+                        "payment_type": "cash-payment",
                         "entry_type": "expense",
                         "amount": amount,
                         "balance_before": balance_before,
@@ -136,6 +140,28 @@ class ExpenseEntryService:
                     request=request,
                     tenant_config=True,
                 )
+            AccountingService.record(
+                account_code="expense",
+                name="Expense",
+                transaction_type="expense",
+                action_type="debit",
+                amount=data.get("amount"),
+                source_type="expense",
+                source_id=expense["id"],
+                transaction_date=data.get("expense_date"),
+                description=data.get("note") or "Expense",
+                reference_number=data.get("reference_number") or "",
+                request=request,
+            )
+            NotificationService.push(
+                title="Expense recorded",
+                message=f"Expense of {data.get('amount')} recorded.",
+                notification_type="info",
+                source_type="accounting",
+                source_id=expense["id"],
+                action_url="/expenses",
+                request=request,
+            )
             return successResponse("Expense created successfully.", data=expense)
 
     @staticmethod

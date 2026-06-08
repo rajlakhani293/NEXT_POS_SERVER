@@ -21,6 +21,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
 from apps.organizations.models import Branch, Company
+from apps.payments.services import PaymentTypeService
 from apps.settingsapi.services import BusinessSettingService
 
 
@@ -65,14 +66,21 @@ class AccountsService:
         seeded_roles = []
 
         for role_blueprint in ROLE_CATALOG:
-            role = Role.objects.create(
+            role, _created = Role.objects.get_or_create(
                 company_id=company.id,
-                name=role_blueprint["name"],
                 code=role_blueprint["code"],
-                description=role_blueprint["description"],
-                is_cashier=role_blueprint["flags"]["is_cashier"],
-                is_store_manager=role_blueprint["flags"]["is_store_manager"],
+                defaults={
+                    "name": role_blueprint["name"],
+                    "description": role_blueprint["description"],
+                    "is_cashier": role_blueprint["flags"]["is_cashier"],
+                    "is_store_manager": role_blueprint["flags"]["is_store_manager"],
+                },
             )
+            role.name = role_blueprint["name"]
+            role.description = role_blueprint["description"]
+            role.is_cashier = role_blueprint["flags"]["is_cashier"]
+            role.is_store_manager = role_blueprint["flags"]["is_store_manager"]
+            role.save(update_fields=["name", "description", "is_cashier", "is_store_manager"])
 
             permissions = all_permissions if "*" in role_blueprint["permissions"] else [
                 permission_map[codename]
@@ -255,6 +263,8 @@ class AccountsService:
         )
 
         AccountsService.seedDefaultRoles(company)
+        BusinessSettingService.ensureCompanySettings(company)
+        PaymentTypeService.ensureDefaultPaymentTypes(company, branch)
         role = Role.objects.filter(company_id=company.id, code="administrator").first()
         if role is None:
             raise api_error(

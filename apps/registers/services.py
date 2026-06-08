@@ -4,11 +4,13 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
+from apps.accounting.services import AccountingService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
+from apps.notifications.services import NotificationService
 from apps.registers.models import CashierShift, CashRegister, CashRegisterEntry
 
 
@@ -135,6 +137,18 @@ class CashierShiftService:
                 request=request,
                 tenant_config=True,
             )
+            if Decimal(str(opening_cash or 0)) > 0:
+                AccountingService.record(
+                    account_code="cash",
+                    name="Opening cash",
+                    transaction_type="adjustment",
+                    action_type="credit",
+                    amount=opening_cash,
+                    source_type="cash_register",
+                    source_id=shift["id"],
+                    description=data.get("note") or "Opening cash",
+                    request=request,
+                )
             return successResponse("Shift opened successfully.", data=hydrateShift(shift))
 
     @staticmethod
@@ -264,6 +278,26 @@ class CashierShiftService:
                 },
                 request=request,
                 tenant_config=True,
+            )
+            AccountingService.record(
+                account_code="cash",
+                name=movement_type.replace("_", " ").title(),
+                transaction_type="adjustment",
+                action_type="credit" if movement_type == "cash_in" else "debit",
+                amount=amount,
+                source_type="cash_register",
+                source_id=entry["id"],
+                description=data.get("note") or movement_type.replace("_", " ").title(),
+                request=request,
+            )
+            NotificationService.push(
+                title=movement_type.replace("_", " ").title(),
+                message=f"Cash movement of {amount} recorded.",
+                notification_type="info",
+                source_type="cash_register",
+                source_id=entry["id"],
+                action_url="/registers",
+                request=request,
             )
             updated["entry"] = entry
             return successResponse(f"{movement_type.replace('_', ' ').title()} recorded successfully.", data=hydrateShift(updated))

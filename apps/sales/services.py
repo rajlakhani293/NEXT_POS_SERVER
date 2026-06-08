@@ -13,7 +13,7 @@ from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCreditLedger
 from apps.inventory.models import StockLedger
-from apps.payments.models import SalePayment, paymentTypeValues
+from apps.payments.models import SalePayment, normalizePaymentType, paymentTypeValues
 from apps.registers.models import CashierShift, CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import SaleItem, SaleOrder
@@ -110,7 +110,7 @@ class SalePaymentService:
             if amount <= 0:
                 continue
 
-            payment_type = payment.get("payment_type")
+            payment_type = normalizePaymentType(payment.get("payment_type"))
             if payment_type not in paymentTypeValues():
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
 
@@ -130,7 +130,7 @@ class SalePaymentService:
             )
             paid_amount += amount
 
-            if payment_type == "cash":
+            if payment_type == "cash-payment":
                 balance_before = money(shift.get("expected_cash"))
                 balance_after = balance_before + amount
                 CashierShift.objects.filter(id=shift["id"]).update(expected_cash=F("expected_cash") + amount)

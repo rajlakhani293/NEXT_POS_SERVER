@@ -30,7 +30,7 @@ class ExpenseEntryIn(Schema):
     category_id: int
     amount: Decimal
     expense_date: str
-    payment_type: str = "cash"
+    payment_type: str = "cash-payment"
     shift_id: Optional[int] = None
     note: str = ""
     reference_number: str = ""

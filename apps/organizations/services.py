@@ -7,6 +7,7 @@ from apps.common.exceptions import api_error
 from apps.common.helpers import saveCompanyLogo, serializeModelInstance
 from apps.common.commonQuery import commonQuery
 from apps.organizations.models import Branch, Company, StateMaster
+from apps.payments.services import PaymentTypeService
 
 
 class OrganizationsService:
@@ -127,12 +128,16 @@ class OrganizationsService:
         with transaction.atomic():
             OrganizationsService.ensureState(data.get("state_id"))
             code = OrganizationsService.generateBranchCode(user.company_id, data.get("name"), data.get("code"))
-            return commonQuery.createRecord(
+            branch_data = commonQuery.createRecord(
                 Branch,
                 {**data, "code": code},
                 request=request,
                 tenant_config={"company_id": True},
             )
+            company = Company.objects.get(id=user.company_id)
+            branch = Branch.objects.get(id=branch_data["id"])
+            PaymentTypeService.ensureDefaultPaymentTypes(company, branch)
+            return branch_data
 
     @staticmethod
     def getBranch(branch_id, request):

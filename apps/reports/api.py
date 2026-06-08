@@ -17,6 +17,12 @@ def dashboardSummary(request, payload: Optional[dict] = None):
     return ReportService.dashboardSummary(payload or {}, request)
 
 
+@router.post("/dashboard-snapshot/refresh", response=ApiResponse)
+@permission_required("reports_view")
+def refreshDashboardSnapshot(request, payload: Optional[dict] = None):
+    return ReportService.refreshDashboardSnapshot(payload or {}, request)
+
+
 @router.post("/customer-due", response=ApiResponse)
 @permission_required("reports_view")
 def customerDue(request, payload: Optional[dict] = None):

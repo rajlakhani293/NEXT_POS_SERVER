@@ -22,16 +22,28 @@ BUSINESS_SETTING_FIELDS = [
 
 class BusinessSettingService:
     @staticmethod
+    def defaultValues():
+        return {
+            "allow_partial_orders": False,
+            "enable_customer_rewards": False,
+            "enable_credit_account": False,
+            "enable_cash_registers": True,
+            "order_types": ["take_order", "delivery"],
+        }
+
+    @staticmethod
+    def ensureCompanySettings(company):
+        settings, _created = BusinessSetting.objects.get_or_create(
+            company_id=company.id,
+            defaults=BusinessSettingService.defaultValues(),
+        )
+        return settings
+
+    @staticmethod
     def ensureSettings(user):
         settings, _created = BusinessSetting.objects.get_or_create(
             company_id=user.company_id,
-            defaults={
-                "allow_partial_orders": False,
-                "enable_customer_rewards": False,
-                "enable_credit_account": False,
-                "enable_cash_registers": True,
-                "order_types": ["take_order", "delivery"],
-            },
+            defaults=BusinessSettingService.defaultValues(),
         )
         return settings
 

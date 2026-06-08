@@ -68,6 +68,18 @@ def getCustomerRewardBalance(request, customer_id: int):
     return CustomerRewardService.getBalance(customer_id, request)
 
 
+@router.post("/customers/balances/get-transactions", response=ApiResponse)
+@permission_required("rewards_view")
+def getCustomerRewardBalances(request, payload: Optional[dict] = None):
+    return CustomerRewardService.getBalances(payload, request)
+
+
+@router.post("/customers/redemptions/get-transactions", response=ApiResponse)
+@permission_required("rewards_view")
+def getCustomerRewardRedemptions(request, payload: Optional[dict] = None):
+    return CustomerRewardService.getRedemptions(payload, request)
+
+
 @router.post("/customers/earn", response=ApiResponse)
 @permission_required("rewards_update")
 def earnCustomerReward(request, payload: RewardBalanceAdjustIn):
