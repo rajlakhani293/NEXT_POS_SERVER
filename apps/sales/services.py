@@ -6,7 +6,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from apps.catalog.models import Product
+from apps.catalog.models import Product, ProductUnitQuantity
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -82,7 +82,29 @@ class SaleStockService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
 
         item_qty = quantity(item.get("quantity") or 1)
-        unit_price = money(item.get("unit_price") if item.get("unit_price") is not None else product.get("selling_price"))
+        if item_qty <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Item quantity must be greater than 0.")
+
+        unit_quantity = None
+        stock_qty = item_qty
+        unit_id = item.get("unit_id") or product.get("unit_id")
+        default_unit_price = product.get("selling_price")
+        default_purchase_price = product.get("purchase_price")
+        if item.get("unit_quantity_id"):
+            unit_quantity = commonQuery.findOneRecord(
+                ProductUnitQuantity,
+                {"id": item.get("unit_quantity_id"), "product_id": product["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            if unit_quantity is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product selling unit not found.")
+            unit_id = unit_quantity.get("unit_id") or unit_id
+            stock_qty = item_qty * quantity(unit_quantity.get("quantity") or 1)
+            default_unit_price = unit_quantity.get("sale_price") or default_unit_price
+            default_purchase_price = unit_quantity.get("purchase_price") or default_purchase_price
+
+        unit_price = money(item.get("unit_price") if item.get("unit_price") is not None else default_unit_price)
         discount_amount = money(item.get("discount_amount"))
         tax_amount = money(item.get("tax_amount"))
         line_total = (item_qty * unit_price) - discount_amount + tax_amount
@@ -92,13 +114,13 @@ class SaleStockService:
             {
                 "sale_order_id": sale_order["id"],
                 "product_id": product["id"],
-                "unit_id": item.get("unit_id") or product.get("unit_id"),
+                "unit_id": unit_id,
                 "quantity": item_qty,
                 "unit_price": unit_price,
                 "discount_amount": discount_amount,
                 "tax_amount": tax_amount,
                 "total": line_total,
-                "cost_price": product.get("purchase_price") or 0,
+                "cost_price": default_purchase_price or 0,
             },
             request=request,
             tenant_config=True,
@@ -106,17 +128,17 @@ class SaleStockService:
 
         if product.get("track_stock") and product.get("product_type") == "stock":
             available_stock = quantity(product.get("current_stock"))
-            if available_stock < item_qty:
+            if available_stock < stock_qty:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, f"Insufficient stock for {product.get('name')}.")
-            new_balance = available_stock - item_qty
-            Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") - item_qty)
+            new_balance = available_stock - stock_qty
+            Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") - stock_qty)
             commonQuery.createRecord(
                 StockLedger,
                 {
                     "product_id": product["id"],
                     "entry_type": "sale",
-                    "quantity": item_qty * Decimal("-1"),
-                    "unit_cost": product.get("purchase_price") or 0,
+                    "quantity": stock_qty * Decimal("-1"),
+                    "unit_cost": default_purchase_price or 0,
                     "balance_after": new_balance,
                     "reference_type": "sale_order",
                     "reference_id": sale_order["id"],
@@ -148,6 +170,36 @@ class SaleValidationService:
     def ensureCashChangeSupported(change_amount, cash_paid_amount):
         if change_amount > 0 and cash_paid_amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Change can only be returned when cash payment is used.")
+
+    @staticmethod
+    def normalizeOrderType(order_type):
+        if order_type in ["pos", "take_order", "", None]:
+            return "takeaway"
+        return order_type
+
+    @staticmethod
+    def ensureOrderTypeAllowed(order_type, settings):
+        normalized = SaleValidationService.normalizeOrderType(order_type)
+        allowed_order_types = [
+            "takeaway" if item == "take_order" else item
+            for item in (settings.order_types or ["takeaway", "delivery"])
+        ]
+        if normalized not in allowed_order_types:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "This order type is disabled in business settings.")
+        return normalized
+
+    @staticmethod
+    def ensurePaymentRules(total, paid_amount, due_amount, customer, settings):
+        if paid_amount > total:
+            return
+        if due_amount <= 0:
+            return
+        if not settings.allow_partial_orders:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partial or unpaid sales are not allowed.")
+        if not customer:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required when sale has due amount.")
+        if not settings.enable_credit_account:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer credit account is disabled.")
 
 
 class SaleRegisterService:
@@ -646,6 +698,20 @@ class SaleDraftService:
                 if item.get("unit_price") is not None
                 else product.get("selling_price")
             )
+            unit_id = item.get("unit_id") or product.get("unit_id")
+            unit_quantity_id = item.get("unit_quantity_id")
+            if unit_quantity_id:
+                unit_quantity = commonQuery.findOneRecord(
+                    ProductUnitQuantity,
+                    {"id": unit_quantity_id, "product_id": product["id"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                if unit_quantity is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Product selling unit not found.")
+                unit_id = unit_quantity.get("unit_id") or unit_id
+                if item.get("unit_price") is None:
+                    unit_price = money(unit_quantity.get("sale_price") or product.get("selling_price"))
             discount_amount = money(item.get("discount_amount"))
             tax_amount = money(item.get("tax_amount"))
             line_total = (item_qty * unit_price) - discount_amount + tax_amount
@@ -655,7 +721,8 @@ class SaleDraftService:
                 {
                     "product_id": product["id"],
                     "product_name": product.get("name"),
-                    "unit_id": item.get("unit_id") or product.get("unit_id"),
+                    "unit_id": unit_id,
+                    "unit_quantity_id": unit_quantity_id,
                     "quantity": item_qty,
                     "unit_price": unit_price,
                     "discount_amount": discount_amount,
@@ -1641,6 +1708,7 @@ class SaleService:
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
+            order_type = SaleValidationService.ensureOrderTypeAllowed(data.get("order_type"), settings)
 
             sale_code = buildCode(SaleOrder, "Sale", data.get("code"), request)
             sale_order = commonQuery.createRecord(
@@ -1651,7 +1719,7 @@ class SaleService:
                     "register_id": shift["register_id"] if shift else None,
                     "shift_id": shift["id"] if shift else None,
                     "code": sale_code,
-                    "order_type": data.get("order_type") or "pos",
+                    "order_type": order_type,
                     "payment_status": "unpaid",
                     "discount_amount": data.get("discount_amount") or 0,
                     "discount_percentage": data.get("discount_percentage") or 0,
@@ -1702,13 +1770,7 @@ class SaleService:
             due_amount = max(total - paid_amount, Decimal("0"))
             change_amount = max(paid_amount - total, Decimal("0"))
             SaleValidationService.ensureCashChangeSupported(change_amount, payment_summary["cash_paid_amount"])
-
-            if due_amount > 0 and not settings.allow_partial_orders:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Partial or unpaid sales are not allowed.")
-            if due_amount > 0 and not customer:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required when sale has due amount.")
-            if due_amount > 0 and not settings.enable_credit_account:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer credit account is disabled.")
+            SaleValidationService.ensurePaymentRules(total, paid_amount, due_amount, customer, settings)
 
             payment_status = "paid" if due_amount == 0 else ("partially_paid" if paid_amount > 0 else "unpaid")
 

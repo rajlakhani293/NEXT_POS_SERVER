@@ -6,7 +6,7 @@ from apps.settingsapi.models import BusinessSetting
 
 
 ORDER_TYPE_OPTIONS = [
-    {"value": "take_order", "label": "Take Order"},
+    {"value": "takeaway", "label": "Take Order"},
     {"value": "delivery", "label": "Delivery"},
 ]
 
@@ -28,7 +28,7 @@ class BusinessSettingService:
             "enable_customer_rewards": False,
             "enable_credit_account": False,
             "enable_cash_registers": True,
-            "order_types": ["take_order", "delivery"],
+            "order_types": ["takeaway", "delivery"],
         }
 
     @staticmethod
@@ -73,7 +73,11 @@ class BusinessSettingService:
         settings = BusinessSettingService.ensureSettings(user)
         setting_data = {field: getattr(settings, field) for field in BUSINESS_SETTING_FIELDS}
         if not setting_data["order_types"]:
-            setting_data["order_types"] = ["take_order", "delivery"]
+            setting_data["order_types"] = ["takeaway", "delivery"]
+        setting_data["order_types"] = [
+            "takeaway" if order_type == "take_order" else order_type
+            for order_type in setting_data["order_types"]
+        ]
         order_types = [
             {"value": option["value"], "label": option["label"], "enabled": option["value"] in setting_data["order_types"]}
             for option in ORDER_TYPE_OPTIONS

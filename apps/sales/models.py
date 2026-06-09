@@ -39,10 +39,8 @@ class SaleOrder(TenantAwareModel):
         ("void", "Void"),
     ]
     ORDER_TYPES = [
-        ("pos", "POS"),
         ("takeaway", "Takeaway"),
         ("delivery", "Delivery"),
-        ("online", "Online"),
     ]
 
     customer = models.ForeignKey("customers.Customer", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
@@ -50,7 +48,7 @@ class SaleOrder(TenantAwareModel):
     register = models.ForeignKey("registers.CashRegister", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     shift = models.ForeignKey("registers.CashierShift", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     code = models.CharField(max_length=50)
-    order_type = models.CharField(max_length=20, choices=ORDER_TYPES, default="pos")
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPES, default="takeaway")
     payment_status = models.CharField(max_length=30, choices=PAYMENT_STATUSES, default="unpaid")
     delivery_status = models.CharField(max_length=30, blank=True)
     process_status = models.CharField(max_length=30, blank=True)
