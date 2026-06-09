@@ -52,3 +52,20 @@ def getCouponById(request, coupon_id: int):
 @permission_required("promotions_update")
 def updateCoupon(request, coupon_id: int, payload: CouponUpdateIn):
     return CouponService.update(payload.dict(exclude_none=True), request, coupon_id)
+
+
+@router.post("/customers/{customer_id}/coupons/get-transactions", response=ApiResponse)
+@permission_required("promotions_view")
+def getCustomerCoupons(request, customer_id: int, payload: Optional[dict] = None):
+    return CouponService.getCustomerCoupons(customer_id, payload, request)
+
+
+@router.post("/customers/{customer_id}/coupons/{customer_coupon_id}/history/get-transactions", response=ApiResponse)
+@permission_required("promotions_view")
+def getCustomerCouponHistory(
+    request,
+    customer_id: int,
+    customer_coupon_id: int,
+    payload: Optional[dict] = None,
+):
+    return CouponService.getCustomerCouponHistory(customer_id, customer_coupon_id, payload, request)

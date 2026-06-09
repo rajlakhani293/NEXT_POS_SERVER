@@ -2,6 +2,7 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from apps.accounting.services import AccountingService
@@ -234,6 +235,118 @@ class CashierShiftService:
             hydrated = hydrateShift(item)
             item.update(hydrated or {})
         return successResponse("Shifts retrieved successfully.", data=result)
+
+    @staticmethod
+    def getById(shift_id, request):
+        shift = commonQuery.findOneRecord(
+            CashierShift,
+            shift_id,
+            request=request,
+            tenant_config=True,
+        )
+        if shift is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Shift not found.")
+
+        entries = commonQuery.findAllRecords(
+            CashRegisterEntry,
+            {"shift_id": shift_id},
+            {
+                "attributes": [
+                    "id",
+                    "entry_type",
+                    "payment_type",
+                    "amount",
+                    "balance_before",
+                    "balance_after",
+                    "reference_type",
+                    "reference_id",
+                    "note",
+                    "created_at",
+                ],
+                "order": ["-created_at", "-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        data = hydrateShift(shift)
+        data["entries"] = entries
+        data["entry_count"] = len(entries)
+        return successResponse("Shift retrieved successfully.", data=data)
+
+    @staticmethod
+    def getEntries(shift_id, data, request):
+        shift = commonQuery.findOneRecord(
+            CashierShift,
+            shift_id,
+            request=request,
+            tenant_config=True,
+        )
+        if shift is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Shift not found.")
+
+        result = commonQuery.fetchPaginatedData(
+            CashRegisterEntry,
+            {
+                **(data or {}),
+                "filter": {
+                    **((data or {}).get("filter") or {}),
+                    "shift_id": shift_id,
+                },
+            },
+            [["entry_type", True, True], ["payment_type", True, True], ["note", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "entry_type",
+                    "payment_type",
+                    "amount",
+                    "balance_before",
+                    "balance_after",
+                    "reference_type",
+                    "reference_id",
+                    "note",
+                    "created_at",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Shift entries retrieved successfully.", data=result)
+
+    @staticmethod
+    def getZReport(shift_id, request):
+        shift = commonQuery.findOneRecord(
+            CashierShift,
+            shift_id,
+            request=request,
+            tenant_config=True,
+        )
+        if shift is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Shift not found.")
+
+        entries = CashRegisterEntry.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            shift_id=shift_id,
+            status__in=[0, 1],
+        )
+        data = hydrateShift(shift)
+        data["z_report"] = {
+            "opening_cash": shift.get("opening_cash") or 0,
+            "expected_cash": shift.get("expected_cash") or 0,
+            "declared_cash": shift.get("declared_cash") or 0,
+            "difference_amount": shift.get("difference_amount") or 0,
+            "sales_collected": shift.get("total_sales_amount") or 0,
+            "refund_out": shift.get("total_refund_amount") or 0,
+            "cash_in": shift.get("total_cash_in") or 0,
+            "cash_out": shift.get("total_cash_out") or 0,
+            "entry_count": entries.count(),
+            "totals_by_type": list(
+                entries.values("entry_type").annotate(total=Sum("amount")).order_by("entry_type")
+            ),
+        }
+        return successResponse("Z report retrieved successfully.", data=data)
 
     @staticmethod
     def cashMovement(data, request, movement_type):

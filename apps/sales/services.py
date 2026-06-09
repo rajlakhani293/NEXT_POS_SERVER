@@ -1,4 +1,5 @@
 # type: ignore
+import json
 from decimal import Decimal
 
 from django.db import transaction
@@ -9,7 +10,7 @@ from apps.catalog.models import Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
+from apps.common.helpers import buildCode, jsonsafe
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerAccountHistory, CustomerCreditLedger, CustomerWalletTransaction
 from apps.inventory.models import StockLedger
@@ -18,7 +19,7 @@ from apps.payments.services import PaymentTypeService
 from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct, CustomerCoupon
 from apps.registers.models import CashierShift, CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
-from apps.sales.models import ExchangeOrderLink, ReturnItem, ReturnOrder, SaleItem, SaleOrder
+from apps.sales.models import CartDraft, ExchangeOrderLink, ReturnItem, ReturnOrder, SaleItem, SaleOrder
 from apps.settingsapi.services import BusinessSettingService
 
 
@@ -47,6 +48,16 @@ def getCurrentShift(request, shift_id=None, required=True):
             return None
         raise api_error(400, ErrorCodes.BAD_REQUEST, "Open cashier shift is required to create sale.")
     return shift
+
+
+def parseDraftSnapshot(note):
+    if not note:
+        return {}
+    try:
+        data = json.loads(note)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {"note": note}
 
 
 class SaleStockService:
@@ -490,6 +501,54 @@ class SalePaymentService:
             "cash_paid_amount": cash_paid_amount,
         }
 
+    @staticmethod
+    def collectDuePayments(sale_order, payments, shift, customer, settings, request):
+        paid_amount = Decimal("0")
+        cash_paid_amount = Decimal("0")
+
+        for payment in payments or []:
+            amount = money(payment.get("amount"))
+            if amount <= 0:
+                continue
+
+            payment_type = PaymentTypeService.resolvePaymentType(
+                payment.get("payment_type"),
+                request,
+            )
+
+            if payment_type == "account-payment":
+                if not settings.enable_credit_account:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer credit account is disabled.")
+                if not customer:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required for account payment.")
+
+            sale_payment = commonQuery.createRecord(
+                SalePayment,
+                {
+                    "sale_order_id": sale_order["id"],
+                    "payment_type": payment_type,
+                    "shift_id": shift["id"] if shift else None,
+                    "amount": amount,
+                    "paid_at": timezone.now(),
+                    "reference_number": payment.get("reference_number") or "",
+                    "note": payment.get("note") or payment.get("reference_number") or "",
+                },
+                request=request,
+                tenant_config=True,
+            )
+            paid_amount += amount
+
+            if payment_type == "cash-payment" and shift:
+                cash_paid_amount += amount
+                SaleRegisterService.recordCashSalePayment(sale_order, sale_payment, shift, amount, request)
+            elif payment_type == "account-payment":
+                SaleCustomerAccountService.applyAccountPayment(customer, sale_order, amount, payment.get("note"), request)
+
+        return {
+            "paid_amount": paid_amount,
+            "cash_paid_amount": cash_paid_amount,
+        }
+
 
 class SaleCustomerService:
     @staticmethod
@@ -551,6 +610,324 @@ class SaleRewardService:
             },
             request,
         )
+
+
+class SaleDraftService:
+    @staticmethod
+    def buildDraftItems(items, request):
+        prepared_items = []
+        subtotal = Decimal("0")
+
+        for item in items or []:
+            product = commonQuery.findOneRecord(
+                Product,
+                item.get("product_id"),
+                request=request,
+                tenant_config=True,
+            )
+            if product is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+
+            item_qty = quantity(item.get("quantity") or 1)
+            if item_qty <= 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Item quantity must be greater than 0.")
+
+            unit_price = money(
+                item.get("unit_price")
+                if item.get("unit_price") is not None
+                else product.get("selling_price")
+            )
+            discount_amount = money(item.get("discount_amount"))
+            tax_amount = money(item.get("tax_amount"))
+            line_total = (item_qty * unit_price) - discount_amount + tax_amount
+            subtotal += line_total
+
+            prepared_items.append(
+                {
+                    "product_id": product["id"],
+                    "product_name": product.get("name"),
+                    "unit_id": item.get("unit_id") or product.get("unit_id"),
+                    "quantity": item_qty,
+                    "unit_price": unit_price,
+                    "discount_amount": discount_amount,
+                    "tax_amount": tax_amount,
+                    "line_total": line_total,
+                }
+            )
+
+        return {"items": prepared_items, "subtotal": subtotal}
+
+    @staticmethod
+    def buildDraftData(draft, request):
+        snapshot = parseDraftSnapshot(draft.get("note"))
+        customer = None
+        if draft.get("customer_id"):
+            customer = commonQuery.findOneRecord(
+                Customer,
+                draft["customer_id"],
+                request=request,
+                tenant_config=True,
+            )
+        items = snapshot.get("items") or []
+        total_quantity = sum([quantity(item.get("quantity")) for item in items], Decimal("0"))
+        return {
+            **draft,
+            "customer": customer,
+            "coupon_codes": snapshot.get("coupon_codes") or [],
+            "payments": snapshot.get("payments") or [],
+            "note_text": snapshot.get("note") or "",
+            "items": items,
+            "total_items": len(items),
+            "total_quantity": total_quantity,
+        }
+
+    @staticmethod
+    def reverseAppliedCoupons(sale_order_id, request):
+        applied_coupons = commonQuery.findAllRecords(
+            AppliedCoupon,
+            {"sale_order_id": sale_order_id},
+            {
+                "attributes": [
+                    "id",
+                    "coupon_id",
+                    "customer_coupon_id",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for applied in applied_coupons:
+            customer_coupon_id = applied.get("customer_coupon_id")
+            if not customer_coupon_id:
+                continue
+            issued_coupon = commonQuery.findOneRecord(
+                CustomerCoupon,
+                customer_coupon_id,
+                request=request,
+                tenant_config=True,
+            )
+            if issued_coupon is None:
+                continue
+            coupon = None
+            if applied.get("coupon_id"):
+                coupon = commonQuery.findOneRecord(
+                    Coupon,
+                    applied["coupon_id"],
+                    request=request,
+                    tenant_config=True,
+                )
+            usage_count = max(int(issued_coupon.get("usage_count") or 0) - 1, 0)
+            update_data = {"usage_count": usage_count}
+            if issued_coupon.get("is_redeemed") and coupon:
+                limit_usage = int(coupon.get("limit_usage") or 0)
+                if limit_usage <= 0 or usage_count < limit_usage:
+                    update_data["is_redeemed"] = False
+                    update_data["redeemed_at"] = None
+            commonQuery.updateRecordById(
+                CustomerCoupon,
+                customer_coupon_id,
+                update_data,
+                request=request,
+                tenant_config=True,
+            )
+
+    @staticmethod
+    def reverseRewards(sale_order, request):
+        customer_id = sale_order.get("customer_id")
+        if not customer_id:
+            return
+
+        from apps.rewards.models import CustomerRewardBalance, RewardRedemption
+        from apps.rewards.services import findMatchingRule, getCustomerRewardSystem
+
+        customer = commonQuery.findOneRecord(
+            Customer,
+            customer_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer is None:
+            return
+
+        reward_system = getCustomerRewardSystem(customer, request)
+        if not reward_system:
+            return
+
+        rule = findMatchingRule(reward_system["id"], sale_order.get("total"), request)
+        earned_points = int(rule.get("reward") or 0) if rule else 0
+        sale_note = f"Reward earned from sale {sale_order['code']}."
+
+        redemptions = commonQuery.findAllRecords(
+            RewardRedemption,
+            {
+                "customer_id": customer_id,
+                "reward_system_id": reward_system["id"],
+                "note": sale_note,
+            },
+            {
+                "attributes": [
+                    "id",
+                    "customer_coupon_id",
+                    "points_redeemed",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+        restored_points = sum(
+            [int(redemption.get("points_redeemed") or 0) for redemption in redemptions],
+            0,
+        )
+        customer_coupon_ids = [
+            redemption["customer_coupon_id"]
+            for redemption in redemptions
+            if redemption.get("customer_coupon_id")
+        ]
+
+        balance = commonQuery.findOneRecord(
+            CustomerRewardBalance,
+            {"customer_id": customer_id, "reward_system_id": reward_system["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        if balance is None:
+            return
+
+        next_points = max(int(balance.get("points") or 0) + restored_points - earned_points, 0)
+        next_lifetime = max(int(balance.get("lifetime_points") or 0) - earned_points, 0)
+
+        commonQuery.updateRecordById(
+            CustomerRewardBalance,
+            balance["id"],
+            {
+                "points": next_points,
+                "lifetime_points": next_lifetime,
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+        for customer_coupon_id in customer_coupon_ids:
+            commonQuery.updateRecordById(
+                CustomerCoupon,
+                customer_coupon_id,
+                {"status": 2, "deleted_at": timezone.now()},
+                request=request,
+                tenant_config=True,
+            )
+
+        for redemption in redemptions:
+            commonQuery.updateRecordById(
+                RewardRedemption,
+                redemption["id"],
+                {"status": 2, "deleted_at": timezone.now()},
+                request=request,
+                tenant_config=True,
+            )
+
+
+class SaleVoidService:
+    @staticmethod
+    def restockSale(sale_order, request):
+        items = commonQuery.findAllRecords(
+            SaleItem,
+            {"sale_order_id": sale_order["id"]},
+            {
+                "attributes": [
+                    "id",
+                    "product_id",
+                    "quantity",
+                    "cost_price",
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for item in items:
+            product = commonQuery.findOneRecord(
+                Product,
+                item["product_id"],
+                request=request,
+                tenant_config=True,
+            )
+            if not product or not product.get("track_stock") or product.get("product_type") != "stock":
+                continue
+            restock_qty = quantity(item.get("quantity"))
+            new_balance = quantity(product.get("current_stock")) + restock_qty
+            Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") + restock_qty)
+            commonQuery.createRecord(
+                StockLedger,
+                {
+                    "product_id": product["id"],
+                    "entry_type": "sale_return",
+                    "quantity": restock_qty,
+                    "unit_cost": item.get("cost_price") or product.get("purchase_price") or 0,
+                    "balance_after": new_balance,
+                    "reference_type": "sale_void",
+                    "reference_id": sale_order["id"],
+                    "note": f"Void sale {sale_order['code']}",
+                },
+                request=request,
+                tenant_config=True,
+            )
+            commonQuery.updateRecordById(
+                SaleItem,
+                item["id"],
+                {"item_status": "void"},
+                request=request,
+                tenant_config=True,
+            )
+
+    @staticmethod
+    def reverseCustomerImpact(sale_order, request):
+        customer_id = sale_order.get("customer_id")
+        if not customer_id:
+            return
+
+        customer = commonQuery.findOneRecord(
+            Customer,
+            customer_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer is None:
+            return
+
+        due_amount = money(sale_order.get("due_amount"))
+        total = money(sale_order.get("total"))
+        next_total_sales = max(money(customer.get("total_sales")) - total, Decimal("0"))
+        next_total_sales_count = max(int(customer.get("total_sales_count") or 0) - 1, 0)
+        next_owed_amount = max(money(customer.get("owed_amount")) - due_amount, Decimal("0"))
+
+        commonQuery.updateRecordById(
+            Customer,
+            customer_id,
+            {
+                "total_sales": next_total_sales,
+                "total_sales_count": next_total_sales_count,
+                "owed_amount": next_owed_amount,
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+        if due_amount > 0:
+            commonQuery.createRecord(
+                CustomerCreditLedger,
+                {
+                    "customer_id": customer_id,
+                    "amount": due_amount,
+                    "direction": "decrease",
+                    "balance_after": next_owed_amount,
+                    "reason": "sale_void",
+                    "reference_type": "sale_order",
+                    "reference_id": sale_order["id"],
+                    "note": f"Due reversed for void sale {sale_order['code']}",
+                },
+                request=request,
+                tenant_config=True,
+            )
 
 
 class SaleReturnValidationService:
@@ -1116,6 +1493,107 @@ class SaleService:
         return successResponse("Sale receipt retrieved successfully.", data=receipt)
 
     @staticmethod
+    def hold(data, request):
+        if not data.get("items"):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one sale item is required.")
+
+        customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
+        prepared = SaleDraftService.buildDraftItems(data.get("items") or [], request)
+        draft = commonQuery.createRecord(
+            CartDraft,
+            {
+                "customer_id": customer["id"] if customer else None,
+                "cashier_id": request.user.id,
+                "code": buildCode(CartDraft, "hold-cart", data.get("code"), request),
+                "draft_status": "held",
+                "subtotal": prepared["subtotal"],
+                "total": prepared["subtotal"],
+                "note": json.dumps(
+                    jsonsafe(
+                        {
+                            "note": data.get("note") or "",
+                            "coupon_codes": data.get("coupon_codes") or [],
+                            "payments": data.get("payments") or [],
+                            "items": prepared["items"],
+                        }
+                    )
+                ),
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse(
+            "Held cart saved successfully.",
+            data=SaleDraftService.buildDraftData(draft, request),
+        )
+
+    @staticmethod
+    def listHeldCarts(data, request):
+        filters = dict(data or {})
+        filter_data = dict(filters.get("filter") or {})
+        filter_data["draft_status"] = "held"
+        filters["filter"] = filter_data
+        result = commonQuery.fetchPaginatedData(
+            CartDraft,
+            filters,
+            [["code", True, True], ["customer__name", True, False], ["cashier__full_name", True, False]],
+            {
+                "attributes": [
+                    "id",
+                    "code",
+                    "customer_id",
+                    "customer__name",
+                    "cashier_id",
+                    "cashier__full_name",
+                    "draft_status",
+                    "subtotal",
+                    "total",
+                    "note",
+                    "created_at",
+                ],
+                "order": ["-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        result["items"] = [SaleDraftService.buildDraftData(item, request) for item in result["items"]]
+        return successResponse("Held carts retrieved successfully.", data=result)
+
+    @staticmethod
+    def getHeldCart(draft_id, request):
+        draft = commonQuery.findOneRecord(
+            CartDraft,
+            draft_id,
+            request=request,
+            tenant_config=True,
+        )
+        if draft is None or draft.get("draft_status") != "held":
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Held cart not found.")
+        return successResponse(
+            "Held cart retrieved successfully.",
+            data=SaleDraftService.buildDraftData(draft, request),
+        )
+
+    @staticmethod
+    def deleteHeldCart(draft_id, request):
+        draft = commonQuery.findOneRecord(
+            CartDraft,
+            draft_id,
+            request=request,
+            tenant_config=True,
+        )
+        if draft is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Held cart not found.")
+        commonQuery.updateRecordById(
+            CartDraft,
+            draft_id,
+            {"status": 2, "deleted_at": timezone.now()},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Held cart deleted successfully.")
+
+    @staticmethod
     def create(data, request):
         if not data.get("items"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one sale item is required.")
@@ -1224,6 +1702,22 @@ class SaleService:
             customer = SaleCustomerService.applyCustomerImpact(sale_order, request)
             reward = SaleRewardService.processRewards(sale_order, request) if settings.enable_customer_rewards else None
 
+            if data.get("draft_id"):
+                draft = commonQuery.findOneRecord(
+                    CartDraft,
+                    data["draft_id"],
+                    request=request,
+                    tenant_config=True,
+                )
+                if draft:
+                    commonQuery.updateRecordById(
+                        CartDraft,
+                        draft["id"],
+                        {"draft_status": "converted"},
+                        request=request,
+                        tenant_config=True,
+                    )
+
             return successResponse(
                 "Sale created successfully.",
                 data={
@@ -1233,6 +1727,143 @@ class SaleService:
                     "customer": customer,
                     "reward": reward,
                     "paid_amount": paid_amount,
+                },
+            )
+
+    @staticmethod
+    def void(sale_order_id, data, request):
+        with transaction.atomic():
+            sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+            if sale_order.get("payment_status") == "void":
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Sale is already void.")
+            if sale_order.get("payment_status") in ["refunded", "partially_refunded"]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Refunded sale cannot be voided.")
+
+            payments = commonQuery.findAllRecords(
+                SalePayment,
+                {"sale_order_id": sale_order_id},
+                {"attributes": ["id", "amount"]},
+                request=request,
+                tenant_config=True,
+            )
+            paid_amount = sum([money(payment.get("amount")) for payment in payments], Decimal("0"))
+            if paid_amount > 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid sale cannot be voided. Use refund flow instead.")
+
+            returns = commonQuery.findAllRecords(
+                ReturnOrder,
+                {"sale_order_id": sale_order_id},
+                {"attributes": ["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            if returns:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Returned sale cannot be voided.")
+
+            SaleDraftService.reverseAppliedCoupons(sale_order_id, request)
+            SaleDraftService.reverseRewards(sale_order, request)
+            SaleVoidService.reverseCustomerImpact(sale_order, request)
+            SaleVoidService.restockSale(sale_order, request)
+
+            updated = commonQuery.updateRecordById(
+                SaleOrder,
+                sale_order_id,
+                {
+                    "payment_status": "void",
+                    "note": (sale_order.get("note") or "") + (
+                        f"\nVoid Note: {data.get('note')}" if data.get("note") else ""
+                    ),
+                },
+                request=request,
+                tenant_config=True,
+            )
+            return successResponse("Sale voided successfully.", data=updated)
+
+    @staticmethod
+    def collectDue(sale_order_id, data, request):
+        with transaction.atomic():
+            sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+            if sale_order.get("payment_status") in ["void", "refunded"]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Due cannot be collected for this sale.")
+
+            remaining_due = money(sale_order.get("due_amount"))
+            if remaining_due <= 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "This sale does not have any due amount.")
+            if not data.get("payments"):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one payment is required.")
+
+            settings = getBusinessSettings(request.user)
+            shift = getCurrentShift(
+                request,
+                data.get("shift_id"),
+                required=bool(settings.enable_cash_registers),
+            )
+            customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
+            payment_summary = SalePaymentService.collectDuePayments(
+                sale_order,
+                data.get("payments") or [],
+                shift,
+                customer,
+                settings,
+                request,
+            )
+            collected_amount = payment_summary["paid_amount"]
+            if collected_amount <= 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Collected amount must be greater than 0.")
+            if collected_amount > remaining_due:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Collected amount cannot exceed remaining due amount.")
+
+            next_due = max(remaining_due - collected_amount, Decimal("0"))
+            next_tendered = money(sale_order.get("tendered_amount")) + collected_amount
+            next_status = "paid" if next_due == 0 else "partially_paid"
+
+            updated_sale = commonQuery.updateRecordById(
+                SaleOrder,
+                sale_order_id,
+                {
+                    "due_amount": next_due,
+                    "tendered_amount": next_tendered,
+                    "payment_status": next_status,
+                    "final_payment_date": timezone.now() if next_due == 0 else sale_order.get("final_payment_date"),
+                    "note": (sale_order.get("note") or "") + (
+                        f"\nDue Collection Note: {data.get('note')}" if data.get("note") else ""
+                    ),
+                },
+                request=request,
+                tenant_config=True,
+            )
+
+            if customer and collected_amount > 0:
+                next_owed_amount = max(money(customer.get("owed_amount")) - collected_amount, Decimal("0"))
+                commonQuery.updateRecordById(
+                    Customer,
+                    customer["id"],
+                    {"owed_amount": next_owed_amount},
+                    request=request,
+                    tenant_config=True,
+                )
+                commonQuery.createRecord(
+                    CustomerCreditLedger,
+                    {
+                        "customer_id": customer["id"],
+                        "amount": collected_amount,
+                        "direction": "decrease",
+                        "balance_after": next_owed_amount,
+                        "reason": "sale_due_collection",
+                        "reference_type": "sale_order",
+                        "reference_id": sale_order_id,
+                        "note": data.get("note") or f"Due collected for sale {sale_order['code']}",
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+
+            refreshed_sale = SaleService.buildSaleDetail(sale_order_id, request)
+            return successResponse(
+                "Due collected successfully.",
+                data={
+                    **refreshed_sale,
+                    "collected_amount": collected_amount,
                 },
             )
 

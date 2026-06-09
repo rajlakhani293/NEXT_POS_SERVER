@@ -21,6 +21,7 @@ class SalePaymentIn(Schema):
 
 
 class SaleCreateIn(Schema):
+    draft_id: Optional[int] = None
     customer_id: Optional[int] = None
     register_id: Optional[int] = None
     shift_id: Optional[int] = None
@@ -47,6 +48,24 @@ class SaleListIn(Schema):
     sortBy: Optional[str] = None
     sortDirection: Optional[str] = None
     filter: Optional[dict] = None
+
+
+class SaleHoldIn(Schema):
+    customer_id: Optional[int] = None
+    coupon_codes: List[str] = []
+    note: str = ""
+    items: List[SaleItemIn]
+    payments: List[SalePaymentIn] = []
+
+
+class SaleVoidIn(Schema):
+    note: str = ""
+
+
+class SaleCollectDueIn(Schema):
+    shift_id: Optional[int] = None
+    note: str = ""
+    payments: List[SalePaymentIn]
 
 
 class SaleReturnItemIn(Schema):

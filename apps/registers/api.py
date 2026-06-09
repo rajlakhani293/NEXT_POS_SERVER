@@ -49,6 +49,24 @@ def getAllShifts(request, payload: dict = None):
     return CashierShiftService.getAll(payload, request)
 
 
+@router.get("/shifts/{shift_id}", response=ApiResponse)
+@permission_required("cash_register_view")
+def getShiftById(request, shift_id: int):
+    return CashierShiftService.getById(shift_id, request)
+
+
+@router.post("/shifts/{shift_id}/entries/get-transactions", response=ApiResponse)
+@permission_required("cash_register_view")
+def getShiftEntries(request, shift_id: int, payload: dict = None):
+    return CashierShiftService.getEntries(shift_id, payload, request)
+
+
+@router.get("/shifts/{shift_id}/z-report", response=ApiResponse)
+@permission_required("cash_register_view")
+def getShiftZReport(request, shift_id: int):
+    return CashierShiftService.getZReport(shift_id, request)
+
+
 @router.post("/shifts/cash-in", response=ApiResponse)
 @permission_required("cash_register_cash_in")
 def cashIn(request, payload: CashMovementIn):

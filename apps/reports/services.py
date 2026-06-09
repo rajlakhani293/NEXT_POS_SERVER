@@ -1,9 +1,11 @@
 # type: ignore
+from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, Sum, Value
+from django.db.models import Count, DecimalField, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.db.models.functions import TruncDate
 
 from apps.common.commonQuery import commonQuery
 from apps.common.helpers import jsonsafe
@@ -12,6 +14,7 @@ from apps.customers.models import Customer, CustomerCreditLedger
 from apps.expenses.models import ExpenseEntry
 from apps.inventory.models import StockLedger
 from apps.purchases.models import PurchaseOrder, Supplier
+from apps.registers.models import CashierShift
 from apps.reports.models import DashboardDay, DashboardMonth
 from apps.sales.models import SaleOrder
 
@@ -44,9 +47,16 @@ class ReportService:
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
         sales = SaleOrder.objects.filter(**sale_filters).aggregate(
             total_sales=Coalesce(Sum("total"), zero),
-            total_paid=Coalesce(Sum("paid_amount"), zero),
+            total_paid=Coalesce(Sum("tendered_amount"), zero),
             total_due=Coalesce(Sum("due_amount"), zero),
             order_count=Count("id"),
+            paid_orders=Count("id", filter=Q(payment_status="paid")),
+            partially_paid_orders=Count("id", filter=Q(payment_status="partially_paid")),
+            unpaid_orders=Count("id", filter=Q(payment_status="unpaid")),
+            refunded_orders=Count("id", filter=Q(payment_status="refunded")),
+            partially_refunded_orders=Count("id", filter=Q(payment_status="partially_refunded")),
+            void_orders=Count("id", filter=Q(payment_status="void")),
+            refund_total=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
         )
         purchases = PurchaseOrder.objects.filter(**base).aggregate(
             total_purchase=Coalesce(Sum("total"), zero),
@@ -65,6 +75,74 @@ class ReportService:
             total_supplier_payable=Coalesce(Sum("payable_amount"), zero),
             supplier_count=Count("id"),
         )
+        best_customers = list(
+            SaleOrder.objects.filter(**sale_filters)
+            .exclude(customer_id__isnull=True)
+            .values("customer_id", "customer__name")
+            .annotate(
+                order_count=Count("id"),
+                total_spent=Coalesce(Sum("total"), zero),
+            )
+            .order_by("-total_spent", "-order_count")[:5]
+        )
+        best_cashiers = list(
+            SaleOrder.objects.filter(**sale_filters)
+            .exclude(cashier_id__isnull=True)
+            .values("cashier_id", "cashier__full_name")
+            .annotate(
+                order_count=Count("id"),
+                total_sales=Coalesce(Sum("total"), zero),
+            )
+            .order_by("-total_sales", "-order_count")[:5]
+        )
+        recent_orders = list(
+            SaleOrder.objects.filter(**sale_filters)
+            .values(
+                "id",
+                "code",
+                "customer__name",
+                "cashier__full_name",
+                "payment_status",
+                "order_type",
+                "total",
+                "created_at",
+            )
+            .order_by("-created_at")[:8]
+        )
+        weekly_sales = list(
+            SaleOrder.objects.filter(**base, created_at__gte=timezone.now() - timedelta(days=6))
+            .annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(
+                total_sales=Coalesce(Sum("total"), zero),
+                order_count=Count("id"),
+            )
+            .order_by("day")
+        )
+        shift = (
+            CashierShift.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                shift_status="open",
+                status__in=[0, 1],
+            )
+            .order_by("-opened_at")
+            .values(
+                "id",
+                "register_id",
+                "register__name",
+                "cashier_id",
+                "cashier__full_name",
+                "opening_cash",
+                "expected_cash",
+                "total_sales_amount",
+                "total_refund_amount",
+                "total_cash_in",
+                "total_cash_out",
+                "opened_at",
+            )
+            .first()
+        )
         return successResponse(
             "Dashboard summary retrieved successfully.",
             data={
@@ -73,6 +151,11 @@ class ReportService:
                 "expenses": expenses,
                 "customers": customers,
                 "suppliers": suppliers,
+                "best_customers": best_customers,
+                "best_cashiers": best_cashiers,
+                "recent_orders": recent_orders,
+                "weekly_sales": weekly_sales,
+                "shift": shift,
             },
         )
 

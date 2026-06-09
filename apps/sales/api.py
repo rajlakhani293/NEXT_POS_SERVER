@@ -3,7 +3,14 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
-from apps.sales.schemas import SaleCreateIn, SaleListIn, SaleReturnCreateIn
+from apps.sales.schemas import (
+    SaleCollectDueIn,
+    SaleCreateIn,
+    SaleHoldIn,
+    SaleListIn,
+    SaleReturnCreateIn,
+    SaleVoidIn,
+)
 from apps.sales.services import SaleService
 
 
@@ -16,10 +23,34 @@ def createSale(request, payload: SaleCreateIn):
     return SaleService.create(payload.dict(), request)
 
 
+@router.post("/hold", response=ApiResponse)
+@permission_required("sales_create")
+def holdSale(request, payload: SaleHoldIn):
+    return SaleService.hold(payload.dict(), request)
+
+
 @router.post("/get-transactions", response=ApiResponse)
 @permission_required("sales_view")
 def listSales(request, payload: SaleListIn):
     return SaleService.listSales(payload.dict(), request)
+
+
+@router.post("/drafts/get-transactions", response=ApiResponse)
+@permission_required("sales_view")
+def listHeldSales(request, payload: SaleListIn):
+    return SaleService.listHeldCarts(payload.dict(), request)
+
+
+@router.get("/drafts/{draft_id}", response=ApiResponse)
+@permission_required("sales_view")
+def getHeldSale(request, draft_id: int):
+    return SaleService.getHeldCart(draft_id, request)
+
+
+@router.delete("/drafts/{draft_id}", response=ApiResponse)
+@permission_required("sales_update")
+def deleteHeldSale(request, draft_id: int):
+    return SaleService.deleteHeldCart(draft_id, request)
 
 
 @router.get("/{sale_order_id}", response=ApiResponse)
@@ -38,6 +69,18 @@ def getSaleReceipt(request, sale_order_id: int):
 @permission_required("refund_order")
 def createSaleReturn(request, sale_order_id: int, payload: SaleReturnCreateIn):
     return SaleService.createReturn(sale_order_id, payload.dict(), request)
+
+
+@router.post("/{sale_order_id}/void", response=ApiResponse)
+@permission_required("sales_void")
+def voidSale(request, sale_order_id: int, payload: SaleVoidIn):
+    return SaleService.void(sale_order_id, payload.dict(), request)
+
+
+@router.post("/{sale_order_id}/collect-due", response=ApiResponse)
+@permission_required("payments_collect_due")
+def collectSaleDue(request, sale_order_id: int, payload: SaleCollectDueIn):
+    return SaleService.collectDue(sale_order_id, payload.dict(), request)
 
 
 @router.get("/{sale_order_id}/refunds", response=ApiResponse)

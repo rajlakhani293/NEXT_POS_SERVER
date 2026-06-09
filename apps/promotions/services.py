@@ -10,10 +10,12 @@ from apps.common.helpers import buildUniqueValue
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerGroup
 from apps.promotions.models import (
+    AppliedCoupon,
     Coupon,
     CouponCategory,
     CouponCustomer,
     CouponCustomerGroup,
+    CustomerCoupon,
     CouponProduct,
 )
 
@@ -253,3 +255,95 @@ class CouponService:
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Coupon not found.")
         return successResponse("Coupon status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getCustomerCoupons(customer_id, data, request):
+        customer = commonQuery.findOneRecord(
+            Customer,
+            customer_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+
+        result = commonQuery.fetchPaginatedData(
+            CustomerCoupon,
+            {
+                **(data or {}),
+                "filter": {
+                    **((data or {}).get("filter") or {}),
+                    "customer_id": customer_id,
+                },
+            },
+            [["code", True, True], ["coupon__name", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "coupon_id",
+                    "coupon__name",
+                    "customer_id",
+                    "code",
+                    "issued_at",
+                    "expires_at",
+                    "usage_count",
+                    "is_redeemed",
+                    "redeemed_at",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer coupons retrieved successfully.", data=result)
+
+    @staticmethod
+    def getCustomerCouponHistory(customer_id, customer_coupon_id, data, request):
+        customer = commonQuery.findOneRecord(
+            Customer,
+            customer_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+
+        customer_coupon = commonQuery.findOneRecord(
+            CustomerCoupon,
+            {"id": customer_coupon_id, "customer_id": customer_id},
+            request=request,
+            tenant_config=True,
+        )
+        if customer_coupon is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer coupon not found.")
+
+        result = commonQuery.fetchPaginatedData(
+            AppliedCoupon,
+            {
+                **(data or {}),
+                "filter": {
+                    **((data or {}).get("filter") or {}),
+                    "customer_coupon_id": customer_coupon_id,
+                },
+            },
+            [["sale_order__code", True, True], ["code", True, True], ["type", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "sale_order_id",
+                    "sale_order__code",
+                    "coupon_id",
+                    "customer_coupon_id",
+                    "code",
+                    "type",
+                    "discount_value",
+                    "discount_amount",
+                    "created_at",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        result["customer_coupon"] = customer_coupon
+        return successResponse("Customer coupon history retrieved successfully.", data=result)
