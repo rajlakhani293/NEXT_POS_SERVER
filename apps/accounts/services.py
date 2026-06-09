@@ -5,9 +5,11 @@ import os
 from datetime import timedelta
 from typing import Optional
 
+from django.apps import apps
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
 from google.auth.transport import requests as google_requests
@@ -504,6 +506,167 @@ class AccountsService:
         return {"logged_out": True}
 
     @staticmethod
+    def _modelHasField(model, field_name: str):
+        return any(field.name == field_name for field in model._meta.get_fields())
+
+    @staticmethod
+    def _deleteQueryset(label: str, queryset, deleted_summary: dict):
+        count = queryset.count()
+        if count == 0:
+            return 0
+        deleted_count, deleted_map = queryset.delete()
+        deleted_summary[label] = deleted_summary.get(label, 0) + count
+        for model_label, model_count in deleted_map.items():
+            deleted_summary[model_label] = deleted_summary.get(model_label, 0) + model_count
+        return deleted_count
+
+    @staticmethod
+    def _deleteCompanyScopedModels(company_id: int):
+        deleted_summary = {}
+        blocked_labels = {}
+
+        ordered_labels = [
+            "sales.ExchangeOrderLink",
+            "payments.RefundPayment",
+            "sales.ReturnItemTax",
+            "sales.ReturnItem",
+            "sales.ReturnOrder",
+            "payments.SalePayment",
+            "promotions.AppliedCoupon",
+            "sales.SaleTax",
+            "sales.SaleCoupon",
+            "sales.SaleStorage",
+            "sales.SaleSetting",
+            "sales.SaleAddress",
+            "sales.SaleNote",
+            "sales.InstallmentLine",
+            "sales.InstallmentPlan",
+            "sales.SaleItem",
+            "sales.SaleOrder",
+            "sales.CartDraft",
+            "purchases.PurchasePayment",
+            "purchases.PurchaseItem",
+            "purchases.PurchaseOrder",
+            "inventory.StockLedger",
+            "inventory.StockLot",
+            "inventory.StockTransferItem",
+            "inventory.StockTransfer",
+            "inventory.StockAdjustment",
+            "inventory.LowStockAlert",
+            "registers.CashRegisterEntry",
+            "reports.DayClosing",
+            "expenses.ExpenseEntry",
+            "registers.CashierShift",
+            "catalog.ProductHistoryCombined",
+            "catalog.ProductHistory",
+            "catalog.ProductTax",
+            "catalog.ProductUnitQuantity",
+            "catalog.ProductSubItem",
+            "catalog.ProductGallery",
+            "promotions.CustomerCoupon",
+            "rewards.RewardRedemption",
+            "rewards.CustomerRewardBalance",
+            "rewards.RewardRule",
+            "rewards.RewardSystem",
+            "promotions.CouponProduct",
+            "promotions.CouponCategory",
+            "promotions.CouponCustomer",
+            "promotions.CouponCustomerGroup",
+            "promotions.Coupon",
+            "customers.CustomerWalletTransaction",
+            "customers.CustomerCreditLedger",
+            "customers.CustomerAccountHistory",
+            "customers.CustomerAddress",
+            "customers.Customer",
+            "customers.CustomerGroup",
+            "catalog.Product",
+            "catalog.Tax",
+            "catalog.TaxGroup",
+            "catalog.Unit",
+            "catalog.UnitGroup",
+            "catalog.Brand",
+            "catalog.Category",
+            "catalog.ScaleRange",
+            "accounting.TransactionHistory",
+            "accounting.ActiveTransactionHistory",
+            "accounting.Transaction",
+            "accounting.TransactionBalanceDay",
+            "accounting.TransactionBalanceMonth",
+            "accounting.TransactionActionRule",
+            "accounting.TransactionAccount",
+            "expenses.ExpenseCategory",
+            "payments.PaymentType",
+            "registers.CashRegister",
+            "settingsapi.Setting",
+            "settingsapi.Option",
+            "settingsapi.BusinessSetting",
+            "reports.SalesSummarySnapshot",
+            "reports.DashboardDay",
+            "reports.DashboardMonth",
+            "notifications.Notification",
+            "mediahub.Media",
+            "audit.AuditLog",
+            "accounts.UserRoleRelation",
+            "accounts.PermissionAccess",
+            "accounts.UserScope",
+            "accounts.Role",
+            "organizations.Branch",
+        ]
+
+        def delete_model(model):
+            if not AccountsService._modelHasField(model, "company"):
+                return 0
+            queryset = model.objects.filter(company_id=company_id)
+            return AccountsService._deleteQueryset(model._meta.label, queryset, deleted_summary)
+
+        for label in ordered_labels:
+            try:
+                model = apps.get_model(label)
+            except LookupError:
+                continue
+            try:
+                delete_model(model)
+                blocked_labels.pop(model._meta.label, None)
+            except (ProtectedError, RestrictedError) as err:
+                blocked_labels[model._meta.label] = str(err)
+
+        company_scoped_models = [
+            model
+            for model in apps.get_models()
+            if model._meta.label not in ["organizations.Company", "accounts.User"]
+            and AccountsService._modelHasField(model, "company")
+        ]
+
+        for _attempt in range(8):
+            deleted_any = False
+            for model in company_scoped_models:
+                try:
+                    deleted_count = delete_model(model)
+                    if deleted_count:
+                        deleted_any = True
+                    blocked_labels.pop(model._meta.label, None)
+                except (ProtectedError, RestrictedError) as err:
+                    blocked_labels[model._meta.label] = str(err)
+            if not deleted_any:
+                break
+
+        remaining = {}
+        for model in company_scoped_models:
+            count = model.objects.filter(company_id=company_id).count()
+            if count:
+                remaining[model._meta.label] = count
+
+        if remaining:
+            raise api_error(
+                500,
+                ErrorCodes.SERVER_ERROR,
+                "Workspace cleanup could not delete all company related records.",
+                data={"remaining": remaining, "blocked": blocked_labels},
+            )
+
+        return deleted_summary
+
+    @staticmethod
     def deleteWorkspace(user: User):
         if user is None or not user.company_id:
             raise api_error(
@@ -544,15 +707,25 @@ class AccountsService:
         )
 
         with transaction.atomic():
-            deleted_company_count, _ = Company.objects.filter(id=company.id).delete()
+            token_count, _ = AccessToken.objects.filter(user_id__in=user_ids).delete()
+            user_attribute_model = apps.get_model("accounts", "UserAttribute")
+            user_widget_model = apps.get_model("accounts", "UserWidget")
+            user_attribute_count, _ = user_attribute_model.objects.filter(user_id__in=user_ids).delete()
+            user_widget_count, _ = user_widget_model.objects.filter(user_id__in=user_ids).delete()
+            tenant_deleted_summary = AccountsService._deleteCompanyScopedModels(company.id)
             deleted_user_count, _ = User.objects.filter(id__in=user_ids).delete()
             deleted_otp_count, _ = OtpRequest.objects.filter(phone__in=phones).delete()
+            deleted_company_count, _ = Company.objects.filter(id=company.id).delete()
 
         return {
             "company_id": company.id,
             "branch_ids": branch_ids,
             "role_ids": role_ids,
             "user_ids": user_ids,
+            "deleted_access_token_count": token_count,
+            "deleted_user_attribute_count": user_attribute_count,
+            "deleted_user_widget_count": user_widget_count,
+            "deleted_tenant_records": tenant_deleted_summary,
             "deleted_company_count": deleted_company_count,
             "deleted_user_count": deleted_user_count,
             "deleted_otp_count": deleted_otp_count,
