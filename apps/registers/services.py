@@ -32,6 +32,19 @@ def hydrateShift(shift):
 
 class RegisterService:
     @staticmethod
+    def ensureDefaultRegister(company, branch):
+        register, _created = CashRegister.objects.get_or_create(
+            company_id=company.id,
+            branch_id=branch.id,
+            code="main-register",
+            defaults={
+                "name": "Main Register",
+                "location": "Main Branch",
+            },
+        )
+        return register
+
+    @staticmethod
     def getDefaultRegister(request):
         register = commonQuery.findOneRecord(
             CashRegister,
@@ -59,13 +72,107 @@ class RegisterService:
         registers = commonQuery.findAllRecords(
             CashRegister,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name", "code", "location"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
         if not registers:
             registers = [RegisterService.getDefaultRegister(request)]
         return successResponse("Dropdown list retrieved successfully.", data=registers)
+
+    @staticmethod
+    def create(data, request):
+        data["code"] = buildCode(CashRegister, data.get("name"), data.get("code"), request)
+        register = commonQuery.createRecord(CashRegister, data, request=request, tenant_config=True)
+        return successResponse("Cash register created successfully.", data=register)
+
+    @staticmethod
+    def getAll(data, request):
+        result = commonQuery.fetchPaginatedData(
+            CashRegister,
+            data,
+            [["name", True, True], ["code", True, True], ["location", True, True]],
+            {"attributes": ["id", "name", "code", "location", "status", "created_at"]},
+            request=request,
+            tenant_config=True,
+        )
+        open_register_ids = set(
+            CashierShift.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                shift_status="open",
+                status__in=[0, 1],
+            ).values_list("register_id", flat=True)
+        )
+        for item in result["items"]:
+            item["is_open"] = item["id"] in open_register_ids
+        return successResponse("Cash registers retrieved successfully.", data=result)
+
+    @staticmethod
+    def getById(register_id, request):
+        register = commonQuery.findOneRecord(CashRegister, register_id, request=request, tenant_config=True)
+        if register is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
+        register["is_open"] = CashierShift.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            register_id=register_id,
+            shift_status="open",
+            status__in=[0, 1],
+        ).exists()
+        return successResponse("Cash register retrieved successfully.", data=register)
+
+    @staticmethod
+    def update(register_id, data, request):
+        if data.get("code"):
+            data["code"] = buildCode(
+                CashRegister,
+                data.get("name") or "Cash Register",
+                data.get("code"),
+                request,
+                exclude_id=register_id,
+            )
+        updated = commonQuery.updateRecordById(CashRegister, register_id, data, request=request, tenant_config=True)
+        if updated is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
+        return successResponse("Cash register updated successfully.", data=updated)
+
+    @staticmethod
+    def delete(data, request):
+        ids = data.get("ids")
+        register_ids = ids if isinstance(ids, list) else [ids]
+        if CashierShift.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            register_id__in=register_ids,
+            shift_status="open",
+            status__in=[0, 1],
+        ).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Cannot delete a cash register that is currently open.")
+        count = commonQuery.softDeleteById(CashRegister, ids, request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
+        return successResponse("Cash registers deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
+        ids = data.get("ids")
+        register_ids = ids if isinstance(ids, list) else [ids]
+        if status == 1 and CashierShift.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            register_id__in=register_ids,
+            shift_status="open",
+            status__in=[0, 1],
+        ).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Cannot deactivate a cash register that is currently open.")
+        count = commonQuery.updateStatusById(CashRegister, ids, status, request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
+        return successResponse("Cash register status updated successfully.", data={"updated_count": count, "status": status})
 
 
 class CashierShiftService:
@@ -106,6 +213,18 @@ class CashierShiftService:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
             else:
                 register = RegisterService.getDefaultRegister(request)
+
+            if register.get("status") != 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Cash register is not active.")
+
+            register_in_use = commonQuery.findOneRecord(
+                CashierShift,
+                {"register_id": register["id"], "shift_status": "open"},
+                request=request,
+                tenant_config=True,
+            )
+            if register_in_use:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Cash register is already open.")
 
             opening_cash = data.get("opening_cash") or 0
             shift = commonQuery.createRecord(
@@ -349,6 +468,40 @@ class CashierShiftService:
         return successResponse("Z report retrieved successfully.", data=data)
 
     @staticmethod
+    def refresh(shift_id, request):
+        shift = commonQuery.findOneRecord(CashierShift, shift_id, request=request, tenant_config=True)
+        if shift is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Shift not found.")
+
+        entries = CashRegisterEntry.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            shift_id=shift_id,
+            status__in=[0, 1],
+        )
+        opening = entries.filter(entry_type="opening").aggregate(total=Sum("amount")).get("total") or Decimal("0")
+        sale_payments = entries.filter(entry_type="sale_payment").aggregate(total=Sum("amount")).get("total") or Decimal("0")
+        cash_in = entries.filter(entry_type="cash_in").aggregate(total=Sum("amount")).get("total") or Decimal("0")
+        refunds = entries.filter(entry_type="refund").aggregate(total=Sum("amount")).get("total") or Decimal("0")
+        cash_out = entries.filter(entry_type__in=["cash_out", "expense", "change_given"]).aggregate(total=Sum("amount")).get("total") or Decimal("0")
+        expected_cash = opening + sale_payments + cash_in - refunds - cash_out
+        updated = commonQuery.updateRecordById(
+            CashierShift,
+            shift_id,
+            {
+                "opening_cash": opening,
+                "expected_cash": expected_cash,
+                "total_sales_amount": sale_payments,
+                "total_refund_amount": refunds,
+                "total_cash_in": cash_in,
+                "total_cash_out": cash_out,
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Shift refreshed successfully.", data=hydrateShift(updated))
+
+    @staticmethod
     def cashMovement(data, request, movement_type):
         if movement_type not in ["cash_in", "cash_out"]:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid cash movement.")
@@ -364,6 +517,8 @@ class CashierShiftService:
 
             balance_before = Decimal(str(shift.get("expected_cash") or 0))
             balance_after = balance_before + amount if movement_type == "cash_in" else balance_before - amount
+            if movement_type == "cash_out" and balance_after < 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Not enough cash in register.")
             shift_updates = {"expected_cash": balance_after}
             if movement_type == "cash_in":
                 shift_updates["total_cash_in"] = Decimal(str(shift.get("total_cash_in") or 0)) + amount

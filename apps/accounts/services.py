@@ -23,6 +23,7 @@ from apps.common.helpers import serializeModelInstance
 from apps.expenses.services import ExpenseCategoryService
 from apps.organizations.models import Branch, Company
 from apps.payments.services import PaymentTypeService
+from apps.registers.services import RegisterService
 from apps.settingsapi.services import BusinessSettingService
 
 
@@ -267,6 +268,7 @@ class AccountsService:
         BusinessSettingService.ensureCompanySettings(company)
         PaymentTypeService.ensureDefaultPaymentTypes(company, branch)
         ExpenseCategoryService.ensureDefaultCategories(company, branch)
+        RegisterService.ensureDefaultRegister(company, branch)
         role = Role.objects.filter(company_id=company.id, code="administrator").first()
         if role is None:
             raise api_error(

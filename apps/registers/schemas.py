@@ -13,6 +13,19 @@ class StatusUpdateSchema(Schema):
     status: int
 
 
+class CashRegisterIn(Schema):
+    name: str
+    code: Optional[str] = None
+    location: str = ""
+
+
+class CashRegisterUpdateIn(Schema):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[int] = None
+
+
 class OpenShiftIn(Schema):
     register_id: Optional[int] = None
     opening_cash: Decimal = Decimal("0")
