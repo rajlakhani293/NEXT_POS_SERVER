@@ -45,3 +45,57 @@ def stockLedger(request, payload: Optional[dict] = None):
 @permission_required("reports_view")
 def customerCreditLedger(request, payload: Optional[dict] = None):
     return ReportService.customerCreditLedger(payload, request)
+
+
+@router.post("/sale-report", response=ApiResponse)
+@permission_required("reports_view")
+def saleReport(request, payload: Optional[dict] = None):
+    return ReportService.saleReport(payload, request)
+
+
+@router.post("/sold-stock-report", response=ApiResponse)
+@permission_required("reports_view")
+def soldStockReport(request, payload: Optional[dict] = None):
+    return ReportService.soldStockReport(payload, request)
+
+
+@router.post("/profit-report", response=ApiResponse)
+@permission_required("reports_view")
+def profitReport(request, payload: Optional[dict] = None):
+    return ReportService.profitReport(payload, request)
+
+
+@router.post("/payment-types", response=ApiResponse)
+@permission_required("reports_view")
+def paymentTypesReport(request, payload: Optional[dict] = None):
+    return ReportService.paymentTypesReport(payload, request)
+
+
+@router.post("/products-report", response=ApiResponse)
+@permission_required("reports_view")
+def productsReport(request, payload: Optional[dict] = None):
+    return ReportService.productsReport(payload, request)
+
+
+@router.post("/low-stock", response=ApiResponse)
+@permission_required("reports_view")
+def lowStockReport(request, payload: Optional[dict] = None):
+    return ReportService.lowStockReport(payload, request)
+
+
+@router.post("/stock-report", response=ApiResponse)
+@permission_required("reports_view")
+def stockReport(request, payload: Optional[dict] = None):
+    return ReportService.stockReport(payload, request)
+
+
+@router.post("/cashier-report", response=ApiResponse)
+@permission_required("reports_view")
+def cashierReport(request, payload: Optional[dict] = None):
+    return ReportService.cashierReport(payload, request)
+
+
+@router.post("/customers-statement/{customer_id}", response=ApiResponse)
+@permission_required("reports_view")
+def customerStatement(request, customer_id: int, payload: Optional[dict] = None):
+    return ReportService.customerStatement(customer_id, payload, request)

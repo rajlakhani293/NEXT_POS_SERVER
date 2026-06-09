@@ -2,7 +2,7 @@
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, Q, Sum, Value
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.db.models.functions import TruncDate
@@ -13,10 +13,12 @@ from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCreditLedger
 from apps.expenses.models import ExpenseEntry
 from apps.inventory.models import StockLedger
+from apps.payments.models import SalePayment
 from apps.purchases.models import PurchaseOrder, Supplier
 from apps.registers.models import CashierShift
 from apps.reports.models import DashboardDay, DashboardMonth
-from apps.sales.models import SaleOrder
+from apps.catalog.models import Product
+from apps.sales.models import SaleItem, SaleOrder
 
 
 def tenantFilter(request):
@@ -36,6 +38,26 @@ def dateFilter(field, data):
     if data.get("endDate"):
         filters[f"{field}__lte"] = data.get("endDate")
     return filters
+
+
+def paginatedResponse(queryset, data):
+    data = data or {}
+    page = int(data.get("page") or 1)
+    limit = int(data.get("limit") or 10)
+    offset = (page - 1) * limit
+    total = queryset.count()
+    rows = list(queryset[offset : offset + limit])
+    return {
+        "items": jsonsafe(rows),
+        "total": total,
+        "totals": {},
+        "currentPage": page,
+        "pageSize": limit,
+        "totalPages": (total + (limit - 1)) // (limit or 1),
+        "hasNextPage": (offset + limit) < total,
+        "hasPreviousPage": page > 1,
+        "appliedFilters": data,
+    }
 
 
 class ReportService:
@@ -275,3 +297,252 @@ class ReportService:
             tenant_config=True,
         )
         return successResponse("Customer credit report retrieved successfully.", data=result)
+
+    @staticmethod
+    def saleReport(data, request):
+        result = commonQuery.fetchPaginatedData(
+            SaleOrder,
+            data,
+            [["code", True, True], ["customer__name", True, True], ["cashier__full_name", True, True], ["payment_status", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "code",
+                    "customer__name",
+                    "cashier__full_name",
+                    "order_type",
+                    "payment_status",
+                    "subtotal",
+                    "discount_amount",
+                    "tax_amount",
+                    "total",
+                    "tendered_amount",
+                    "due_amount",
+                    "total_items",
+                    "total_quantity",
+                    "created_at",
+                    "status",
+                ],
+                "sumField": ["total", "tendered_amount", "due_amount"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Sale report retrieved successfully.", data=result)
+
+    @staticmethod
+    def soldStockReport(data, request):
+        field_config = [["product__name", True, True], ["sale_order__code", True, True]]
+        result = commonQuery.fetchPaginatedData(
+            SaleItem,
+            data,
+            field_config,
+            {
+                "attributes": [
+                    "id",
+                    "sale_order_id",
+                    "sale_order__code",
+                    "product_id",
+                    "product__name",
+                    "quantity",
+                    "unit_price",
+                    "discount_amount",
+                    "tax_amount",
+                    "total",
+                    "cost_price",
+                    "created_at",
+                    "status",
+                ],
+                "sumField": ["quantity", "total"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Sold stock report retrieved successfully.", data=result)
+
+    @staticmethod
+    def profitReport(data, request):
+        base = tenantFilter(request)
+        filters = {**base, **dateFilter("created_at", data)}
+        zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
+        queryset = SaleItem.objects.filter(**filters).annotate(
+            cost_total=ExpressionWrapper(
+                F("quantity") * F("cost_price"),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+            profit_amount=ExpressionWrapper(
+                F("total") - (F("quantity") * F("cost_price")),
+                output_field=DecimalField(max_digits=14, decimal_places=2),
+            ),
+        )
+        search = (data or {}).get("search")
+        if search:
+            queryset = queryset.filter(Q(product__name__icontains=search) | Q(sale_order__code__icontains=search))
+        summary = queryset.aggregate(
+            total_sales=Coalesce(Sum("total"), zero),
+            total_cost=Coalesce(Sum("cost_total"), zero),
+            total_profit=Coalesce(Sum("profit_amount"), zero),
+            item_count=Count("id"),
+        )
+        rows = queryset.values(
+            "id",
+            "sale_order_id",
+            "sale_order__code",
+            "product_id",
+            "product__name",
+            "quantity",
+            "total",
+            "cost_total",
+            "profit_amount",
+            "created_at",
+        ).order_by("-created_at", "-id")
+        result = paginatedResponse(rows, data)
+        result["totals"] = summary
+        return successResponse("Profit report retrieved successfully.", data=result)
+
+    @staticmethod
+    def paymentTypesReport(data, request):
+        result = commonQuery.fetchPaginatedData(
+            SalePayment,
+            data,
+            [["payment_type", True, True], ["reference_number", True, True], ["sale_order__code", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "sale_order_id",
+                    "sale_order__code",
+                    "payment_type",
+                    "shift_id",
+                    "amount",
+                    "paid_at",
+                    "reference_number",
+                    "note",
+                    "status",
+                ],
+                "sumField": ["amount"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Payment types report retrieved successfully.", data=result)
+
+    @staticmethod
+    def productsReport(data, request):
+        queryset = Product.objects.filter(**tenantFilter(request)).annotate(
+            sold_quantity=Coalesce(Sum("sale_items__quantity"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=3))),
+            sold_amount=Coalesce(Sum("sale_items__total"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
+        )
+        search = (data or {}).get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
+        rows = queryset.values(
+            "id",
+            "name",
+            "sku",
+            "barcode",
+            "product_type",
+            "current_stock",
+            "min_stock",
+            "purchase_price",
+            "selling_price",
+            "sold_quantity",
+            "sold_amount",
+            "status",
+        ).order_by("name")
+        return successResponse("Products report retrieved successfully.", data=paginatedResponse(rows, data))
+
+    @staticmethod
+    def lowStockReport(data, request):
+        queryset = Product.objects.filter(
+            **tenantFilter(request),
+            track_stock=True,
+            current_stock__lte=F("min_stock"),
+        ).values(
+            "id",
+            "name",
+            "sku",
+            "barcode",
+            "current_stock",
+            "min_stock",
+            "max_stock",
+            "purchase_price",
+            "selling_price",
+            "status",
+        ).order_by("current_stock", "name")
+        search = (data or {}).get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
+        return successResponse("Low stock report retrieved successfully.", data=paginatedResponse(queryset, data))
+
+    @staticmethod
+    def stockReport(data, request):
+        queryset = Product.objects.filter(**tenantFilter(request))
+        search = (data or {}).get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
+        rows = queryset.values(
+            "id",
+            "name",
+            "sku",
+            "barcode",
+            "product_type",
+            "track_stock",
+            "current_stock",
+            "opening_stock",
+            "min_stock",
+            "max_stock",
+            "purchase_price",
+            "selling_price",
+            "status",
+        ).order_by("name")
+        return successResponse("Stock report retrieved successfully.", data=paginatedResponse(rows, data))
+
+    @staticmethod
+    def cashierReport(data, request):
+        queryset = SaleOrder.objects.filter(**{**tenantFilter(request), **dateFilter("created_at", data)})
+        if not request.user.is_superuser:
+            queryset = queryset.filter(cashier_id=request.user.id)
+        rows = queryset.values("cashier_id", "cashier__full_name").annotate(
+            order_count=Count("id"),
+            total_sales=Coalesce(Sum("total"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
+            total_paid=Coalesce(Sum("tendered_amount"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
+            total_due=Coalesce(Sum("due_amount"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
+        ).order_by("-total_sales")
+        return successResponse("Cashier report retrieved successfully.", data=paginatedResponse(rows, data))
+
+    @staticmethod
+    def customerStatement(customer_id, data, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            return successResponse("Customer statement retrieved successfully.", data={"customer": None, "items": [], "total": 0})
+        result = commonQuery.fetchPaginatedData(
+            CustomerCreditLedger,
+            {
+                **(data or {}),
+                "filter": {
+                    **((data or {}).get("filter") or {}),
+                    "customer_id": customer_id,
+                },
+            },
+            [["direction", True, True], ["reason", True, True], ["note", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "customer_id",
+                    "customer__name",
+                    "amount",
+                    "direction",
+                    "balance_after",
+                    "reason",
+                    "reference_type",
+                    "reference_id",
+                    "created_at",
+                    "status",
+                ],
+                "sumField": ["amount"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        result["customer"] = customer
+        return successResponse("Customer statement retrieved successfully.", data=result)
