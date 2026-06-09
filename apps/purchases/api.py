@@ -7,9 +7,13 @@ from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
 from apps.purchases.schemas import (
     DeleteSchema,
+    PurchaseItemIn,
+    PurchaseItemUpdateIn,
     PurchaseOrderIn,
     PurchaseOrderUpdateIn,
     PurchasePaymentIn,
+    PurchasePaymentStatusIn,
+    PurchaseProductsBulkUpdateIn,
     PurchaseReceiveIn,
     StatusUpdateSchema,
     SupplierIn,
@@ -93,10 +97,52 @@ def getPurchaseOrderById(request, order_id: int):
     return PurchaseOrderService.getById(order_id, request)
 
 
+@router.get("/orders/{order_id}/products", response=ApiResponse)
+@permission_required("purchases_view")
+def getPurchaseOrderProducts(request, order_id: int):
+    return PurchaseOrderService.getOrderProducts(order_id, request)
+
+
+@router.get("/orders/{order_id}/refresh", response=ApiResponse)
+@permission_required("purchases_view")
+def refreshPurchaseOrder(request, order_id: int):
+    return PurchaseOrderService.refresh(order_id, request)
+
+
 @router.put("/orders/{order_id}", response=ApiResponse)
 @permission_required("purchases_update")
 def updatePurchaseOrder(request, order_id: int, payload: PurchaseOrderUpdateIn):
     return PurchaseOrderService.update(order_id, payload.dict(exclude_none=True), request)
+
+
+@router.put("/orders/{order_id}/change-payment-status", response=ApiResponse)
+@permission_required("purchases_update")
+def changePurchasePaymentStatus(request, order_id: int, payload: PurchasePaymentStatusIn):
+    return PurchaseOrderService.changePaymentStatus(order_id, payload.dict(exclude_none=True), request)
+
+
+@router.post("/orders/{order_id}/products", response=ApiResponse)
+@permission_required("purchases_create")
+def addPurchaseOrderProduct(request, order_id: int, payload: PurchaseItemIn):
+    return PurchaseOrderService.addProduct(order_id, payload.dict(), request)
+
+
+@router.put("/orders/{order_id}/products/{purchase_item_id}", response=ApiResponse)
+@permission_required("purchases_update")
+def updatePurchaseOrderProduct(request, order_id: int, purchase_item_id: int, payload: PurchaseItemUpdateIn):
+    return PurchaseOrderService.editProduct(order_id, purchase_item_id, payload.dict(exclude_none=True), request)
+
+
+@router.put("/orders/{order_id}/products", response=ApiResponse)
+@permission_required("purchases_update")
+def bulkUpdatePurchaseOrderProducts(request, order_id: int, payload: PurchaseProductsBulkUpdateIn):
+    return PurchaseOrderService.bulkUpdateProducts(order_id, payload.dict(), request)
+
+
+@router.delete("/orders/{order_id}/products/{purchase_item_id}", response=ApiResponse)
+@permission_required("purchases_update")
+def deletePurchaseOrderProduct(request, order_id: int, purchase_item_id: int):
+    return PurchaseOrderService.deleteProduct(order_id, purchase_item_id, request)
 
 
 @router.post("/orders/{order_id}/receive", response=ApiResponse)
@@ -109,3 +155,39 @@ def receivePurchaseOrder(request, order_id: int, payload: PurchaseReceiveIn):
 @permission_required("purchases_pay")
 def payPurchaseOrder(request, order_id: int, payload: PurchasePaymentIn):
     return PurchaseOrderService.pay(order_id, payload.dict(), request)
+
+
+@router.get("/orders/{order_id}/set-as-paid", response=ApiResponse)
+@permission_required("purchases_update")
+def setPurchaseOrderAsPaid(request, order_id: int):
+    return PurchaseOrderService.setAsPaid(order_id, request)
+
+
+@router.get("/preload/{preload_key}", response=ApiResponse)
+@permission_required("purchases_view")
+def getPurchasePreload(request, preload_key: str):
+    return PurchaseOrderService.getPreload(preload_key, request)
+
+
+@router.post("/preload", response=ApiResponse)
+@permission_required("purchases_create")
+def storePurchasePreload(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.storePreload(payload, request)
+
+
+@router.get("/low-stock-suggestions", response=ApiResponse)
+@permission_required("purchases_view")
+def getLowStockSuggestions(request):
+    return PurchaseOrderService.lowStockSuggestions(request)
+
+
+@router.post("/products/search-product", response=ApiResponse)
+@permission_required("purchases_create")
+def searchPurchaseProduct(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.searchProduct(payload, request)
+
+
+@router.post("/products/search-procurement-product", response=ApiResponse)
+@permission_required("purchases_create")
+def searchProcurementProduct(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.searchProcurementProduct(payload, request)

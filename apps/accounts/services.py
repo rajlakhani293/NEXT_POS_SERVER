@@ -20,6 +20,7 @@ from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
+from apps.expenses.services import ExpenseCategoryService
 from apps.organizations.models import Branch, Company
 from apps.payments.services import PaymentTypeService
 from apps.settingsapi.services import BusinessSettingService
@@ -265,6 +266,7 @@ class AccountsService:
         AccountsService.seedDefaultRoles(company)
         BusinessSettingService.ensureCompanySettings(company)
         PaymentTypeService.ensureDefaultPaymentTypes(company, branch)
+        ExpenseCategoryService.ensureDefaultCategories(company, branch)
         role = Role.objects.filter(company_id=company.id, code="administrator").first()
         if role is None:
             raise api_error(

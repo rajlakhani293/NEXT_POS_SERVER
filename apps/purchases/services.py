@@ -1,9 +1,11 @@
 # type: ignore
 from decimal import Decimal
+from uuid import uuid4
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
+from django.core.cache import cache
 
 from apps.accounting.services import AccountingService
 from apps.catalog.models import Product
@@ -91,6 +93,107 @@ class SupplierService:
 
 
 class PurchaseOrderService:
+    @staticmethod
+    def orderDetail(order_id, request):
+        order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
+        if order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
+        supplier = commonQuery.findOneRecord(
+            Supplier,
+            order.get("supplier_id"),
+            request=request,
+            tenant_config=True,
+        )
+        order["items"] = commonQuery.findAllRecords(
+            PurchaseItem,
+            {"purchase_order_id": order_id},
+            {
+                "attributes": [
+                    "id",
+                    "product_id",
+                    "product__name",
+                    "ordered_quantity",
+                    "received_quantity",
+                    "cost_price",
+                    "tax_amount",
+                    "total",
+                ],
+                "order": ["id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        order["payments"] = commonQuery.findAllRecords(
+            PurchasePayment,
+            {"purchase_order_id": order_id},
+            {
+                "attributes": [
+                    "id",
+                    "payment_type",
+                    "amount",
+                    "paid_at",
+                    "reference_number",
+                    "note",
+                ],
+                "order": ["-paid_at", "-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        order["supplier"] = supplier
+        order["due_amount"] = max(money(order.get("total")) - money(order.get("paid_amount")), Decimal("0"))
+        order["payment_status"] = (
+            "paid"
+            if money(order.get("paid_amount")) >= money(order.get("total"))
+            else "partial"
+            if money(order.get("paid_amount")) > 0
+            else "unpaid"
+        )
+        return order
+
+    @staticmethod
+    def recalculateOrder(order_id, request):
+        order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
+        if order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
+        items = commonQuery.findAllRecords(
+            PurchaseItem,
+            {"purchase_order_id": order_id},
+            {"attributes": ["id", "ordered_quantity", "received_quantity", "cost_price", "tax_amount", "total"]},
+            request=request,
+            tenant_config=True,
+        )
+        subtotal = sum(
+            [qty(item.get("ordered_quantity")) * money(item.get("cost_price")) for item in items],
+            Decimal("0"),
+        )
+        tax_amount = sum([money(item.get("tax_amount")) for item in items], Decimal("0"))
+        total = subtotal - money(order.get("discount_amount")) + tax_amount + money(order.get("shipping_amount"))
+        total_ordered = sum([qty(item.get("ordered_quantity")) for item in items], Decimal("0"))
+        total_received = sum([qty(item.get("received_quantity")) for item in items], Decimal("0"))
+        workflow_status = order.get("workflow_status") or "draft"
+        if total_ordered > 0:
+            workflow_status = (
+                "received"
+                if total_received >= total_ordered
+                else "partial"
+                if total_received > 0
+                else order.get("workflow_status") or "ordered"
+            )
+        updated = commonQuery.updateRecordById(
+            PurchaseOrder,
+            order_id,
+            {
+                "subtotal": subtotal,
+                "tax_amount": tax_amount,
+                "total": total,
+                "workflow_status": workflow_status,
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return updated
+
     @staticmethod
     def validateSupplier(supplier_id, request):
         supplier = commonQuery.findOneRecord(Supplier, supplier_id, request=request, tenant_config=True)
@@ -207,53 +310,7 @@ class PurchaseOrderService:
 
     @staticmethod
     def getById(order_id, request):
-        order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
-        if order is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
-        supplier = commonQuery.findOneRecord(
-            Supplier,
-            order.get("supplier_id"),
-            request=request,
-            tenant_config=True,
-        )
-        order["items"] = commonQuery.findAllRecords(
-            PurchaseItem,
-            {"purchase_order_id": order_id},
-            {
-                "attributes": [
-                    "id",
-                    "product_id",
-                    "product__name",
-                    "ordered_quantity",
-                    "received_quantity",
-                    "cost_price",
-                    "tax_amount",
-                    "total",
-                ]
-            },
-            request=request,
-            tenant_config=True,
-        )
-        order["payments"] = commonQuery.findAllRecords(
-            PurchasePayment,
-            {"purchase_order_id": order_id},
-            {
-                "attributes": [
-                    "id",
-                    "payment_type",
-                    "amount",
-                    "paid_at",
-                    "reference_number",
-                    "note",
-                ],
-                "order": ["-paid_at", "-id"],
-            },
-            request=request,
-            tenant_config=True,
-        )
-        order["supplier"] = supplier
-        order["due_amount"] = max(money(order.get("total")) - money(order.get("paid_amount")), Decimal("0"))
-        return successResponse("Purchase order retrieved successfully.", data=order)
+        return successResponse("Purchase order retrieved successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
 
     @staticmethod
     def update(order_id, data, request):
@@ -362,6 +419,238 @@ class PurchaseOrderService:
                 request=request,
             )
             return successResponse("Purchase payment recorded successfully.", data=payment)
+
+    @staticmethod
+    def getOrderProducts(order_id, request):
+        order = PurchaseOrderService.orderDetail(order_id, request)
+        return successResponse("Procurement products retrieved successfully.", data=order.get("items") or [])
+
+    @staticmethod
+    def refresh(order_id, request):
+        return successResponse("Procurement refreshed successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+    @staticmethod
+    def lowStockSuggestions(request):
+        from apps.catalog.models import Product
+
+        products = Product.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            track_stock=True,
+            status__in=[0, 1],
+            current_stock__lte=F("min_stock"),
+        ).values(
+            "id",
+            "name",
+            "sku",
+            "current_stock",
+            "min_stock",
+            "purchase_price",
+        ).order_by("current_stock", "name")[:100]
+        return successResponse("Low stock suggestions retrieved successfully.", data=list(products))
+
+    @staticmethod
+    def storePreload(data, request):
+        preload_key = uuid4().hex
+        cache.set(
+            f"procurement_preload:{request.user.company_id}:{request.user.branch_id}:{preload_key}",
+            data or {},
+            timeout=60 * 60 * 24,
+        )
+        return successResponse("Procurement preload saved successfully.", data={"uuid": preload_key, "payload": data or {}})
+
+    @staticmethod
+    def getPreload(preload_key, request):
+        data = cache.get(
+            f"procurement_preload:{request.user.company_id}:{request.user.branch_id}:{preload_key}"
+        )
+        if data is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement preload not found.")
+        return successResponse("Procurement preload retrieved successfully.", data=data)
+
+    @staticmethod
+    def setAsPaid(order_id, request):
+        order = PurchaseOrderService.orderDetail(order_id, request)
+        due_amount = money(order.get("due_amount"))
+        if due_amount <= 0:
+            return successResponse("Procurement is already paid.", data=order)
+        payment_data = {
+            "amount": due_amount,
+            "paid_at": timezone.now(),
+            "payment_type": "account-payment",
+            "reference_number": "",
+            "note": "Set as paid from procurement action.",
+        }
+        PurchaseOrderService.pay(order_id, payment_data, request)
+        return successResponse("Procurement marked as paid successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+    @staticmethod
+    def changePaymentStatus(order_id, data, request):
+        order = PurchaseOrderService.orderDetail(order_id, request)
+        payment_status = (data.get("payment_status") or "").lower()
+        if payment_status not in ["paid", "partial", "unpaid"]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment status must be paid, partial or unpaid.")
+
+        target_paid = Decimal("0")
+        if payment_status == "paid":
+            target_paid = money(order.get("total"))
+        elif payment_status == "partial":
+            target_paid = money(data.get("amount") or order.get("paid_amount") or 0)
+            if target_paid <= 0 or target_paid >= money(order.get("total")):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Partial amount must be between 0 and total amount.")
+
+        current_paid = money(order.get("paid_amount"))
+        diff = target_paid - current_paid
+        if diff == 0:
+            return successResponse("Payment status updated successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+        with transaction.atomic():
+            commonQuery.updateRecordById(
+                PurchaseOrder,
+                order_id,
+                {"paid_amount": target_paid},
+                request=request,
+                tenant_config=True,
+            )
+            Supplier.objects.filter(id=order["supplier_id"]).update(payable_amount=F("payable_amount") - diff)
+        return successResponse("Payment status updated successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+    @staticmethod
+    def addProduct(order_id, data, request):
+        order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
+        if order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
+        items, _, _ = PurchaseOrderService.calculateItems([data])
+        item = items[0]
+        product = commonQuery.findOneRecord(Product, item["product_id"], request=request, tenant_config=True)
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        created = commonQuery.createRecord(
+            PurchaseItem,
+            {**item, "purchase_order_id": order_id},
+            request=request,
+            tenant_config=True,
+        )
+        PurchaseOrderService.recalculateOrder(order_id, request)
+        return successResponse("Procurement product added successfully.", data=created)
+
+    @staticmethod
+    def editProduct(order_id, purchase_item_id, data, request):
+        order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
+        if order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
+        item = commonQuery.findOneRecord(
+            PurchaseItem,
+            {"id": purchase_item_id, "purchase_order_id": order_id},
+            request=request,
+            tenant_config=True,
+        )
+        if item is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
+        update_data = dict(data or {})
+        if update_data.get("product_id"):
+            product = commonQuery.findOneRecord(Product, update_data["product_id"], request=request, tenant_config=True)
+            if product is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        if update_data.get("ordered_quantity") is not None and qty(update_data.get("ordered_quantity")) < qty(item.get("received_quantity")):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Ordered quantity cannot be less than received quantity.")
+        if "ordered_quantity" in update_data and "cost_price" in update_data:
+            update_data["total"] = qty(update_data.get("ordered_quantity")) * money(update_data.get("cost_price")) + money(update_data.get("tax_amount"))
+        updated = commonQuery.updateRecordById(
+            PurchaseItem,
+            purchase_item_id,
+            update_data,
+            request=request,
+            tenant_config=True,
+        )
+        PurchaseOrderService.recalculateOrder(order_id, request)
+        return successResponse("Procurement product updated successfully.", data=updated)
+
+    @staticmethod
+    def bulkUpdateProducts(order_id, data, request):
+        items = data.get("items") or []
+        if not items:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one product row is required.")
+        with transaction.atomic():
+            for item in items:
+                purchase_item_id = item.get("purchase_item_id")
+                if purchase_item_id:
+                    PurchaseOrderService.editProduct(order_id, purchase_item_id, item, request)
+                else:
+                    PurchaseOrderService.addProduct(order_id, item, request)
+        return successResponse("Procurement products updated successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+    @staticmethod
+    def deleteProduct(order_id, purchase_item_id, request):
+        order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
+        if order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
+        item = commonQuery.findOneRecord(
+            PurchaseItem,
+            {"id": purchase_item_id, "purchase_order_id": order_id},
+            request=request,
+            tenant_config=True,
+        )
+        if item is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
+        if qty(item.get("received_quantity")) > 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Received procurement product cannot be deleted.")
+        PurchaseItem.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            id=purchase_item_id,
+            purchase_order_id=order_id,
+        ).delete()
+        PurchaseOrderService.recalculateOrder(order_id, request)
+        return successResponse("Procurement product deleted successfully.")
+
+    @staticmethod
+    def searchProduct(data, request):
+        from apps.catalog.models import Product
+
+        search = (data or {}).get("search") or ""
+        queryset = Product.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            status__in=[0, 1],
+        )
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search)
+                | Q(sku__icontains=search)
+                | Q(barcode__icontains=search)
+            )
+        rows = list(
+            queryset.values("id", "name", "sku", "barcode", "purchase_price", "current_stock").order_by("name")[:25]
+        )
+        return successResponse("Products retrieved successfully.", data=rows)
+
+    @staticmethod
+    def searchProcurementProduct(data, request):
+        search = (data or {}).get("search") or ""
+        queryset = PurchaseItem.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            status__in=[0, 1],
+        )
+        if search:
+            queryset = queryset.filter(
+                Q(product__name__icontains=search)
+                | Q(purchase_order__code__icontains=search)
+            )
+        rows = list(
+            queryset.values(
+                "id",
+                "purchase_order_id",
+                "purchase_order__code",
+                "product_id",
+                "product__name",
+                "ordered_quantity",
+                "received_quantity",
+                "cost_price",
+            ).order_by("-id")[:25]
+        )
+        return successResponse("Procurement products retrieved successfully.", data=rows)
 
     @staticmethod
     def delete(data, request):
