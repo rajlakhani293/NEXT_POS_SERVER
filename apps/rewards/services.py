@@ -523,12 +523,32 @@ class CustomerRewardService:
         if points <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Points must be greater than 0.")
         ensureCustomer(data.get("customer_id"), request)
-        ensureRewardSystem(data.get("reward_system_id"), request)
+        reward_system = ensureRewardSystem(data.get("reward_system_id"), request)
         with transaction.atomic():
             balance = getOrCreateBalance(data["customer_id"], data["reward_system_id"], request)
             if int(balance.get("points") or 0) < points:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer does not have enough reward points.")
 
+            coupon = commonQuery.findOneRecord(
+                Coupon,
+                reward_system.get("coupon_id"),
+                request=request,
+                tenant_config=True,
+            )
+            if coupon is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Reward coupon not found.")
+
+            customer_coupon = commonQuery.createRecord(
+                CustomerCoupon,
+                {
+                    "coupon_id": coupon["id"],
+                    "customer_id": data["customer_id"],
+                    "code": buildCustomerCouponCode(coupon, data["customer_id"], request),
+                    "expires_at": coupon.get("valid_until"),
+                },
+                request=request,
+                tenant_config=True,
+            )
             CustomerRewardBalance.objects.filter(id=balance["id"]).update(
                 points=F("points") - points,
             )
@@ -537,6 +557,7 @@ class CustomerRewardService:
                 {
                     "customer_id": data["customer_id"],
                     "reward_system_id": data["reward_system_id"],
+                    "customer_coupon_id": customer_coupon["id"],
                     "points_redeemed": points,
                     "note": data.get("note") or "",
                 },
@@ -551,5 +572,9 @@ class CustomerRewardService:
             )
             return successResponse(
                 "Reward points redeemed successfully.",
-                data={"redemption": redemption, "balance": updated_balance},
+                data={
+                    "redemption": redemption,
+                    "balance": updated_balance,
+                    "issued_coupon": customer_coupon,
+                },
             )
