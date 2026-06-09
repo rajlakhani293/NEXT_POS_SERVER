@@ -19,7 +19,16 @@ from apps.payments.services import PaymentTypeService
 from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct, CustomerCoupon
 from apps.registers.models import CashierShift, CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
-from apps.sales.models import CartDraft, ExchangeOrderLink, ReturnItem, ReturnOrder, SaleItem, SaleOrder
+from apps.sales.models import (
+    CartDraft,
+    ExchangeOrderLink,
+    InstallmentLine,
+    InstallmentPlan,
+    ReturnItem,
+    ReturnOrder,
+    SaleItem,
+    SaleOrder,
+)
 from apps.settingsapi.services import BusinessSettingService
 
 
@@ -1448,6 +1457,31 @@ class SaleService:
             "refunded_amount": sum([money(refund.get("total")) for refund in refunds], Decimal("0")),
         }
 
+        installment_plan = commonQuery.findOneRecord(
+            InstallmentPlan,
+            {"sale_order_id": sale_order_id},
+            request=request,
+            tenant_config=True,
+        )
+        if installment_plan:
+            installment_plan["lines"] = commonQuery.findAllRecords(
+                InstallmentLine,
+                {"plan_id": installment_plan["id"]},
+                {
+                    "attributes": [
+                        "id",
+                        "due_date",
+                        "amount",
+                        "paid_amount",
+                        "installment_status",
+                        "created_at",
+                    ],
+                    "order": ["due_date", "id"],
+                },
+                request=request,
+                tenant_config=True,
+            )
+
         return {
             **sale_order,
             "customer": customer,
@@ -1456,6 +1490,7 @@ class SaleService:
             "applied_coupons": applied_coupons,
             "refunds": refunds,
             "totals_summary": totals,
+            "installment_plan": installment_plan,
         }
 
     @staticmethod
@@ -1866,6 +1901,276 @@ class SaleService:
                     "collected_amount": collected_amount,
                 },
             )
+
+    @staticmethod
+    def updateProcessingStatus(sale_order_id, data, request):
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        updated = commonQuery.updateRecordById(
+            SaleOrder,
+            sale_order_id,
+            {
+                "process_status": data.get("status") or "",
+                "note": data.get("note") or sale_order.get("note") or "",
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Processing status updated successfully.", data=updated)
+
+    @staticmethod
+    def updateDeliveryStatus(sale_order_id, data, request):
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        updated = commonQuery.updateRecordById(
+            SaleOrder,
+            sale_order_id,
+            {
+                "delivery_status": data.get("status") or "",
+                "note": data.get("note") or sale_order.get("note") or "",
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Delivery status updated successfully.", data=updated)
+
+    @staticmethod
+    def getInstallments(sale_order_id, request):
+        SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        sale_data = SaleService.buildSaleDetail(sale_order_id, request)
+        return successResponse("Installments retrieved successfully.", data=sale_data.get("installment_plan"))
+
+    @staticmethod
+    def createInstallments(sale_order_id, data, request):
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        lines = data.get("lines") or []
+        if not lines:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one installment line is required.")
+        if money(sale_order.get("due_amount")) <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
+
+        with transaction.atomic():
+            plan = commonQuery.findOneRecord(
+                InstallmentPlan,
+                {"sale_order_id": sale_order_id},
+                request=request,
+                tenant_config=True,
+            )
+            if plan:
+                InstallmentLine.objects.filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    plan_id=plan["id"],
+                ).delete()
+                plan = commonQuery.updateRecordById(
+                    InstallmentPlan,
+                    plan["id"],
+                    {
+                        "total_installments": data.get("total_installments") or len(lines),
+                        "total_amount": data.get("total_amount") or sale_order.get("due_amount") or 0,
+                        "minimum_first_payment": data.get("minimum_first_payment") or 0,
+                        "final_payment_date": data.get("final_payment_date") or None,
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+            else:
+                plan = commonQuery.createRecord(
+                    InstallmentPlan,
+                    {
+                        "sale_order_id": sale_order_id,
+                        "total_installments": data.get("total_installments") or len(lines),
+                        "total_amount": data.get("total_amount") or sale_order.get("due_amount") or 0,
+                        "minimum_first_payment": data.get("minimum_first_payment") or 0,
+                        "final_payment_date": data.get("final_payment_date") or None,
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+
+            for line in lines:
+                commonQuery.createRecord(
+                    InstallmentLine,
+                    {
+                        "plan_id": plan["id"],
+                        "due_date": line.get("due_date"),
+                        "amount": line.get("amount") or 0,
+                        "paid_amount": 0,
+                        "installment_status": "pending",
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+
+            commonQuery.updateRecordById(
+                SaleOrder,
+                sale_order_id,
+                {"support_installments": True},
+                request=request,
+                tenant_config=True,
+            )
+            sale_data = SaleService.buildSaleDetail(sale_order_id, request)
+            return successResponse("Installments saved successfully.", data=sale_data.get("installment_plan"))
+
+    @staticmethod
+    def updateInstallment(sale_order_id, installment_id, data, request):
+        SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        plan = commonQuery.findOneRecord(
+            InstallmentPlan,
+            {"sale_order_id": sale_order_id},
+            request=request,
+            tenant_config=True,
+        )
+        if plan is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Installment plan not found.")
+        installment = commonQuery.findOneRecord(
+            InstallmentLine,
+            {"id": installment_id, "plan_id": plan["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        if installment is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Installment not found.")
+        updated = commonQuery.updateRecordById(
+            InstallmentLine,
+            installment_id,
+            data,
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Installment updated successfully.", data=updated)
+
+    @staticmethod
+    def deleteInstallment(sale_order_id, installment_id, request):
+        SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        plan = commonQuery.findOneRecord(
+            InstallmentPlan,
+            {"sale_order_id": sale_order_id},
+            request=request,
+            tenant_config=True,
+        )
+        if plan is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Installment plan not found.")
+        installment = commonQuery.findOneRecord(
+            InstallmentLine,
+            {"id": installment_id, "plan_id": plan["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        if installment is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Installment not found.")
+        if money(installment.get("paid_amount")) > 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid installment cannot be deleted.")
+        InstallmentLine.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            id=installment_id,
+            plan_id=plan["id"],
+        ).delete()
+        return successResponse("Installment deleted successfully.")
+
+    @staticmethod
+    def payInstallment(sale_order_id, installment_id, data, request):
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        plan = commonQuery.findOneRecord(
+            InstallmentPlan,
+            {"sale_order_id": sale_order_id},
+            request=request,
+            tenant_config=True,
+        )
+        if plan is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Installment plan not found.")
+        installment = commonQuery.findOneRecord(
+            InstallmentLine,
+            {"id": installment_id, "plan_id": plan["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        if installment is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Installment not found.")
+
+        amount = money(data.get("amount"))
+        if amount <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Installment amount must be greater than 0.")
+        remaining = money(installment.get("amount")) - money(installment.get("paid_amount"))
+        if amount > remaining:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Installment payment exceeds remaining amount.")
+
+        with transaction.atomic():
+            settings = getBusinessSettings(request.user)
+            shift = getCurrentShift(
+                request,
+                data.get("shift_id"),
+                required=bool(settings.enable_cash_registers),
+            )
+            customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
+            SalePaymentService.collectDuePayments(
+                sale_order,
+                [
+                    {
+                        "payment_type": data.get("payment_type") or "cash-payment",
+                        "amount": amount,
+                        "reference_number": data.get("reference_number") or "",
+                        "note": data.get("note") or f"Installment #{installment_id} payment",
+                    }
+                ],
+                shift,
+                customer,
+                settings,
+                request,
+            )
+
+            updated_paid = money(installment.get("paid_amount")) + amount
+            commonQuery.updateRecordById(
+                InstallmentLine,
+                installment_id,
+                {
+                    "paid_amount": updated_paid,
+                    "installment_status": "paid" if updated_paid >= money(installment.get("amount")) else "partial",
+                },
+                request=request,
+                tenant_config=True,
+            )
+
+            next_due = max(money(sale_order.get("due_amount")) - amount, Decimal("0"))
+            next_tendered = money(sale_order.get("tendered_amount")) + amount
+            commonQuery.updateRecordById(
+                SaleOrder,
+                sale_order_id,
+                {
+                    "due_amount": next_due,
+                    "tendered_amount": next_tendered,
+                    "payment_status": "paid" if next_due == 0 else "partially_paid",
+                    "final_payment_date": timezone.now() if next_due == 0 else sale_order.get("final_payment_date"),
+                },
+                request=request,
+                tenant_config=True,
+            )
+            if customer:
+                next_owed_amount = max(money(customer.get("owed_amount")) - amount, Decimal("0"))
+                commonQuery.updateRecordById(
+                    Customer,
+                    customer["id"],
+                    {"owed_amount": next_owed_amount},
+                    request=request,
+                    tenant_config=True,
+                )
+                commonQuery.createRecord(
+                    CustomerCreditLedger,
+                    {
+                        "customer_id": customer["id"],
+                        "amount": amount,
+                        "direction": "decrease",
+                        "balance_after": next_owed_amount,
+                        "reason": "sale_installment_payment",
+                        "reference_type": "sale_order",
+                        "reference_id": sale_order_id,
+                        "note": data.get("note") or f"Installment payment for sale {sale_order['code']}",
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+
+            refreshed_sale = SaleService.buildSaleDetail(sale_order_id, request)
+            return successResponse("Installment paid successfully.", data=refreshed_sale)
 
     @staticmethod
     def createReturn(sale_order_id, data, request):

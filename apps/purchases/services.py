@@ -178,17 +178,81 @@ class PurchaseOrderService:
         return successResponse("Purchase orders retrieved successfully.", data=result)
 
     @staticmethod
+    def getProducts(data, request):
+        result = commonQuery.fetchPaginatedData(
+            PurchaseItem,
+            data,
+            [["product__name", True, True], ["purchase_order__code", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "purchase_order_id",
+                    "purchase_order__code",
+                    "product_id",
+                    "product__name",
+                    "ordered_quantity",
+                    "received_quantity",
+                    "cost_price",
+                    "tax_amount",
+                    "total",
+                    "created_at",
+                    "status",
+                ],
+                "order": ["-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Procurement products retrieved successfully.", data=result)
+
+    @staticmethod
     def getById(order_id, request):
         order = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
         if order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
-        order["items"] = commonQuery.findAllRecords(
-            PurchaseItem,
-            {"purchase_order_id": order_id},
-            {"attributes": ["id", "product_id", "product__name", "ordered_quantity", "received_quantity", "cost_price", "tax_amount", "total"]},
+        supplier = commonQuery.findOneRecord(
+            Supplier,
+            order.get("supplier_id"),
             request=request,
             tenant_config=True,
         )
+        order["items"] = commonQuery.findAllRecords(
+            PurchaseItem,
+            {"purchase_order_id": order_id},
+            {
+                "attributes": [
+                    "id",
+                    "product_id",
+                    "product__name",
+                    "ordered_quantity",
+                    "received_quantity",
+                    "cost_price",
+                    "tax_amount",
+                    "total",
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        order["payments"] = commonQuery.findAllRecords(
+            PurchasePayment,
+            {"purchase_order_id": order_id},
+            {
+                "attributes": [
+                    "id",
+                    "payment_type",
+                    "amount",
+                    "paid_at",
+                    "reference_number",
+                    "note",
+                ],
+                "order": ["-paid_at", "-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        order["supplier"] = supplier
+        order["due_amount"] = max(money(order.get("total")) - money(order.get("paid_amount")), Decimal("0"))
         return successResponse("Purchase order retrieved successfully.", data=order)
 
     @staticmethod

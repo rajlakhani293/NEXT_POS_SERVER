@@ -68,6 +68,37 @@ class SaleCollectDueIn(Schema):
     payments: List[SalePaymentIn]
 
 
+class SaleStatusUpdateIn(Schema):
+    status: str
+    note: str = ""
+
+
+class InstallmentLineCreateIn(Schema):
+    due_date: str
+    amount: Decimal
+
+
+class InstallmentPlanCreateIn(Schema):
+    total_installments: int = 0
+    total_amount: Decimal = Decimal("0")
+    minimum_first_payment: Decimal = Decimal("0")
+    final_payment_date: Optional[str] = None
+    lines: List[InstallmentLineCreateIn] = []
+
+
+class InstallmentLineUpdateIn(Schema):
+    due_date: Optional[str] = None
+    amount: Optional[Decimal] = None
+
+
+class InstallmentPayIn(Schema):
+    amount: Decimal
+    payment_type: str = "cash-payment"
+    shift_id: Optional[int] = None
+    reference_number: str = ""
+    note: str = ""
+
+
 class SaleReturnItemIn(Schema):
     sale_item_id: int
     quantity: Decimal

@@ -4,11 +4,15 @@ from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
 from apps.sales.schemas import (
+    InstallmentLineUpdateIn,
+    InstallmentPayIn,
+    InstallmentPlanCreateIn,
     SaleCollectDueIn,
     SaleCreateIn,
     SaleHoldIn,
     SaleListIn,
     SaleReturnCreateIn,
+    SaleStatusUpdateIn,
     SaleVoidIn,
 )
 from apps.sales.services import SaleService
@@ -81,6 +85,58 @@ def voidSale(request, sale_order_id: int, payload: SaleVoidIn):
 @permission_required("payments_collect_due")
 def collectSaleDue(request, sale_order_id: int, payload: SaleCollectDueIn):
     return SaleService.collectDue(sale_order_id, payload.dict(), request)
+
+
+@router.post("/{sale_order_id}/processing", response=ApiResponse)
+@permission_required("sales_update")
+def updateSaleProcessing(request, sale_order_id: int, payload: SaleStatusUpdateIn):
+    return SaleService.updateProcessingStatus(sale_order_id, payload.dict(), request)
+
+
+@router.post("/{sale_order_id}/delivery", response=ApiResponse)
+@permission_required("sales_update")
+def updateSaleDelivery(request, sale_order_id: int, payload: SaleStatusUpdateIn):
+    return SaleService.updateDeliveryStatus(sale_order_id, payload.dict(), request)
+
+
+@router.get("/{sale_order_id}/instalments", response=ApiResponse)
+@permission_required("sales_view")
+def getSaleInstallments(request, sale_order_id: int):
+    return SaleService.getInstallments(sale_order_id, request)
+
+
+@router.post("/{sale_order_id}/instalments", response=ApiResponse)
+@permission_required("sales_update")
+def createSaleInstallments(request, sale_order_id: int, payload: InstallmentPlanCreateIn):
+    return SaleService.createInstallments(sale_order_id, payload.dict(), request)
+
+
+@router.put("/{sale_order_id}/instalments/{installment_id}", response=ApiResponse)
+@permission_required("sales_update")
+def updateSaleInstallment(
+    request,
+    sale_order_id: int,
+    installment_id: int,
+    payload: InstallmentLineUpdateIn,
+):
+    return SaleService.updateInstallment(sale_order_id, installment_id, payload.dict(exclude_none=True), request)
+
+
+@router.delete("/{sale_order_id}/instalments/{installment_id}", response=ApiResponse)
+@permission_required("sales_update")
+def deleteSaleInstallment(request, sale_order_id: int, installment_id: int):
+    return SaleService.deleteInstallment(sale_order_id, installment_id, request)
+
+
+@router.post("/{sale_order_id}/instalments/{installment_id}/pay", response=ApiResponse)
+@permission_required("payments_create")
+def paySaleInstallment(
+    request,
+    sale_order_id: int,
+    installment_id: int,
+    payload: InstallmentPayIn,
+):
+    return SaleService.payInstallment(sale_order_id, installment_id, payload.dict(), request)
 
 
 @router.get("/{sale_order_id}/refunds", response=ApiResponse)

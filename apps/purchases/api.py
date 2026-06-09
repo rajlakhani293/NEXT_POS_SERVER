@@ -75,6 +75,12 @@ def getAllPurchaseOrders(request, payload: Optional[dict] = None):
     return PurchaseOrderService.getAll(payload, request)
 
 
+@router.post("/products/get-transactions", response=ApiResponse)
+@permission_required("purchases_view")
+def getAllProcurementProducts(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.getProducts(payload, request)
+
+
 @router.delete("/orders/delete", response=ApiResponse)
 @permission_required("purchases_update")
 def deletePurchaseOrders(request, payload: DeleteSchema):
