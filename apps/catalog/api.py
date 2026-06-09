@@ -9,6 +9,8 @@ from apps.catalog.schemas import (
     CategoryUpdateIn,
     DeleteSchema,
     ProductIn,
+    ProductUnitQuantityIn,
+    ProductUnitQuantityUpdateIn,
     ProductUpdateIn,
     StatusUpdateSchema,
     TaxGroupIn,
@@ -24,6 +26,7 @@ from apps.catalog.services import (
     BrandService,
     CategoryService,
     ProductService,
+    ProductUnitQuantityService,
     TaxGroupService,
     TaxService,
     UnitGroupService,
@@ -322,6 +325,41 @@ def deleteProducts(request, payload: DeleteSchema):
 @permission_required("products_update")
 def updateProductStatus(request, payload: StatusUpdateSchema):
     return ProductService.updateStatus(payload.dict(), request)
+
+
+@router.get("/products/search/using-barcode/{reference}", response=ApiResponse)
+@permission_required("products_view")
+def searchProductUsingBarcode(request, reference: str):
+    return ProductService.searchUsingBarcode(reference, request)
+
+
+@router.get("/products/{product_id}/units/quantities", response=ApiResponse)
+@permission_required("products_view")
+def getProductUnitQuantities(request, product_id: int):
+    return ProductUnitQuantityService.getAll(product_id, request)
+
+
+@router.post("/products/{product_id}/units/quantities", response=ApiResponse)
+@permission_required("products_update")
+def createProductUnitQuantity(request, product_id: int, payload: ProductUnitQuantityIn):
+    return ProductUnitQuantityService.create(product_id, payload.dict(), request)
+
+
+@router.put("/products/{product_id}/units/quantities/{unit_quantity_id}", response=ApiResponse)
+@permission_required("products_update")
+def updateProductUnitQuantity(
+    request,
+    product_id: int,
+    unit_quantity_id: int,
+    payload: ProductUnitQuantityUpdateIn,
+):
+    return ProductUnitQuantityService.update(product_id, unit_quantity_id, payload.dict(exclude_none=True), request)
+
+
+@router.delete("/products/{product_id}/units/quantities/{unit_quantity_id}", response=ApiResponse)
+@permission_required("products_update")
+def deleteProductUnitQuantity(request, product_id: int, unit_quantity_id: int):
+    return ProductUnitQuantityService.delete(product_id, unit_quantity_id, request)
 
 
 @router.get("/products/{product_id}", response=ApiResponse)

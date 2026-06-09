@@ -136,3 +136,24 @@ class ProductUpdateIn(Schema):
     allow_decimal_qty: Optional[bool] = None
     expiry_tracking_enabled: Optional[bool] = None
     status: Optional[int] = None
+
+
+class ProductUnitQuantityIn(Schema):
+    unit_id: int
+    convert_unit_id: Optional[int] = None
+    quantity: Decimal = Decimal("1")
+    sale_price: Decimal = Decimal("0")
+    purchase_price: Decimal = Decimal("0")
+    is_default: bool = False
+    scale_plu: str = ""
+
+
+class ProductUnitQuantityUpdateIn(Schema):
+    unit_id: Optional[int] = None
+    convert_unit_id: Optional[int] = None
+    quantity: Optional[Decimal] = None
+    sale_price: Optional[Decimal] = None
+    purchase_price: Optional[Decimal] = None
+    is_default: Optional[bool] = None
+    scale_plu: Optional[str] = None
+    status: Optional[int] = None

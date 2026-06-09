@@ -4,6 +4,7 @@ from apps.catalog.models import (
     Brand,
     Category,
     Product,
+    ProductUnitQuantity,
     Tax,
     TaxGroup,
     Unit,
@@ -922,11 +923,59 @@ class ProductService:
         data = commonQuery.findAllRecords(
             Product,
             {},
-            {"attributes": ["id", "name", "sku", "barcode", "selling_price", "current_stock"], "order": ["name"]},
+            {"attributes": ["id", "name", "sku", "barcode", "selling_price", "purchase_price", "current_stock", "unit_id"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
         return successResponse("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def searchUsingBarcode(reference, request):
+        if not reference:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Barcode is required.")
+
+        product = commonQuery.findOneRecord(
+            Product,
+            {"barcode": reference},
+            request=request,
+            tenant_config=True,
+        )
+        if product:
+            product = ProductService.attachDisplayData(dict(product), request)
+            product["matched_unit_quantity"] = None
+            return successResponse("Product retrieved successfully.", data=product)
+
+        unit_quantity = commonQuery.findOneRecord(
+            ProductUnitQuantity,
+            {"scale_plu": reference},
+            options={
+                "include": [
+                    {"path": "product", "fields": ["id", "name", "sku", "barcode", "selling_price", "purchase_price", "current_stock", "unit_id", "status"]},
+                    {"path": "unit", "fields": ["id", "name", "short_name"]},
+                    {"path": "convert_unit", "fields": ["id", "name", "short_name"]},
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        if unit_quantity is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+
+        product_data = unit_quantity.get("product") or {}
+        product_data = ProductService.attachDisplayData(dict(product_data), request)
+        product_data["matched_unit_quantity"] = {
+            "id": unit_quantity.get("id"),
+            "unit_id": unit_quantity.get("unit_id"),
+            "unit": unit_quantity.get("unit"),
+            "convert_unit_id": unit_quantity.get("convert_unit_id"),
+            "convert_unit": unit_quantity.get("convert_unit"),
+            "quantity": unit_quantity.get("quantity"),
+            "sale_price": unit_quantity.get("sale_price"),
+            "purchase_price": unit_quantity.get("purchase_price"),
+            "is_default": unit_quantity.get("is_default"),
+            "scale_plu": unit_quantity.get("scale_plu"),
+        }
+        return successResponse("Product retrieved successfully.", data=product_data)
 
     @staticmethod
     def delete(data, request):
@@ -964,3 +1013,152 @@ class ProductService:
         product_data = dict(product)
         product_data = ProductService.attachDisplayData(product_data, request)
         return successResponse("Product retrieved successfully.", data=product_data)
+
+
+class ProductUnitQuantityService:
+    @staticmethod
+    def attachDisplayData(data):
+        unit = data.get("unit") or {}
+        convert_unit = data.get("convert_unit") or {}
+        data["unit_name"] = unit.get("name") if unit else None
+        data["unit_short_name"] = unit.get("short_name") if unit else None
+        data["convert_unit_name"] = convert_unit.get("name") if convert_unit else None
+        data["convert_unit_short_name"] = convert_unit.get("short_name") if convert_unit else None
+        return data
+
+    @staticmethod
+    def ensureProduct(product_id, request):
+        product = commonQuery.findOneRecord(
+            Product,
+            product_id,
+            request=request,
+            tenant_config=True,
+        )
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        return product
+
+    @staticmethod
+    def ensureUnit(unit_id, request, label="Unit"):
+        unit = commonQuery.findOneRecord(
+            Unit,
+            unit_id,
+            request=request,
+            tenant_config=True,
+        )
+        if unit is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, f"{label} not found.")
+        return unit
+
+    @staticmethod
+    def getAll(product_id, request):
+        ProductUnitQuantityService.ensureProduct(product_id, request)
+        rows = commonQuery.findAllRecords(
+            ProductUnitQuantity,
+            {"product_id": product_id},
+            {
+                "include": [
+                    {"path": "unit", "fields": ["id", "name", "short_name"]},
+                    {"path": "convert_unit", "fields": ["id", "name", "short_name"]},
+                ],
+                "order": ["-is_default", "id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse(
+            "Product unit quantities retrieved successfully.",
+            data=[ProductUnitQuantityService.attachDisplayData(dict(row)) for row in rows],
+        )
+
+    @staticmethod
+    def create(product_id, data, request):
+        with transaction.atomic():
+            product = ProductUnitQuantityService.ensureProduct(product_id, request)
+            unit = ProductUnitQuantityService.ensureUnit(data["unit_id"], request)
+            convert_unit = None
+            if data.get("convert_unit_id"):
+                convert_unit = ProductUnitQuantityService.ensureUnit(data["convert_unit_id"], request, "Convert unit")
+
+            existing = commonQuery.findOneRecord(
+                ProductUnitQuantity,
+                {"product_id": product["id"], "unit_id": unit["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            if existing:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "This unit already exists for this product.")
+
+            if data.get("is_default"):
+                ProductUnitQuantity.objects.filter(product_id=product["id"], status__in=[0, 1]).update(is_default=False)
+
+            unit_quantity = commonQuery.createRecord(
+                ProductUnitQuantity,
+                {
+                    **data,
+                    "product_id": product["id"],
+                    "unit_id": unit["id"],
+                    "convert_unit_id": convert_unit["id"] if convert_unit else None,
+                },
+                request=request,
+                tenant_config=True,
+            )
+            return successResponse("Product unit quantity created successfully.", data=unit_quantity)
+
+    @staticmethod
+    def update(product_id, unit_quantity_id, data, request):
+        with transaction.atomic():
+            product = ProductUnitQuantityService.ensureProduct(product_id, request)
+            unit_quantity = commonQuery.findOneRecord(
+                ProductUnitQuantity,
+                {"id": unit_quantity_id, "product_id": product["id"]},
+                request=request,
+                tenant_config=True,
+            )
+            if unit_quantity is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")
+
+            if data.get("unit_id"):
+                unit = ProductUnitQuantityService.ensureUnit(data["unit_id"], request)
+                duplicate = commonQuery.findOneRecord(
+                    ProductUnitQuantity,
+                    {"product_id": product["id"], "unit_id": unit["id"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                if duplicate and duplicate.get("id") != unit_quantity_id:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "This unit already exists for this product.")
+                data["unit_id"] = unit["id"]
+
+            if data.get("convert_unit_id"):
+                convert_unit = ProductUnitQuantityService.ensureUnit(data["convert_unit_id"], request, "Convert unit")
+                data["convert_unit_id"] = convert_unit["id"]
+            elif "convert_unit_id" in data:
+                data["convert_unit_id"] = None
+
+            if data.get("is_default"):
+                ProductUnitQuantity.objects.filter(product_id=product["id"], status__in=[0, 1]).exclude(id=unit_quantity_id).update(is_default=False)
+
+            updated = commonQuery.updateRecordById(
+                ProductUnitQuantity,
+                {"id": unit_quantity_id, "product_id": product["id"]},
+                data,
+                request=request,
+                tenant_config=True,
+            )
+            if updated is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")
+            return successResponse("Product unit quantity updated successfully.", data=updated)
+
+    @staticmethod
+    def delete(product_id, unit_quantity_id, request):
+        ProductUnitQuantityService.ensureProduct(product_id, request)
+        count = commonQuery.softDeleteById(
+            ProductUnitQuantity,
+            {"id": unit_quantity_id, "product_id": product_id},
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")
+        return successResponse("Product unit quantity deleted successfully.")
