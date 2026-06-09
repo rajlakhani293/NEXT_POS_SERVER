@@ -141,6 +141,7 @@ class ProductUpdateIn(Schema):
 class ProductUnitQuantityIn(Schema):
     unit_id: int
     convert_unit_id: Optional[int] = None
+    barcode: Optional[str] = None
     quantity: Decimal = Decimal("1")
     sale_price: Decimal = Decimal("0")
     purchase_price: Decimal = Decimal("0")
@@ -151,6 +152,7 @@ class ProductUnitQuantityIn(Schema):
 class ProductUnitQuantityUpdateIn(Schema):
     unit_id: Optional[int] = None
     convert_unit_id: Optional[int] = None
+    barcode: Optional[str] = None
     quantity: Optional[Decimal] = None
     sale_price: Optional[Decimal] = None
     purchase_price: Optional[Decimal] = None

@@ -947,7 +947,7 @@ class ProductService:
 
         unit_quantity = commonQuery.findOneRecord(
             ProductUnitQuantity,
-            {"scale_plu": reference},
+            {"barcode": reference},
             options={
                 "include": [
                     {"path": "product", "fields": ["id", "name", "sku", "barcode", "selling_price", "purchase_price", "current_stock", "unit_id", "status"]},
@@ -959,6 +959,20 @@ class ProductService:
             tenant_config=True,
         )
         if unit_quantity is None:
+            unit_quantity = commonQuery.findOneRecord(
+                ProductUnitQuantity,
+                {"scale_plu": reference},
+                options={
+                    "include": [
+                        {"path": "product", "fields": ["id", "name", "sku", "barcode", "selling_price", "purchase_price", "current_stock", "unit_id", "status"]},
+                        {"path": "unit", "fields": ["id", "name", "short_name"]},
+                        {"path": "convert_unit", "fields": ["id", "name", "short_name"]},
+                    ]
+                },
+                request=request,
+                tenant_config=True,
+            )
+        if unit_quantity is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
 
         product_data = unit_quantity.get("product") or {}
@@ -969,6 +983,7 @@ class ProductService:
             "unit": unit_quantity.get("unit"),
             "convert_unit_id": unit_quantity.get("convert_unit_id"),
             "convert_unit": unit_quantity.get("convert_unit"),
+            "barcode": unit_quantity.get("barcode"),
             "quantity": unit_quantity.get("quantity"),
             "sale_price": unit_quantity.get("sale_price"),
             "purchase_price": unit_quantity.get("purchase_price"),
@@ -1051,6 +1066,28 @@ class ProductUnitQuantityService:
         return unit
 
     @staticmethod
+    def ensureBarcodeAvailable(barcode, request, unit_quantity_id=None):
+        if not barcode:
+            return
+        product = commonQuery.findOneRecord(
+            Product,
+            {"barcode": barcode},
+            request=request,
+            tenant_config=True,
+        )
+        if product:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Barcode already exists on another product.")
+
+        unit_quantity = commonQuery.findOneRecord(
+            ProductUnitQuantity,
+            {"barcode": barcode},
+            request=request,
+            tenant_config=True,
+        )
+        if unit_quantity and unit_quantity.get("id") != unit_quantity_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Barcode already exists on another selling unit.")
+
+    @staticmethod
     def getAll(product_id, request):
         ProductUnitQuantityService.ensureProduct(product_id, request)
         rows = commonQuery.findAllRecords(
@@ -1079,6 +1116,9 @@ class ProductUnitQuantityService:
             convert_unit = None
             if data.get("convert_unit_id"):
                 convert_unit = ProductUnitQuantityService.ensureUnit(data["convert_unit_id"], request, "Convert unit")
+            if data.get("barcode") == "":
+                data["barcode"] = None
+            ProductUnitQuantityService.ensureBarcodeAvailable(data.get("barcode"), request)
 
             existing = commonQuery.findOneRecord(
                 ProductUnitQuantity,
@@ -1135,6 +1175,9 @@ class ProductUnitQuantityService:
                 data["convert_unit_id"] = convert_unit["id"]
             elif "convert_unit_id" in data:
                 data["convert_unit_id"] = None
+            if data.get("barcode") == "":
+                data["barcode"] = None
+            ProductUnitQuantityService.ensureBarcodeAvailable(data.get("barcode"), request, unit_quantity_id)
 
             if data.get("is_default"):
                 ProductUnitQuantity.objects.filter(product_id=product["id"], status__in=[0, 1]).exclude(id=unit_quantity_id).update(is_default=False)

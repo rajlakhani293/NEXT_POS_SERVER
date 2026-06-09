@@ -129,6 +129,7 @@ class ProductUnitQuantity(TenantAwareModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="unit_quantities")
     unit = models.ForeignKey(Unit, on_delete=models.PROTECT, related_name="product_quantities")
     convert_unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="converted_product_quantities")
+    barcode = models.CharField(max_length=120, blank=True, null=True)
     quantity = models.DecimalField(max_digits=12, decimal_places=4, default=1)
     sale_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     purchase_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
