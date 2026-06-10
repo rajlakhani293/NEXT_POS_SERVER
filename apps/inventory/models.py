@@ -26,6 +26,7 @@ class StockLedger(TenantAwareModel):
         ("sale_return", "Sale Return"),
         ("adjustment_in", "Adjustment In"),
         ("adjustment_out", "Adjustment Out"),
+        ("adjustment_set", "Adjustment Set"),
         ("transfer_out", "Transfer Out"),
         ("transfer_in", "Transfer In"),
         ("opening_stock", "Opening Stock"),
@@ -43,7 +44,15 @@ class StockLedger(TenantAwareModel):
 
 
 class StockAdjustment(TenantAwareModel):
-    adjustment_type = models.CharField(max_length=20, choices=[("increase", "Increase"), ("decrease", "Decrease")])
+    ADJUSTMENT_ACTIONS = [
+        ("added", "Add"),
+        ("deleted", "Delete"),
+        ("defective", "Defective"),
+        ("lost", "Lost"),
+        ("set", "Set"),
+    ]
+
+    adjustment_type = models.CharField(max_length=20, choices=ADJUSTMENT_ACTIONS)
     code = models.CharField(max_length=50)
     reason = models.CharField(max_length=255)
     note = models.TextField(blank=True)

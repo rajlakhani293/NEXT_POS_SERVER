@@ -22,6 +22,9 @@ venv/
 env/
 ENV/
 
+uploads/
+upload
+
 # Python Cache & Build Artifacts
 __pycache__/
 *.py[cod]

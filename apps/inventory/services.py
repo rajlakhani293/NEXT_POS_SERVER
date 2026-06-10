@@ -17,6 +17,18 @@ def decimalValue(value):
     return Decimal(str(value or 0))
 
 
+STOCK_INCREASE_ACTIONS = ["added"]
+STOCK_REDUCE_ACTIONS = ["deleted", "defective", "lost"]
+STOCK_SET_ACTION = "set"
+STOCK_ADJUSTMENT_LABELS = {
+    "added": "Add",
+    "deleted": "Delete",
+    "defective": "Defective",
+    "lost": "Lost",
+    "set": "Set",
+}
+
+
 def ledgerWithProductName(item, request):
     data = dict(item)
     data["product_name"] = None
@@ -36,11 +48,14 @@ class StockAdjustmentService:
     @staticmethod
     def create(data, request):
         adjustment_type = data.get("adjustment_type")
-        if adjustment_type not in ["increase", "decrease"]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Adjustment type must be increase or decrease.")
+        supported_actions = STOCK_INCREASE_ACTIONS + STOCK_REDUCE_ACTIONS + [STOCK_SET_ACTION]
+        if adjustment_type not in supported_actions:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported stock adjustment action.")
 
         adjustment_qty = decimalValue(data.get("quantity"))
-        if adjustment_qty <= 0:
+        if adjustment_qty < 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Adjustment quantity cannot be negative.")
+        if adjustment_type != STOCK_SET_ACTION and adjustment_qty == 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Quantity must be greater than 0.")
 
         with transaction.atomic():
@@ -56,10 +71,22 @@ class StockAdjustmentService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Stock tracking is disabled for this product.")
 
             current_stock = decimalValue(product.get("current_stock"))
-            if adjustment_type == "decrease" and current_stock < adjustment_qty:
+            if adjustment_type in STOCK_REDUCE_ACTIONS and current_stock < adjustment_qty:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Insufficient stock for adjustment.")
 
-            new_stock = current_stock + adjustment_qty if adjustment_type == "increase" else current_stock - adjustment_qty
+            if adjustment_type in STOCK_INCREASE_ACTIONS:
+                stock_delta = adjustment_qty
+                new_stock = current_stock + adjustment_qty
+                ledger_entry_type = "adjustment_in"
+            elif adjustment_type in STOCK_REDUCE_ACTIONS:
+                stock_delta = adjustment_qty * Decimal("-1")
+                new_stock = current_stock - adjustment_qty
+                ledger_entry_type = "adjustment_out"
+            else:
+                stock_delta = adjustment_qty - current_stock
+                new_stock = adjustment_qty
+                ledger_entry_type = "adjustment_set"
+
             adjustment = commonQuery.createRecord(
                 StockAdjustment,
                 {
@@ -71,17 +98,17 @@ class StockAdjustmentService:
                 request=request,
                 tenant_config=True,
             )
-            Product.objects.filter(id=product["id"]).update(
-                current_stock=F("current_stock") + adjustment_qty
-                if adjustment_type == "increase"
-                else F("current_stock") - adjustment_qty
-            )
+            if adjustment_type == STOCK_SET_ACTION:
+                Product.objects.filter(id=product["id"]).update(current_stock=new_stock)
+            else:
+                Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") + stock_delta)
+
             ledger = commonQuery.createRecord(
                 StockLedger,
                 {
                     "product_id": product["id"],
-                    "entry_type": "adjustment_in" if adjustment_type == "increase" else "adjustment_out",
-                    "quantity": adjustment_qty if adjustment_type == "increase" else adjustment_qty * Decimal("-1"),
+                    "entry_type": ledger_entry_type,
+                    "quantity": stock_delta,
                     "unit_cost": data.get("unit_cost") or product.get("purchase_price") or 0,
                     "balance_after": new_stock,
                     "reference_type": "stock_adjustment",
@@ -94,6 +121,7 @@ class StockAdjustmentService:
             adjustment["product_id"] = product["id"]
             adjustment["product_name"] = product["name"]
             adjustment["quantity"] = adjustment_qty
+            adjustment["stock_delta"] = stock_delta
             adjustment["balance_after"] = new_stock
             adjustment["ledger"] = ledger
             return successResponse("Stock adjustment created successfully.", data=adjustment)
@@ -112,6 +140,8 @@ class StockAdjustmentService:
             request=request,
             tenant_config=True,
         )
+        for item in result["items"]:
+            item["adjustment_type_label"] = STOCK_ADJUSTMENT_LABELS.get(item.get("adjustment_type"), item.get("adjustment_type"))
         return successResponse("Stock adjustments retrieved successfully.", data=result)
 
     @staticmethod
