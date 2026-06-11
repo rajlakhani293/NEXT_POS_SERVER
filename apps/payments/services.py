@@ -116,7 +116,7 @@ class PaymentTypeService:
         ).exists()
         if exists:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment identifier already exists.")
-        return commonQuery.createRecord(
+        payment_type = commonQuery.createRecord(
             PaymentType,
             {
                 **data,
@@ -127,6 +127,7 @@ class PaymentTypeService:
             request=request,
             tenant_config={"company_id": True, "branch_id": True},
         )
+        return successResponse("Payment type created successfully.", data=payment_type)
 
     @staticmethod
     def getPaymentType(payment_type_id, request):
