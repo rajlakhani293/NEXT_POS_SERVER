@@ -373,6 +373,15 @@ class UnitService:
             )
             if unit_group is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
+            validateUniqueFields(
+                Unit,
+                {"name": data.get("name")},
+                scope=None,
+                status_in=(0, 1),
+                case_insensitive=["name"],
+                extra_filters={"unit_group_id": unit_group["id"]},
+                messages={"name": "Unit name already exists in this unit group."},
+            )
             if data.get("is_base_unit"):
                 Unit.objects.filter(unit_group_id=unit_group["id"]).update(is_base_unit=False)
             unit = commonQuery.createRecord(
@@ -406,6 +415,17 @@ class UnitService:
                 if unit_group is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
                 data["unit_group_id"] = unit_group["id"]
+            if "name" in data:
+                validateUniqueFields(
+                    Unit,
+                    {"name": data.get("name")},
+                    scope=None,
+                    exclude_id=unit_id,
+                    status_in=(0, 1),
+                    case_insensitive=["name"],
+                    extra_filters={"unit_group_id": data.get("unit_group_id") or unit["unit_group_id"]},
+                    messages={"name": "Unit name already exists in this unit group."},
+                )
             if data.get("is_base_unit"):
                 Unit.objects.filter(unit_group_id=data.get("unit_group_id") or unit["unit_group_id"]).exclude(id=unit_id).update(is_base_unit=False)
             unit_data = commonQuery.updateRecordById(Unit, unit_id, data, request=request, tenant_config=True)
@@ -773,6 +793,14 @@ class ProductService:
             if data.get("barcode") == "":
                 data["barcode"] = None
             data["sku"] = buildSku(Product, data.get("name"), data.get("sku"), request)
+            validateUniqueFields(
+                Product,
+                {"barcode": data.get("barcode")},
+                request=request,
+                scope="branch",
+                status_in=(0, 1),
+                messages={"barcode": "Barcode already exists on another product."},
+            )
             data["current_stock"] = data.get("opening_stock", 0)
             image_url = saveProductImage(image, request)
             if image_url:
@@ -876,6 +904,16 @@ class ProductService:
                     data.get("sku") or product["sku"],
                     request,
                     exclude_id=product["id"],
+                )
+            if "barcode" in data:
+                validateUniqueFields(
+                    Product,
+                    {"barcode": data.get("barcode")},
+                    request=request,
+                    scope="branch",
+                    exclude_id=product["id"],
+                    status_in=(0, 1),
+                    messages={"barcode": "Barcode already exists on another product."},
                 )
             product_data = commonQuery.updateRecordById(Product, product_id, data, request=request, tenant_config=True)
             if product_data is None:

@@ -917,10 +917,20 @@ class AccountsService:
                 f"Invalid permissions: {', '.join(invalid_permissions)}",
             )
 
+        role_code = slugify(payload.code or payload.name)
+        validateUniqueFields(
+            Role,
+            {"code": role_code},
+            scope=None,
+            status_in=(0, 1),
+            extra_filters={"company_id": user.company_id},
+            messages={"code": "Role code already exists."},
+        )
+
         role = Role.objects.create(
             company_id=user.company_id,
             name=payload.name,
-            code=slugify(payload.code or payload.name),
+            code=role_code,
             description=payload.description,
             is_cashier=payload.is_cashier,
             is_store_manager=payload.is_store_manager,
@@ -943,6 +953,15 @@ class AccountsService:
 
         if "code" in data and data["code"]:
             data["code"] = slugify(data["code"])
+            validateUniqueFields(
+                Role,
+                {"code": data["code"]},
+                scope=None,
+                exclude_id=role_id,
+                status_in=(0, 1),
+                extra_filters={"company_id": user.company_id},
+                messages={"code": "Role code already exists."},
+            )
 
         for field, value in data.items():
             setattr(role, field, value)

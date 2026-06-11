@@ -139,6 +139,18 @@ def buildCode(model, name, code, request, exclude_id=None):
     raw_code = (code or "").strip()
     raw_name = (name or "").strip()
     base = slugify(raw_code or raw_name or "item") or "item"
+    if raw_code:
+        validateUniqueFields(
+            model,
+            {"code": base},
+            request=request,
+            scope="branch",
+            exclude_id=exclude_id,
+            status_in=(0, 1),
+            case_insensitive=["code"],
+            messages={"code": "Code already exists."},
+        )
+        return base
     return buildUniqueValue(model, request, "code", base, exclude_id=exclude_id)
 
 
@@ -146,6 +158,18 @@ def buildSlug(model, name, slug, request, exclude_id=None):
     raw_slug = (slug or "").strip()
     raw_name = (name or "").strip()
     base = slugify(raw_slug or raw_name or "product") or "product"
+    if raw_slug:
+        validateUniqueFields(
+            model,
+            {"slug": base},
+            request=request,
+            scope="branch",
+            exclude_id=exclude_id,
+            status_in=(0, 1),
+            case_insensitive=["slug"],
+            messages={"slug": "Slug already exists."},
+        )
+        return base
     return buildUniqueValue(model, request, "slug", base, exclude_id=exclude_id)
 
 
@@ -153,6 +177,18 @@ def buildSku(model, name, sku, request, exclude_id=None):
     raw_sku = (sku or "").strip()
     raw_name = (name or "").strip()
     base = (slugify(raw_sku or raw_name or "item") or "item").upper()
+    if raw_sku:
+        validateUniqueFields(
+            model,
+            {"sku": base},
+            request=request,
+            scope="branch",
+            exclude_id=exclude_id,
+            status_in=(0, 1),
+            case_insensitive=["sku"],
+            messages={"sku": "SKU already exists."},
+        )
+        return base
     return buildUniqueValue(model, request, "sku", base, exclude_id=exclude_id)
 
 

@@ -6,7 +6,7 @@ from apps.catalog.models import Category, Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildUniqueValue
+from apps.common.helpers import buildUniqueValue, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerGroup
 from apps.promotions.models import (
@@ -25,6 +25,18 @@ LINK_FIELDS = ["product_ids", "category_ids", "customer_ids", "customer_group_id
 
 def buildCouponCode(code, request, exclude_id=None):
     base = slugify((code or "").strip() or "coupon").upper()
+    if code:
+        validateUniqueFields(
+            Coupon,
+            {"code": base},
+            request=request,
+            scope="branch",
+            exclude_id=exclude_id,
+            status_in=(0, 1),
+            case_insensitive=["code"],
+            messages={"code": "Coupon code already exists."},
+        )
+        return base
     return buildUniqueValue(Coupon, request, "code", base, exclude_id=exclude_id)
 
 
@@ -64,7 +76,7 @@ def replaceLinks(coupon_id, links, request):
     for link_model, target_model, input_key, fk_key, label in link_config:
         if input_key not in links:
             continue
-        ids = links.get(input_key) or []
+        ids = list(dict.fromkeys(links.get(input_key) or []))
         validateIds(target_model, ids, request, label)
         commonQuery.hardDeleteRecords(
             link_model,
