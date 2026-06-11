@@ -4,7 +4,7 @@ from django.utils.text import slugify
 
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import saveCompanyLogo, serializeModelInstance
+from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateUniqueFields
 from apps.common.commonQuery import commonQuery
 from apps.organizations.models import Branch, Company, StateMaster
 from apps.payments.services import PaymentTypeService
@@ -163,10 +163,16 @@ class OrganizationsService:
             if branch is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
             if data.get("code"):
-                exists = Branch.objects.filter(company_id=user.company_id, code=slugify(data["code"])).exclude(id=branch_id).exists()
-                if exists:
-                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Branch code already exists.")
                 data["code"] = slugify(data["code"])
+                validateUniqueFields(
+                    Branch,
+                    {"code": data["code"]},
+                    request=request,
+                    scope="company",
+                    exclude_id=branch_id,
+                    status_in=None,
+                    messages={"code": "Branch code already exists."},
+                )
             if data.get("state_id"):
                 OrganizationsService.ensureState(data.get("state_id"))
             updated = commonQuery.updateRecordById(

@@ -13,7 +13,7 @@ from apps.catalog.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildSku, saveProductImage
+from apps.common.helpers import buildSku, saveProductImage, validateUniqueFields
 from apps.common.responses import successResponse
 
 
@@ -1069,23 +1069,23 @@ class ProductUnitQuantityService:
     def ensureBarcodeAvailable(barcode, request, unit_quantity_id=None):
         if not barcode:
             return
-        product = commonQuery.findOneRecord(
+        validateUniqueFields(
             Product,
             {"barcode": barcode},
             request=request,
-            tenant_config=True,
+            scope="branch",
+            status_in=(0, 1),
+            messages={"barcode": "Barcode already exists on another product."},
         )
-        if product:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Barcode already exists on another product.")
-
-        unit_quantity = commonQuery.findOneRecord(
+        validateUniqueFields(
             ProductUnitQuantity,
             {"barcode": barcode},
             request=request,
-            tenant_config=True,
+            scope="branch",
+            exclude_id=unit_quantity_id,
+            status_in=(0, 1),
+            messages={"barcode": "Barcode already exists on another selling unit."},
         )
-        if unit_quantity and unit_quantity.get("id") != unit_quantity_id:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Barcode already exists on another selling unit.")
 
     @staticmethod
     def getAll(product_id, request):
@@ -1120,14 +1120,15 @@ class ProductUnitQuantityService:
                 data["barcode"] = None
             ProductUnitQuantityService.ensureBarcodeAvailable(data.get("barcode"), request)
 
-            existing = commonQuery.findOneRecord(
+            validateUniqueFields(
                 ProductUnitQuantity,
-                {"product_id": product["id"], "unit_id": unit["id"]},
+                {"unit_id": unit["id"]},
                 request=request,
-                tenant_config=True,
+                scope=None,
+                status_in=(0, 1),
+                extra_filters={"product_id": product["id"]},
+                messages={"unit_id": "This unit already exists for this product."},
             )
-            if existing:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "This unit already exists for this product.")
 
             if data.get("is_default"):
                 ProductUnitQuantity.objects.filter(product_id=product["id"], status__in=[0, 1]).update(is_default=False)
@@ -1160,14 +1161,16 @@ class ProductUnitQuantityService:
 
             if data.get("unit_id"):
                 unit = ProductUnitQuantityService.ensureUnit(data["unit_id"], request)
-                duplicate = commonQuery.findOneRecord(
+                validateUniqueFields(
                     ProductUnitQuantity,
-                    {"product_id": product["id"], "unit_id": unit["id"]},
+                    {"unit_id": unit["id"]},
                     request=request,
-                    tenant_config=True,
+                    scope=None,
+                    exclude_id=unit_quantity_id,
+                    status_in=(0, 1),
+                    extra_filters={"product_id": product["id"]},
+                    messages={"unit_id": "This unit already exists for this product."},
                 )
-                if duplicate and duplicate.get("id") != unit_quantity_id:
-                    raise api_error(400, ErrorCodes.BAD_REQUEST, "This unit already exists for this product.")
                 data["unit_id"] = unit["id"]
 
             if data.get("convert_unit_id"):

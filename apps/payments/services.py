@@ -5,7 +5,7 @@ from django.utils.text import slugify
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import serializeModelInstance
+from apps.common.helpers import serializeModelInstance, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.payments.models import DEFAULT_PAYMENT_TYPES, LEGACY_PAYMENT_TYPE_ALIASES, PaymentType, paymentTypeValues
 
@@ -109,13 +109,18 @@ class PaymentTypeService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment identifier is required.")
         if identifier in paymentTypeValues():
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Default payment identifiers are reserved.")
-        exists = PaymentType.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            identifier=identifier,
-        ).exists()
-        if exists:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment identifier already exists.")
+        validateUniqueFields(
+            PaymentType,
+            {"label": data.get("label"), "identifier": identifier},
+            request=request,
+            scope="branch",
+            case_insensitive=["label"],
+            status_in=None,
+            messages={
+                "label": "Payment label already exists.",
+                "identifier": "Payment identifier already exists.",
+            },
+        )
         payment_type = commonQuery.createRecord(
             PaymentType,
             {
@@ -155,19 +160,38 @@ class PaymentTypeService:
 
             if payment_type.is_system:
                 identifier = payment_type.identifier
+                validateUniqueFields(
+                    PaymentType,
+                    {"label": data.get("label"), "identifier": identifier},
+                    request,
+                    scope="branch",
+                    exclude_id=payment_type_id,
+                    case_insensitive=["label"],
+                    status_in=None,
+                    messages={
+                        "label": "Payment label already exists.",
+                        "identifier": "Payment identifier already exists.",
+                    },
+                )
             else:
                 identifier = PaymentTypeService.normalizeIdentifier(data.get("identifier") or "", data.get("label") or "")
                 if not identifier:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment identifier is required.")
                 if identifier in paymentTypeValues():
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Default payment identifiers are reserved.")
-                exists = PaymentType.objects.filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    identifier=identifier,
-                ).exclude(id=payment_type_id).exists()
-                if exists:
-                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment identifier already exists.")
+                validateUniqueFields(
+                    PaymentType,
+                    {"label": data.get("label"), "identifier": identifier},
+                    request,
+                    scope="branch",
+                    exclude_id=payment_type_id,
+                    case_insensitive=["label"],
+                    status_in=None,
+                    messages={
+                        "label": "Payment label already exists.",
+                        "identifier": "Payment identifier already exists.",
+                    },
+                )
 
             updated = commonQuery.updateRecordById(
                 PaymentType,

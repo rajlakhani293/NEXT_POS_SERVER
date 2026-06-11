@@ -59,7 +59,7 @@ class PaymentType(TenantAwareModel):
     sort_order = models.PositiveIntegerField(default=0)
 
     class Meta:
-        unique_together = [("branch", "identifier")]
+        unique_together = [("branch", "identifier"), ("branch", "label")]
         ordering = ["sort_order", "label"]
 
     def __str__(self):

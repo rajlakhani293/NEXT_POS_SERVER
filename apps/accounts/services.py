@@ -21,7 +21,7 @@ from apps.common.authz import get_user_permission_codenames
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import serializeModelInstance
+from apps.common.helpers import serializeModelInstance, validateUniqueFields
 from apps.expenses.services import ExpenseCategoryService
 from apps.organizations.models import Branch, Company
 from apps.payments.services import PaymentTypeService
@@ -797,10 +797,14 @@ class AccountsService:
         full_name = data.get("full_name") or "Staff User"
         phone = data.get("phone") or ""
         email = data.get("email") or ""
-        if phone and User.objects.filter(phone=phone, status__in=[0, 1]).exists():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Phone already exists.")
-        if email and User.objects.filter(email=email, status__in=[0, 1]).exists():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Email already exists.")
+        validateUniqueFields(
+            User,
+            {"phone": phone, "email": email},
+            scope="global",
+            status_in=(0, 1),
+            case_insensitive=["email"],
+            messages={"phone": "Phone already exists.", "email": "Email already exists."},
+        )
 
         target_user = User(
             username=f"user-{secrets.token_hex(8)}",
@@ -826,10 +830,15 @@ class AccountsService:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
 
         data = payload.dict(exclude_unset=True)
-        if data.get("phone") and User.objects.filter(phone=data["phone"], status__in=[0, 1]).exclude(id=user_id).exists():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Phone already exists.")
-        if data.get("email") and User.objects.filter(email=data["email"], status__in=[0, 1]).exclude(id=user_id).exists():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Email already exists.")
+        validateUniqueFields(
+            User,
+            {"phone": data.get("phone"), "email": data.get("email")},
+            scope="global",
+            exclude_id=user_id,
+            status_in=(0, 1),
+            case_insensitive=["email"],
+            messages={"phone": "Phone already exists.", "email": "Email already exists."},
+        )
         if data.get("branch_id"):
             branch = Branch.objects.filter(company_id=user.company_id, id=data["branch_id"], status__in=[0, 1]).first()
             if branch is None:

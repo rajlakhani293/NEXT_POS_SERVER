@@ -67,6 +67,55 @@ def serializeModelInstance(instance):
     return jsonsafe(data)
 
 
+def validateUniqueFields(
+    model,
+    fields,
+    request=None,
+    scope="branch",
+    exclude_id=None,
+    case_insensitive=None,
+    status_in=(0, 1),
+    messages=None,
+    extra_filters=None,
+):
+    from apps.common.error_codes import ErrorCodes
+    from apps.common.exceptions import api_error
+
+    query = model.objects.all()
+    auth_context = getAuthContext(request)
+    case_insensitive = set(case_insensitive or [])
+    messages = messages or {}
+
+    if scope == "branch":
+        query = query.filter(
+            company_id=auth_context.get("company_id"),
+            branch_id=auth_context.get("branch_id"),
+        )
+    elif scope == "company":
+        query = query.filter(company_id=auth_context.get("company_id"))
+    elif scope not in (None, "global"):
+        raise ImproperlyConfigured("validateUniqueFields scope must be branch, company, global, or None.")
+
+    if status_in is not None:
+        query = query.filter(status__in=status_in)
+    if extra_filters:
+        query = query.filter(**extra_filters)
+    if exclude_id:
+        query = query.exclude(id=exclude_id)
+
+    for field_name, value in (fields or {}).items():
+        if value in (None, ""):
+            continue
+        lookup = f"{field_name}__iexact" if field_name in case_insensitive else field_name
+        if query.filter(**{lookup: value}).exists():
+            label = field_name.replace("_", " ").title()
+            raise api_error(
+                400,
+                ErrorCodes.BAD_REQUEST,
+                messages.get(field_name) or f"{label} already exists.",
+            )
+
+
 def buildUniqueValue(model, request, field_name, raw_value, exclude_id=None):
     from apps.common.commonQuery import commonQuery
 
