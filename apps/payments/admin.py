@@ -1,13 +1,13 @@
+# type: ignore
 from django.contrib import admin
-
 from apps.common.admin import TenantModelAdmin
 from apps.payments.models import PaymentType, RefundPayment, SalePayment
 
 
 @admin.register(PaymentType)
 class PaymentTypeAdmin(TenantModelAdmin):
-    list_display = ("label", "identifier", "branch", "is_system", "is_enabled", "sort_order", "status")
-    list_filter = ("is_system", "is_enabled", "status")
+    list_display = ("label", "identifier", "branch", "is_system", "sort_order", "status")
+    list_filter = ("is_system", "status")
     search_fields = ("label", "identifier")
 
     def get_readonly_fields(self, request, obj=None):

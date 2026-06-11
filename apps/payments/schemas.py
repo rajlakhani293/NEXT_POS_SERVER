@@ -12,7 +12,6 @@ class PaymentTypeCreateIn(Schema):
     label: str = Field(..., min_length=1)
     identifier: Optional[str] = ""
     description: Optional[str] = ""
-    is_enabled: bool = True
     sort_order: int = 0
 
 
@@ -20,7 +19,6 @@ class PaymentTypeUpdateIn(Schema):
     label: str = Field(..., min_length=1)
     identifier: Optional[str] = ""
     description: Optional[str] = ""
-    is_enabled: bool = True
     sort_order: int = 0
 
 

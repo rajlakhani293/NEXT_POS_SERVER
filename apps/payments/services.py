@@ -27,8 +27,8 @@ class PaymentTypeService:
                     "label": item["label"],
                     "description": item["description"],
                     "is_system": True,
-                    "is_enabled": True,
                     "sort_order": item["sort_order"],
+                    "status": 0,
                 },
             )
             update_fields = []
@@ -47,7 +47,7 @@ class PaymentTypeService:
             branch_id=branch.id,
             identifier__in=LEGACY_PAYMENT_TYPE_ALIASES.keys(),
             is_system=True,
-        ).update(is_enabled=False, status=2)
+        ).update(status=2)
         return seeded
 
     @staticmethod
@@ -66,7 +66,6 @@ class PaymentTypeService:
             branch_id=request.user.branch_id,
             identifier=normalized,
             status=0,
-            is_enabled=True,
         ).first()
         if payment_type is None:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
@@ -79,7 +78,6 @@ class PaymentTypeService:
                 company_id=request.user.company_id,
                 branch_id=request.user.branch_id,
                 status=0,
-                is_enabled=True,
             )
             .order_by("sort_order", "label")
             .values("identifier", "label")
@@ -97,7 +95,7 @@ class PaymentTypeService:
             data,
             field_config,
             {
-                "attributes": ["id", "label", "identifier", "description", "is_system", "is_enabled", "sort_order", "status"],
+                "attributes": ["id", "label", "identifier", "description", "is_system", "sort_order", "status"],
                 "order": ["sort_order", "label"],
             },
             request=request,

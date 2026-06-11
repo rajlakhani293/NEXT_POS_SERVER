@@ -56,7 +56,6 @@ class PaymentType(TenantAwareModel):
     identifier = models.CharField(max_length=80)
     description = models.TextField(blank=True)
     is_system = models.BooleanField(default=False)
-    is_enabled = models.BooleanField(default=True)
     sort_order = models.PositiveIntegerField(default=0)
 
     class Meta:

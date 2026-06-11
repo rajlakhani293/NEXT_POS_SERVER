@@ -18,7 +18,13 @@ def safeAuthContext(request):
 
 
 def modelFieldNames(model):
-    return [f.name for f in model._meta.get_fields()]
+    field_names = set()
+    for field in model._meta.get_fields():
+        field_names.add(field.name)
+        attname = getattr(field, "attname", None)
+        if attname:
+            field_names.add(attname)
+    return list(field_names)
 
 
 def hasStatusFilter(filter_kwargs):

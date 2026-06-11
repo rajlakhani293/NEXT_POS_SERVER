@@ -353,6 +353,16 @@ class CashierShiftService:
         for item in result["items"]:
             hydrated = hydrateShift(item)
             item.update(hydrated or {})
+
+        register_id = ((data or {}).get("filter") or {}).get("register_id")
+        if register_id:
+            result["register"] = commonQuery.findOneRecord(
+                CashRegister,
+                register_id,
+                options={"attributes": ["id", "name", "location"]},
+                request=request,
+                tenant_config=True,
+            )
         return successResponse("Shifts retrieved successfully.", data=result)
 
     @staticmethod
@@ -366,30 +376,45 @@ class CashierShiftService:
         if shift is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Shift not found.")
 
-        entries = commonQuery.findAllRecords(
-            CashRegisterEntry,
-            {"shift_id": shift_id},
-            {
-                "attributes": [
-                    "id",
-                    "entry_type",
-                    "payment_type",
-                    "amount",
-                    "balance_before",
-                    "balance_after",
-                    "reference_type",
-                    "reference_id",
-                    "note",
-                    "created_at",
-                ],
-                "order": ["-created_at", "-id"],
-            },
-            request=request,
-            tenant_config=True,
+        entries_queryset = CashRegisterEntry.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            shift_id=shift_id,
+            status__in=[0, 1],
+        )
+        entries = list(
+            entries_queryset.values(
+                "id",
+                "entry_type",
+                "payment_type",
+                "amount",
+                "balance_before",
+                "balance_after",
+                "reference_type",
+                "reference_id",
+                "note",
+                "created_at",
+            ).order_by("-created_at", "-id")
         )
         data = hydrateShift(shift)
         data["entries"] = entries
         data["entry_count"] = len(entries)
+        data["z_report"] = {
+            "opening_cash": shift.get("opening_cash") or 0,
+            "expected_cash": shift.get("expected_cash") or 0,
+            "declared_cash": shift.get("declared_cash") or 0,
+            "difference_amount": shift.get("difference_amount") or 0,
+            "sales_collected": shift.get("total_sales_amount") or 0,
+            "refund_out": shift.get("total_refund_amount") or 0,
+            "cash_in": shift.get("total_cash_in") or 0,
+            "cash_out": shift.get("total_cash_out") or 0,
+            "entry_count": len(entries),
+            "totals_by_type": list(
+                entries_queryset.values("entry_type")
+                .annotate(total=Sum("amount"))
+                .order_by("entry_type")
+            ),
+        }
         return successResponse("Shift retrieved successfully.", data=data)
 
     @staticmethod
