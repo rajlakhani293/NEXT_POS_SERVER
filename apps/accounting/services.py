@@ -292,8 +292,6 @@ class TransactionAccountService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(TransactionAccount, data.get("ids"), status, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")

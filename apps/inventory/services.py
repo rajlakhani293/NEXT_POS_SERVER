@@ -171,8 +171,6 @@ class StockAdjustmentService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             StockAdjustment,
             data.get("ids"),

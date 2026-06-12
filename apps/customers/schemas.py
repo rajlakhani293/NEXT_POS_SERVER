@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from ninja import Schema
 
@@ -10,7 +10,7 @@ class DeleteSchema(Schema):
 
 class StatusUpdateSchema(Schema):
     ids: Union[int, List[int]]
-    status: int
+    status: Literal[0, 1]
 
 
 class CustomerGroupIn(Schema):

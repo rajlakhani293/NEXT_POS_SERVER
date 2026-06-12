@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from ninja import Field, Schema
 
@@ -33,7 +33,7 @@ class PaymentTypeListIn(Schema):
 
 class PaymentTypeStatusIn(Schema):
     ids: list[int]
-    status: int
+    status: Literal[0, 1]
 
 
 class PaymentTypeBulkIdsIn(Schema):

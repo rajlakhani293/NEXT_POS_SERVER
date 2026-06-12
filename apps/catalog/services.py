@@ -154,8 +154,6 @@ class CategoryService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             Category,
             data.get("ids"),
@@ -223,8 +221,6 @@ class BrandService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             Brand,
             data.get("ids"),
@@ -325,8 +321,6 @@ class UnitGroupService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             UnitGroup,
             data.get("ids"),
@@ -471,8 +465,6 @@ class UnitService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             Unit,
             data.get("ids"),
@@ -603,8 +595,6 @@ class TaxGroupService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             TaxGroup,
             data.get("ids"),
@@ -712,8 +702,6 @@ class TaxService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             Tax,
             data.get("ids"),
@@ -1018,8 +1006,6 @@ class ProductService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         count = commonQuery.updateStatusById(
             Product,
             data.get("ids"),

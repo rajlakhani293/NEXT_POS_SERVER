@@ -873,8 +873,6 @@ class AccountsService:
     @staticmethod
     def updateUserStatus(user: User, data):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         ids = data.get("ids", [])
         if not isinstance(ids, list):
             ids = [ids]

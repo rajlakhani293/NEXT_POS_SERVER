@@ -157,8 +157,6 @@ class RegisterService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        if status not in [0, 1]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 or 1.")
         ids = data.get("ids")
         register_ids = ids if isinstance(ids, list) else [ids]
         if status == 1 and CashierShift.objects.filter(

@@ -1,7 +1,5 @@
 from typing import Optional
-
 from ninja import Router
-
 from apps.accounts.auth import auth_bearer
 from apps.accounting.schemas import (
     DeleteSchema,
@@ -59,6 +57,7 @@ def getAccountById(request, account_id: int):
 def updateAccount(request, account_id: int, payload: TransactionAccountUpdateIn):
     return TransactionAccountService.update(account_id, payload.dict(exclude_none=True), request)
 
+# 
 
 @router.post("/transactions/", response=ApiResponse)
 @permission_required("settings_update")
