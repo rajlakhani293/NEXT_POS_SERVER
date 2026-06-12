@@ -377,12 +377,25 @@ class SaleCouponService:
         if maximum_cart_value > 0 and subtotal > maximum_cart_value:
             raise api_error(400, ErrorCodes.BAD_REQUEST, f"Coupon {coupon.get('code')} exceeds maximum cart value.")
 
-        product_ids = [item.get("product_id") for item in items or []]
-        category_ids = []
-        for product_id in product_ids:
-            product = commonQuery.findOneRecord(Product, product_id, request=request, tenant_config=True)
-            if product and product.get("category_id"):
-                category_ids.append(product["category_id"])
+        product_ids = list(
+            dict.fromkeys(
+                item.get("product_id")
+                for item in items or []
+                if item.get("product_id")
+            )
+        )
+        products = commonQuery.findAllRecords(
+            Product,
+            {"id__in": product_ids},
+            {"attributes": ["id", "category_id"]},
+            request=request,
+            tenant_config=True,
+        )
+        category_ids = [
+            product["category_id"]
+            for product in products
+            if product.get("category_id")
+        ]
 
         product_links = commonQuery.findAllRecords(
             CouponProduct,

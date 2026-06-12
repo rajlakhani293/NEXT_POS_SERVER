@@ -4,7 +4,7 @@ from django.utils.text import slugify
 
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateUniqueFields
+from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateTenantRelationId, validateUniqueFields
 from apps.common.commonQuery import commonQuery
 from apps.organizations.models import Branch, Company, StateMaster
 from apps.payments.services import PaymentTypeService
@@ -15,10 +15,13 @@ class OrganizationsService:
     def ensureState(state_id):
         if not state_id:
             return None
-        state = StateMaster.objects.filter(id=state_id, status=0).first()
-        if state is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "State not found.")
-        return state
+        return validateTenantRelationId(
+            StateMaster,
+            state_id,
+            label="State",
+            tenant_config={},
+            status_in=(0,),
+        )
 
     @staticmethod
     def generateBranchCode(company_id, name, code=""):
@@ -56,7 +59,7 @@ class OrganizationsService:
             )
 
         with transaction.atomic():
-            company_state = OrganizationsService.ensureState(company_payload.state_id)
+            company_state_id = OrganizationsService.ensureState(company_payload.state_id)
 
             company.name = company_payload.name
             company.legal_name = company_payload.legal_name or company_payload.name
@@ -64,7 +67,7 @@ class OrganizationsService:
             company.phone = company_payload.phone or ""
             company.gst_number = company_payload.gst_number or ""
             company.city_name = company_payload.city_name or ""
-            company.state = company_state
+            company.state_id = company_state_id
             company.address = company_payload.address or ""
             if logo:
                 company.logo = saveCompanyLogo(logo, request) or ""
@@ -73,12 +76,12 @@ class OrganizationsService:
             company.save()
 
             if branch_payload is not None:
-                branch_state = OrganizationsService.ensureState(branch_payload.state_id)
+                branch_state_id = OrganizationsService.ensureState(branch_payload.state_id)
                 branch.name = branch_payload.name
                 branch.phone = branch_payload.phone or ""
                 branch.address = branch_payload.address or ""
                 branch.city = branch_payload.city or ""
-                branch.state = branch_state
+                branch.state_id = branch_state_id
                 branch.postal_code = branch_payload.postal_code or ""
                 branch.save()
 

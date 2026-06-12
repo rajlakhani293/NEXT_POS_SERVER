@@ -9,7 +9,7 @@ from apps.accounting.services import AccountingService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
+from apps.common.helpers import buildCode, validateTenantRelationId
 from apps.common.responses import successResponse
 from apps.expenses.models import ExpenseCategory, ExpenseEntry
 from apps.notifications.services import NotificationService
@@ -156,9 +156,13 @@ class ExpenseEntryService:
 
     @staticmethod
     def validatePayload(data, request):
-        category = commonQuery.findOneRecord(ExpenseCategory, data.get("category_id"), request=request, tenant_config=True)
-        if category is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Expense category not found.")
+        validateTenantRelationId(
+            ExpenseCategory,
+            data.get("category_id"),
+            request=request,
+            label="Expense category",
+            required=True,
+        )
         if money(data.get("amount")) <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
         if data.get("payment_type"):
@@ -167,8 +171,12 @@ class ExpenseEntryService:
                 request,
             )
         if data.get("shift_id"):
-            ExpenseEntryService.getShift(data["shift_id"], request)
-        return category
+            validateTenantRelationId(
+                CashierShift,
+                data["shift_id"],
+                request=request,
+                label="Cashier shift",
+            )
 
     @staticmethod
     def applyEffects(expense, request):

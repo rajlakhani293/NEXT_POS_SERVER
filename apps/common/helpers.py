@@ -2,7 +2,6 @@
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
-
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.files.storage import FileSystemStorage
@@ -116,7 +115,15 @@ def validateUniqueFields(
             )
 
 
-def validateTenantRelationIds(model, ids, request=None, label=None, tenant_config=True, required=False):
+def validateTenantRelationIds(
+    model,
+    ids,
+    request=None,
+    label=None,
+    tenant_config=True,
+    required=False,
+    status_in=None,
+):
     from apps.common.commonQuery import commonQuery
     from apps.common.error_codes import ErrorCodes
     from apps.common.exceptions import api_error
@@ -145,9 +152,14 @@ def validateTenantRelationIds(model, ids, request=None, label=None, tenant_confi
     if not unique_ids:
         return []
 
+    filters = {"id__in": unique_ids}
+    model_field_names = {field.name for field in model._meta.get_fields()}
+    if status_in is not None and "status" in model_field_names:
+        filters["status__in"] = status_in
+
     records = commonQuery.findAllRecords(
         model,
-        {"id__in": unique_ids},
+        filters,
         {"attributes": ["id"]},
         request=request,
         tenant_config=tenant_config,
@@ -160,7 +172,15 @@ def validateTenantRelationIds(model, ids, request=None, label=None, tenant_confi
     return unique_ids
 
 
-def validateTenantRelationId(model, item_id, request=None, label=None, tenant_config=True, required=False):
+def validateTenantRelationId(
+    model,
+    item_id,
+    request=None,
+    label=None,
+    tenant_config=True,
+    required=False,
+    status_in=None,
+):
     ids = validateTenantRelationIds(
         model,
         [item_id],
@@ -168,6 +188,7 @@ def validateTenantRelationId(model, item_id, request=None, label=None, tenant_co
         label=label,
         tenant_config=tenant_config,
         required=required,
+        status_in=status_in,
     )
     return ids[0] if ids else None
 

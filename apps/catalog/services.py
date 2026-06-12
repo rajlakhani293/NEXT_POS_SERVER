@@ -406,15 +406,13 @@ class UnitService:
             if unit is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
             if data.get("unit_group_id"):
-                unit_group = commonQuery.findOneRecord(
+                data["unit_group_id"] = validateTenantRelationId(
                     UnitGroup,
                     data["unit_group_id"],
                     request=request,
+                    label="Unit group",
                     tenant_config=True,
                 )
-                if unit_group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
-                data["unit_group_id"] = unit_group["id"]
             if "name" in data:
                 validateUniqueFields(
                     Unit,
@@ -645,17 +643,16 @@ class TaxService:
     @staticmethod
     def create(data, request):
         with transaction.atomic():
-            tax_group = commonQuery.findOneRecord(
+            data["tax_group_id"] = validateTenantRelationId(
                 TaxGroup,
                 data["tax_group_id"],
                 request=request,
+                label="Tax group",
                 tenant_config=True,
             )
-            if tax_group is None:
-                raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
             tax = commonQuery.createRecord(
                 Tax,
-                {**data, "tax_group_id": tax_group["id"]},
+                data,
                 request=request,
                 tenant_config=True,
             )
@@ -673,15 +670,13 @@ class TaxService:
             if tax is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
             if data.get("tax_group_id"):
-                tax_group = commonQuery.findOneRecord(
+                data["tax_group_id"] = validateTenantRelationId(
                     TaxGroup,
                     data["tax_group_id"],
                     request=request,
+                    label="Tax group",
                     tenant_config=True,
                 )
-                if tax_group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-                data["tax_group_id"] = tax_group["id"]
             tax_data = commonQuery.updateRecordById(Tax, tax_id, data, request=request, tenant_config=True)
             if tax_data is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Tax not found.")
@@ -1064,27 +1059,25 @@ class ProductUnitQuantityService:
 
     @staticmethod
     def ensureProduct(product_id, request):
-        product = commonQuery.findOneRecord(
+        product_id = validateTenantRelationId(
             Product,
             product_id,
             request=request,
+            label="Product",
             tenant_config=True,
         )
-        if product is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
-        return product
+        return {"id": product_id}
 
     @staticmethod
     def ensureUnit(unit_id, request, label="Unit"):
-        unit = commonQuery.findOneRecord(
+        unit_id = validateTenantRelationId(
             Unit,
             unit_id,
             request=request,
+            label=label,
             tenant_config=True,
         )
-        if unit is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, f"{label} not found.")
-        return unit
+        return {"id": unit_id}
 
     @staticmethod
     def ensureBarcodeAvailable(barcode, request, unit_quantity_id=None):

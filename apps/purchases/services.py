@@ -196,10 +196,14 @@ class PurchaseOrderService:
 
     @staticmethod
     def validateSupplier(supplier_id, request):
-        supplier = commonQuery.findOneRecord(Supplier, supplier_id, request=request, tenant_config=True)
-        if supplier is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Supplier not found.")
-        return supplier
+        supplier_id = validateTenantRelationId(
+            Supplier,
+            supplier_id,
+            request=request,
+            label="Supplier",
+            required=True,
+        )
+        return {"id": supplier_id}
 
     @staticmethod
     def calculateItems(items):
@@ -343,7 +347,7 @@ class PurchaseOrderService:
                 new_received = qty(item.get("received_quantity")) + receive_qty
                 if new_received > qty(item.get("ordered_quantity")):
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Received quantity cannot exceed ordered quantity.")
-                product = commonQuery.findOneRecord(Product, item["product_id"], request=request, tenant_config=True)
+                validateTenantRelationId(Product, item["product_id"], request=request, label="Product")
                 Product.objects.filter(id=item["product_id"]).update(current_stock=F("current_stock") + receive_qty)
                 PurchaseItem.objects.filter(id=item["id"]).update(received_quantity=new_received)
                 commonQuery.createRecord(

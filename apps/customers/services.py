@@ -4,7 +4,7 @@ from django.db import transaction
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
+from apps.common.helpers import buildCode, validateTenantRelationId
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerAddress, CustomerCreditLedger, CustomerGroup
 from apps.organizations.models import StateMaster
@@ -60,14 +60,13 @@ def validateAddressState(address_data, request):
     state_id = address_data.get("state_id")
     if not state_id:
         return
-    state = commonQuery.findOneRecord(
+    validateTenantRelationId(
         StateMaster,
         state_id,
         request=request,
+        label="State",
         tenant_config={},
     )
-    if state is None:
-        raise api_error(404, ErrorCodes.NOT_FOUND, "State not found.")
 
 
 def upsertCustomerAddress(customer_id, address_type, address_data, request):
@@ -108,14 +107,13 @@ class CustomerService:
         with transaction.atomic():
             customer_data, address_data = splitCustomerData(data)
             if customer_data.get("group_id"):
-                group = commonQuery.findOneRecord(
+                validateTenantRelationId(
                     CustomerGroup,
                     customer_data["group_id"],
                     request=request,
+                    label="Customer group",
                     tenant_config=True,
                 )
-                if group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Customer group not found.")
 
             customer_data["code"] = buildCode(
                 Customer,
@@ -234,14 +232,13 @@ class CustomerService:
 
             customer_data, address_data = splitCustomerData(data)
             if customer_data.get("group_id"):
-                group = commonQuery.findOneRecord(
+                validateTenantRelationId(
                     CustomerGroup,
                     customer_data["group_id"],
                     request=request,
+                    label="Customer group",
                     tenant_config=True,
                 )
-                if group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Customer group not found.")
 
             if "code" in customer_data:
                 customer_data["code"] = buildCode(
@@ -376,14 +373,13 @@ class CustomerGroupService:
     def create(data, request):
         with transaction.atomic():
             if data.get("reward_system_id"):
-                reward_system = commonQuery.findOneRecord(
+                validateTenantRelationId(
                     RewardSystem,
                     data["reward_system_id"],
                     request=request,
+                    label="Reward system",
                     tenant_config=True,
                 )
-                if reward_system is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Reward system not found.")
 
             data["code"] = buildCode(
                 CustomerGroup,
@@ -452,14 +448,13 @@ class CustomerGroupService:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Customer group not found.")
 
             if data.get("reward_system_id"):
-                reward_system = commonQuery.findOneRecord(
+                validateTenantRelationId(
                     RewardSystem,
                     data["reward_system_id"],
                     request=request,
+                    label="Reward system",
                     tenant_config=True,
                 )
-                if reward_system is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Reward system not found.")
 
             if "code" in data:
                 data["code"] = buildCode(
