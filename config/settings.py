@@ -86,7 +86,6 @@ INSTALLED_APPS = [
     'apps.rewards',
     'apps.expenses',
     'apps.reports',
-    'apps.audit',
     'apps.settingsapi',
 ]
 
