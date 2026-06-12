@@ -39,16 +39,14 @@ load_env_file()
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "DJANGO_SECRET_KEY",
-    "django-insecure-lyzxnyzu!a_pcuvw^f7&u6_eo+#(#z^2i+02rwlc3a&h4med(6",
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = envBool("DJANGO_DEBUG", True)
-if not DEBUG and not os.getenv("DJANGO_SECRET_KEY"):
+
+# SECURITY WARNING: keep the secret key used in production secret.
+configuredSecretKey = os.getenv("DJANGO_SECRET_KEY", "").strip()
+if not configuredSecretKey and not DEBUG:
     raise ImproperlyConfigured("DJANGO_SECRET_KEY is required when DJANGO_DEBUG is false.")
+SECRET_KEY = configuredSecretKey or "django-insecure-local-development-only-change-me"
 
 ALLOWED_HOSTS = envList("DJANGO_ALLOWED_HOSTS", "*")
 CORS_ALLOWED_ORIGINS = set(
