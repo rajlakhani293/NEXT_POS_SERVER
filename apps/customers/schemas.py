@@ -1,17 +1,8 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import Optional
 
 from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
+from apps.common.schemas import ActiveStatus
 
 class CustomerGroupIn(Schema):
     name: str
@@ -27,7 +18,7 @@ class CustomerGroupUpdateIn(Schema):
     description: Optional[str] = None
     credit_limit: Optional[Decimal] = None
     reward_system_id: Optional[int] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class CustomerIn(Schema):
@@ -74,7 +65,7 @@ class CustomerUpdateIn(Schema):
     shipping_pincode: Optional[str] = None
     shipping_city: Optional[str] = None
     shipping_state_id: Optional[int] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class CustomerCreditIn(Schema):

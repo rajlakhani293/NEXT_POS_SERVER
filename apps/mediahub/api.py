@@ -5,7 +5,8 @@ from ninja import File, Form, Router, UploadedFile
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.mediahub.schemas import DeleteSchema, MediaUpdateIn
+from apps.common.schemas import BulkIdsSchema
+from apps.mediahub.schemas import MediaUpdateIn
 from apps.mediahub.services import MediaService
 
 
@@ -39,5 +40,5 @@ def updateMedia(request, media_id: int, payload: MediaUpdateIn):
 
 @router.delete("/delete", response=ApiResponse)
 @permission_required("settings_update")
-def deleteMedia(request, payload: DeleteSchema):
+def deleteMedia(request, payload: BulkIdsSchema):
     return MediaService.delete(payload.dict(), request)

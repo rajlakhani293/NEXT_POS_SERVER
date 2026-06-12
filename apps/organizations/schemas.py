@@ -2,6 +2,7 @@
 from typing import Optional
 from ninja import Schema
 from pydantic import Field
+from apps.common.schemas import ActiveStatus
 
 
 class CompanyUpdateIn(Schema):
@@ -38,7 +39,7 @@ class BranchPatchIn(Schema):
     state_id: Optional[int] = None
     postal_code: Optional[str] = None
     is_head_office: Optional[bool] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class OrganizationSetupIn(Schema):

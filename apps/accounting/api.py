@@ -2,15 +2,14 @@ from typing import Optional
 from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.accounting.schemas import (
-    DeleteSchema,
     ManualTransactionIn,
-    StatusUpdateSchema,
     TransactionAccountIn,
     TransactionAccountUpdateIn,
 )
 from apps.accounting.services import AccountingService, TransactionAccountService, TransactionService
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 
 
 router = Router(tags=["accounting"], auth=auth_bearer)
@@ -36,7 +35,7 @@ def getAccountsDropdown(request):
 
 @router.delete("/accounts/delete", response=ApiResponse)
 @permission_required("settings_update")
-def deleteAccounts(request, payload: DeleteSchema):
+def deleteAccounts(request, payload: BulkIdsSchema):
     return TransactionAccountService.delete(payload.dict(), request)
 
 

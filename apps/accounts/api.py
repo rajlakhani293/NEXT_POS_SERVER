@@ -4,9 +4,9 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.accounts.schemas import BranchSwitchIn, GoogleLoginIn, IdentityAuthIn, RoleAssignIn, RoleIn, RoleUpdateIn, SendOtpIn, UserIn, UserUpdateIn, VerifyOtpIn
 from apps.accounts.services import AccountsService
-from apps.catalog.schemas import DeleteSchema, StatusUpdateSchema
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 
 
 router = Router(tags=["accounts"])
@@ -172,7 +172,7 @@ def userDropdown(request):
 
 @router.delete("/users/delete", auth=auth_bearer, response=ApiResponse)
 @permission_required("users_delete")
-def deleteUsers(request, payload: DeleteSchema):
+def deleteUsers(request, payload: BulkIdsSchema):
     data = AccountsService.deleteUsers(request.user, payload.dict())
     return successResponse("Users deleted successfully.", data=data)
 

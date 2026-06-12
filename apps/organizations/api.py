@@ -7,10 +7,9 @@ from apps.common.authz import permission_required
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.responses import ApiResponse, successResponse
-from apps.organizations.controllers import OrganizationsController
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.organizations.schemas import BranchIn, BranchPatchIn, OrganizationSetupIn
 from apps.organizations.services import OrganizationsService
-from apps.catalog.schemas import DeleteSchema, StatusUpdateSchema
 
 
 router = Router(tags=["organizations"])
@@ -19,14 +18,16 @@ router = Router(tags=["organizations"])
 @router.get("/session-data", auth=auth_bearer, response=ApiResponse)
 def sessionData(request):
     """Return the current company and active branch for the signed-in user."""
-    return OrganizationsController.sessionData(request)
+    data = OrganizationsService.getCurrentOrganization(request.user)
+    return successResponse("Organization session data fetched successfully.", data=data)
 
 
 @router.get("/company", auth=auth_bearer, response=ApiResponse)
 @permission_required("settings_view")
 def getCompany(request):
     """Return company profile data for the company settings page."""
-    return OrganizationsController.getCompany(request)
+    data = OrganizationsService.getCurrentOrganization(request.user)
+    return successResponse("Company fetched successfully.", data=data)
 
 
 @router.put("/company", auth=auth_bearer, response=ApiResponse)
@@ -46,12 +47,14 @@ def updateCompany(request):
     except Exception:
         raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid organization payload.")
 
-    return OrganizationsController.updateCompany(
-        request,
+    data = OrganizationsService.updateCurrentOrganization(
+        request.user,
         payload.company,
         payload.branch,
         logo,
+        request,
     )
+    return successResponse("Organization updated successfully.", data=data)
 
 
 @router.get("/states/dropdown-list", auth=auth_bearer, response=ApiResponse)
@@ -87,7 +90,7 @@ def branchDropdown(request):
 
 @router.delete("/branches/delete", auth=auth_bearer, response=ApiResponse)
 @permission_required("branches_delete")
-def deleteBranches(request, payload: DeleteSchema):
+def deleteBranches(request, payload: BulkIdsSchema):
     data = OrganizationsService.deleteBranches(payload.dict(), request)
     return successResponse("Branches deleted successfully.", data=data)
 

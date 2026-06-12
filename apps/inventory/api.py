@@ -5,7 +5,8 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
-from apps.inventory.schemas import DeleteSchema, StockAdjustmentIn, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.inventory.schemas import StockAdjustmentIn
 from apps.inventory.services import StockAdjustmentService, StockLedgerService
 
 
@@ -35,7 +36,7 @@ def getAllStockAdjustments(request, payload: Optional[dict] = None):
 
 @router.delete("/adjustments/delete", response=ApiResponse)
 @permission_required("inventory_adjust")
-def deleteStockAdjustments(request, payload: DeleteSchema):
+def deleteStockAdjustments(request, payload: BulkIdsSchema):
     return StockAdjustmentService.delete(payload.dict(), request)
 
 

@@ -5,8 +5,8 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.purchases.schemas import (
-    DeleteSchema,
     PurchaseItemIn,
     PurchaseItemUpdateIn,
     PurchaseOrderIn,
@@ -15,7 +15,6 @@ from apps.purchases.schemas import (
     PurchasePaymentStatusIn,
     PurchaseProductsBulkUpdateIn,
     PurchaseReceiveIn,
-    StatusUpdateSchema,
     SupplierIn,
     SupplierUpdateIn,
 )
@@ -45,7 +44,7 @@ def getSupplierDropdown(request):
 
 @router.delete("/suppliers/delete", response=ApiResponse)
 @permission_required("purchases_update")
-def deleteSuppliers(request, payload: DeleteSchema):
+def deleteSuppliers(request, payload: BulkIdsSchema):
     return SupplierService.delete(payload.dict(), request)
 
 
@@ -87,7 +86,7 @@ def getAllProcurementProducts(request, payload: Optional[dict] = None):
 
 @router.delete("/orders/delete", response=ApiResponse)
 @permission_required("purchases_update")
-def deletePurchaseOrders(request, payload: DeleteSchema):
+def deletePurchaseOrders(request, payload: BulkIdsSchema):
     return PurchaseOrderService.delete(payload.dict(), request)
 
 

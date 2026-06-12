@@ -1,17 +1,8 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import Optional
 
 from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
+from apps.common.schemas import ActiveStatus
 
 class CategoryIn(Schema):
     name: str
@@ -23,7 +14,7 @@ class CategoryUpdateIn(Schema):
     name: Optional[str] = None
     parent_id: Optional[int] = None
     description: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class BrandIn(Schema):
@@ -34,7 +25,7 @@ class BrandIn(Schema):
 class BrandUpdateIn(Schema):
     name: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class UnitGroupIn(Schema):
@@ -45,7 +36,7 @@ class UnitGroupIn(Schema):
 class UnitGroupUpdateIn(Schema):
     name: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class UnitIn(Schema):
@@ -62,7 +53,7 @@ class UnitUpdateIn(Schema):
     short_name: Optional[str] = None
     factor: Optional[Decimal] = None
     is_base_unit: Optional[bool] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class TaxGroupIn(Schema):
@@ -73,7 +64,7 @@ class TaxGroupIn(Schema):
 class TaxGroupUpdateIn(Schema):
     name: Optional[str] = None
     description: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class TaxIn(Schema):
@@ -86,7 +77,7 @@ class TaxUpdateIn(Schema):
     tax_group_id: Optional[int] = None
     name: Optional[str] = None
     rate: Optional[Decimal] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class ProductIn(Schema):
@@ -135,7 +126,7 @@ class ProductUpdateIn(Schema):
     track_stock: Optional[bool] = None
     allow_decimal_qty: Optional[bool] = None
     expiry_tracking_enabled: Optional[bool] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class ProductUnitQuantityIn(Schema):
@@ -158,4 +149,4 @@ class ProductUnitQuantityUpdateIn(Schema):
     purchase_price: Optional[Decimal] = None
     is_default: Optional[bool] = None
     scale_plu: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None

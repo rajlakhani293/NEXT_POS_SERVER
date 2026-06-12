@@ -5,14 +5,13 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.rewards.schemas import (
-    DeleteSchema,
     RewardBalanceAdjustIn,
     RewardRedeemIn,
     RewardSaleEarnIn,
     RewardSystemIn,
     RewardSystemUpdateIn,
-    StatusUpdateSchema,
 )
 from apps.rewards.services import CustomerRewardService, RewardSystemService
 
@@ -40,7 +39,7 @@ def getRewardSystemDropdown(request):
 
 @router.delete("/systems/delete", response=ApiResponse)
 @permission_required("rewards_delete")
-def deleteRewardSystems(request, payload: DeleteSchema):
+def deleteRewardSystems(request, payload: BulkIdsSchema):
     return RewardSystemService.delete(payload.dict(), request)
 
 

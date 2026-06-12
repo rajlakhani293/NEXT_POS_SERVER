@@ -1,10 +1,16 @@
 # type: ignore
 from datetime import datetime
+from functools import lru_cache
 import json
+import logging
+
 from django.db.models import Q, Sum, Min, Max, F
 from django.utils import timezone
 from ninja.errors import HttpError
 from apps.common.helpers import getAuthContext, jsonsafe, serializeModelInstance
+
+logger = logging.getLogger(__name__)
+
 
 def safeAuthContext(request):
     if not request:
@@ -17,6 +23,7 @@ def safeAuthContext(request):
         return {}
 
 
+@lru_cache(maxsize=None)
 def modelFieldNames(model):
     field_names = set()
     for field in model._meta.get_fields():
@@ -24,7 +31,7 @@ def modelFieldNames(model):
         attname = getattr(field, "attname", None)
         if attname:
             field_names.add(attname)
-    return list(field_names)
+    return frozenset(field_names)
 
 
 def hasStatusFilter(filter_kwargs):
@@ -602,9 +609,6 @@ class commonQuery:
                     "filters": len(base_filters.keys()),
                 },
             }
-        except Exception as err:
-            print(f"FetchPaginatedData Error: {err}")
-            raise err
-
-
-common_query = commonQuery()
+        except Exception:
+            logger.exception("Failed to fetch paginated data for %s", model._meta.label)
+            raise

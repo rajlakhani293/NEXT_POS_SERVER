@@ -1,17 +1,7 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import Optional
 
 from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
 
 class StockAdjustmentIn(Schema):
     product_id: int

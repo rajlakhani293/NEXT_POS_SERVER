@@ -1,6 +1,3 @@
-# type: ignore
-from decimal import Decimal
-
 from django.db import transaction
 from django.db.models import F
 from django.utils.text import slugify
@@ -8,7 +5,7 @@ from django.utils.text import slugify
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildUniqueValue
+from apps.common.helpers import buildUniqueValue, decimalValue as money
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerGroup
 from apps.promotions.models import Coupon, CustomerCoupon
@@ -18,10 +15,6 @@ from apps.rewards.models import (
     RewardRule,
     RewardSystem,
 )
-
-
-def money(value):
-    return Decimal(str(value or 0))
 
 
 def getRewardRules(system_id, request):
@@ -45,6 +38,46 @@ def attachRewardRule(system, request):
     data["reward"] = first_rule.get("reward") if first_rule else 0
     data["rule_summary"] = f"{len(rules)} rule(s)" if rules else "-"
     return data
+
+
+def attachRewardRules(systems, request):
+    system_ids = [item["id"] for item in systems]
+    if not system_ids:
+        return systems
+
+    rules = commonQuery.findAllRecords(
+        RewardRule,
+        {"reward_system_id__in": system_ids},
+        {
+            "attributes": [
+                "id",
+                "reward_system_id",
+                "from_amount",
+                "to_amount",
+                "reward",
+            ],
+            "order": ["from_amount"],
+        },
+        request=request,
+        tenant_config=True,
+    )
+    rules_by_system = {}
+    for rule in rules:
+        rules_by_system.setdefault(rule["reward_system_id"], []).append(rule)
+
+    enriched = []
+    for system in systems:
+        data = dict(system)
+        system_rules = rules_by_system.get(data["id"], [])
+        first_rule = system_rules[0] if system_rules else None
+        data["rules"] = system_rules
+        data["rule"] = first_rule
+        data["from_amount"] = first_rule.get("from_amount") if first_rule else 0
+        data["to_amount"] = first_rule.get("to_amount") if first_rule else 0
+        data["reward"] = first_rule.get("reward") if first_rule else 0
+        data["rule_summary"] = f"{len(system_rules)} rule(s)" if system_rules else "-"
+        enriched.append(data)
+    return enriched
 
 
 def normalizeRules(data):
@@ -265,7 +298,7 @@ class RewardSystemService:
             request=request,
             tenant_config=True,
         )
-        result["items"] = [attachRewardRule(item, request) for item in result["items"]]
+        result["items"] = attachRewardRules(result["items"], request)
         return successResponse("Reward systems retrieved successfully.", data=result)
 
     @staticmethod

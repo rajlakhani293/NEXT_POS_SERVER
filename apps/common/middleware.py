@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.http import HttpResponse
 
 
@@ -12,14 +13,7 @@ class SimpleCorsMiddleware:
             response = self.get_response(request)
 
         origin = request.headers.get("Origin")
-        allowed_origins = {
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "http://localhost:3001",
-            "http://127.0.0.1:3001",
-        }
-
-        if origin in allowed_origins:
+        if origin in settings.CORS_ALLOWED_ORIGINS:
             response["Access-Control-Allow-Origin"] = origin
             response["Vary"] = "Origin"
             response["Access-Control-Allow-Credentials"] = "true"

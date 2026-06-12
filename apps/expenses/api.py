@@ -5,13 +5,12 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.expenses.schemas import (
-    DeleteSchema,
     ExpenseCategoryIn,
     ExpenseCategoryUpdateIn,
     ExpenseEntryIn,
     ExpenseEntryUpdateIn,
-    StatusUpdateSchema,
 )
 from apps.expenses.services import ExpenseCategoryService, ExpenseEntryService
 
@@ -39,7 +38,7 @@ def getExpenseCategoryDropdown(request):
 
 @router.delete("/categories/delete", response=ApiResponse)
 @permission_required("expenses_update")
-def deleteExpenseCategories(request, payload: DeleteSchema):
+def deleteExpenseCategories(request, payload: BulkIdsSchema):
     return ExpenseCategoryService.delete(payload.dict(), request)
 
 
@@ -75,7 +74,7 @@ def getAllExpenses(request, payload: Optional[dict] = None):
 
 @router.delete("/delete", response=ApiResponse)
 @permission_required("expenses_update")
-def deleteExpenses(request, payload: DeleteSchema):
+def deleteExpenses(request, payload: BulkIdsSchema):
     return ExpenseEntryService.delete(payload.dict(), request)
 
 

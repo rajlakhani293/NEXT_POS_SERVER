@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Optional
 
 from ninja import Field, Schema
 
@@ -29,12 +29,3 @@ class PaymentTypeListIn(Schema):
     filters: Optional[int] = 2
     sortBy: Optional[str] = "sort_order"
     sortDirection: Optional[str] = "ascending"
-
-
-class PaymentTypeStatusIn(Schema):
-    ids: list[int]
-    status: Literal[0, 1]
-
-
-class PaymentTypeBulkIdsIn(Schema):
-    ids: list[int]

@@ -1,11 +1,6 @@
-from typing import List, Optional, Union
+from typing import Optional
 
-from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
+from ninja import Field, Schema
 
 class NotificationIn(Schema):
     user_id: Optional[int] = None
@@ -15,8 +10,4 @@ class NotificationIn(Schema):
     source_type: str = "system"
     source_id: Optional[int] = None
     action_url: str = ""
-    payload: dict = {}
-
-
-class MarkReadIn(Schema):
-    ids: Union[int, List[int]]
+    payload: dict = Field(default_factory=dict)

@@ -1,17 +1,8 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import Optional
 
 from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
+from apps.common.schemas import ActiveStatus
 
 class CashRegisterIn(Schema):
     name: str
@@ -23,7 +14,7 @@ class CashRegisterUpdateIn(Schema):
     name: Optional[str] = None
     code: Optional[str] = None
     location: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class OpenShiftIn(Schema):

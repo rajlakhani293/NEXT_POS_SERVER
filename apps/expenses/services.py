@@ -1,6 +1,3 @@
-# type: ignore
-from decimal import Decimal
-
 from django.db import transaction
 from django.db.models import F
 
@@ -9,16 +6,12 @@ from apps.accounting.services import AccountingService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode, validateTenantRelationId
+from apps.common.helpers import buildCode, decimalValue as money, validateTenantRelationId
 from apps.common.responses import successResponse
 from apps.expenses.models import ExpenseCategory, ExpenseEntry
 from apps.notifications.services import NotificationService
 from apps.payments.services import PaymentTypeService
 from apps.registers.models import CashierShift, CashRegisterEntry
-
-
-def money(value):
-    return Decimal(str(value or 0))
 
 
 class ExpenseCategoryService:

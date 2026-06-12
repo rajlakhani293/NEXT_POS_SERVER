@@ -1,6 +1,3 @@
-# type: ignore
-from decimal import Decimal
-
 from django.db import transaction
 from django.db.models import F
 from django.utils.dateparse import parse_date, parse_datetime
@@ -17,12 +14,8 @@ from apps.accounting.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
+from apps.common.helpers import buildCode, decimalValue as money
 from apps.common.responses import successResponse
-
-
-def money(value):
-    return Decimal(str(value or 0))
 
 
 def normalizeTransactionDate(value):

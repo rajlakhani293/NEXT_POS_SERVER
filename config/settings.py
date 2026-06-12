@@ -1,8 +1,22 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def envBool(name, default=False):
+    return os.getenv(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def envList(name, default=""):
+    return [
+        item.strip()
+        for item in os.getenv(name, default).split(",")
+        if item.strip()
+    ]
 
 
 def load_env_file():
@@ -26,12 +40,23 @@ load_env_file()
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-lyzxnyzu!a_pcuvw^f7&u6_eo+#(#z^2i+02rwlc3a&h4med(6'
+SECRET_KEY = os.getenv(
+    "DJANGO_SECRET_KEY",
+    "django-insecure-lyzxnyzu!a_pcuvw^f7&u6_eo+#(#z^2i+02rwlc3a&h4med(6",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = envBool("DJANGO_DEBUG", True)
+if not DEBUG and not os.getenv("DJANGO_SECRET_KEY"):
+    raise ImproperlyConfigured("DJANGO_SECRET_KEY is required when DJANGO_DEBUG is false.")
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = envList("DJANGO_ALLOWED_HOSTS", "*")
+CORS_ALLOWED_ORIGINS = set(
+    envList(
+        "CORS_ALLOWED_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:3001,http://127.0.0.1:3001",
+    )
+)
 
 
 # Application definition

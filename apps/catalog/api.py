@@ -7,12 +7,10 @@ from apps.catalog.schemas import (
     BrandUpdateIn,
     CategoryIn,
     CategoryUpdateIn,
-    DeleteSchema,
     ProductIn,
     ProductUnitQuantityIn,
     ProductUnitQuantityUpdateIn,
     ProductUpdateIn,
-    StatusUpdateSchema,
     TaxGroupIn,
     TaxGroupUpdateIn,
     TaxIn,
@@ -22,6 +20,7 @@ from apps.catalog.schemas import (
     UnitIn,
     UnitUpdateIn,
 )
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.catalog.services import (
     BrandService,
     CategoryService,
@@ -59,7 +58,7 @@ def getCategoryDropdown(request):
 
 @router.delete("/categories/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteCategories(request, payload: DeleteSchema):
+def deleteCategories(request, payload: BulkIdsSchema):
     return CategoryService.delete(payload.dict(), request)
 
 
@@ -102,7 +101,7 @@ def getBrandDropdown(request):
 
 @router.delete("/brands/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteBrands(request, payload: DeleteSchema):
+def deleteBrands(request, payload: BulkIdsSchema):
     return BrandService.delete(payload.dict(), request)
 
 
@@ -145,7 +144,7 @@ def getUnitGroupDropdown(request):
 
 @router.delete("/unit-groups/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteUnitGroups(request, payload: DeleteSchema):
+def deleteUnitGroups(request, payload: BulkIdsSchema):
     return UnitGroupService.delete(payload.dict(), request)
 
 
@@ -188,7 +187,7 @@ def getUnitDropdown(request):
 
 @router.delete("/units/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteUnits(request, payload: DeleteSchema):
+def deleteUnits(request, payload: BulkIdsSchema):
     return UnitService.delete(payload.dict(), request)
 
 
@@ -231,7 +230,7 @@ def getTaxGroupDropdown(request):
 
 @router.delete("/tax-groups/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteTaxGroups(request, payload: DeleteSchema):
+def deleteTaxGroups(request, payload: BulkIdsSchema):
     return TaxGroupService.delete(payload.dict(), request)
 
 
@@ -274,7 +273,7 @@ def getTaxDropdown(request):
 
 @router.delete("/taxes/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteTaxes(request, payload: DeleteSchema):
+def deleteTaxes(request, payload: BulkIdsSchema):
     return TaxService.delete(payload.dict(), request)
 
 
@@ -317,7 +316,7 @@ def getProductDropdown(request):
 
 @router.delete("/products/delete", response=ApiResponse)
 @permission_required("products_delete")
-def deleteProducts(request, payload: DeleteSchema):
+def deleteProducts(request, payload: BulkIdsSchema):
     return ProductService.delete(payload.dict(), request)
 
 

@@ -10,7 +10,12 @@ from apps.catalog.models import Product, ProductUnitQuantity
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode, jsonsafe
+from apps.common.helpers import (
+    buildCode,
+    decimalValue as money,
+    decimalValue as quantity,
+    jsonsafe,
+)
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerAccountHistory, CustomerCreditLedger, CustomerWalletTransaction
 from apps.inventory.models import StockLedger
@@ -30,14 +35,6 @@ from apps.sales.models import (
     SaleOrder,
 )
 from apps.settingsapi.services import BusinessSettingService
-
-
-def money(value):
-    return Decimal(str(value or 0))
-
-
-def quantity(value):
-    return Decimal(str(value or 0))
 
 
 def getBusinessSettings(user):
@@ -758,7 +755,7 @@ class SaleDraftService:
                 tenant_config=True,
             )
         items = snapshot.get("items") or []
-        total_quantity = sum([quantity(item.get("quantity")) for item in items], Decimal("0"))
+        total_quantity = sum((quantity(item.get("quantity")) for item in items), Decimal("0"))
         return {
             **draft,
             "customer": customer,
@@ -1116,7 +1113,7 @@ class SaleReturnValidationService:
             request=request,
             tenant_config=True,
         )
-        already_refunded_total = sum([money(return_row.get("total")) for return_row in previous_returns], Decimal("0"))
+        already_refunded_total = sum((money(return_row.get("total")) for return_row in previous_returns), Decimal("0"))
         if already_refunded_total + total_refund > money(sale_order.get("total")):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Refund total exceeds sale total.")
 
@@ -1141,7 +1138,7 @@ class SaleRefundService:
             request=request,
             tenant_config=True,
         )
-        refunded_total = sum([money(row.get("total")) for row in returns], Decimal("0"))
+        refunded_total = sum((money(row.get("total")) for row in returns), Decimal("0"))
         sale_total = money(sale_order.get("total"))
         status = sale_order.get("payment_status")
         if refunded_total <= 0:
@@ -1533,8 +1530,8 @@ class SaleService:
             )
 
         totals = {
-            "paid_amount": sum([money(payment.get("amount")) for payment in payments], Decimal("0")),
-            "refunded_amount": sum([money(refund.get("total")) for refund in refunds], Decimal("0")),
+            "paid_amount": sum((money(payment.get("amount")) for payment in payments), Decimal("0")),
+            "refunded_amount": sum((money(refund.get("total")) for refund in refunds), Decimal("0")),
         }
 
         installment_plan = commonQuery.findOneRecord(
@@ -1856,7 +1853,7 @@ class SaleService:
                 request=request,
                 tenant_config=True,
             )
-            paid_amount = sum([money(payment.get("amount")) for payment in payments], Decimal("0"))
+            paid_amount = sum((money(payment.get("amount")) for payment in payments), Decimal("0"))
             if paid_amount > 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid sale cannot be voided. Use refund flow instead.")
 

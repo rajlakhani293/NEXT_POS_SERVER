@@ -328,7 +328,9 @@ class CashierShiftService:
             "attributes": [
                 "id",
                 "register_id",
+                "register__name",
                 "cashier_id",
+                "cashier__full_name",
                 "shift_status",
                 "opened_at",
                 "closed_at",
@@ -349,8 +351,8 @@ class CashierShiftService:
             tenant_config=True,
         )
         for item in result["items"]:
-            hydrated = hydrateShift(item)
-            item.update(hydrated or {})
+            item["register_name"] = item.pop("register__name", None)
+            item["cashier_name"] = item.pop("cashier__full_name", None)
 
         register_id = ((data or {}).get("filter") or {}).get("register_id")
         if register_id:

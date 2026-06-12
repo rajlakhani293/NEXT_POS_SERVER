@@ -5,7 +5,8 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.notifications.schemas import DeleteSchema, MarkReadIn, NotificationIn
+from apps.common.schemas import BulkIdsSchema
+from apps.notifications.schemas import NotificationIn
 from apps.notifications.services import NotificationService
 
 
@@ -30,11 +31,11 @@ def unreadCount(request):
 
 
 @router.patch("/mark-read", response=ApiResponse)
-def markRead(request, payload: MarkReadIn):
+def markRead(request, payload: BulkIdsSchema):
     return NotificationService.markRead(payload.dict(), request)
 
 
 @router.delete("/delete", response=ApiResponse)
 @permission_required("settings_update")
-def deleteNotifications(request, payload: DeleteSchema):
+def deleteNotifications(request, payload: BulkIdsSchema):
     return NotificationService.delete(payload.dict(), request)

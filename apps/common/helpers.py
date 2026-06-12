@@ -43,6 +43,10 @@ def jsonsafe(value):
     return value
 
 
+def decimalValue(value):
+    return Decimal(str(value or 0))
+
+
 def serializeModelInstance(instance):
     if instance is None:
         return None

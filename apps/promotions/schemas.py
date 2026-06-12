@@ -1,17 +1,7 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import List, Optional
 
-from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
+from ninja import Field, Schema
 
 class CouponIn(Schema):
     name: str
@@ -24,10 +14,10 @@ class CouponIn(Schema):
     valid_hours_start: Optional[str] = None
     valid_hours_end: Optional[str] = None
     limit_usage: int = 0
-    product_ids: List[int] = []
-    category_ids: List[int] = []
-    customer_ids: List[int] = []
-    customer_group_ids: List[int] = []
+    product_ids: List[int] = Field(default_factory=list)
+    category_ids: List[int] = Field(default_factory=list)
+    customer_ids: List[int] = Field(default_factory=list)
+    customer_group_ids: List[int] = Field(default_factory=list)
 
 
 class CouponUpdateIn(Schema):

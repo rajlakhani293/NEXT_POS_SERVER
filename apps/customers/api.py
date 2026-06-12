@@ -3,14 +3,13 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.customers.schemas import (
     CustomerGroupIn,
     CustomerGroupUpdateIn,
     CustomerCreditIn,
     CustomerIn,
     CustomerUpdateIn,
-    DeleteSchema,
-    StatusUpdateSchema,
 )
 from apps.customers.services import CustomerGroupService, CustomerService
 
@@ -56,7 +55,7 @@ def getAllCustomerGroups(request, payload: Optional[dict] = None):
 
 @router.delete("/groups/delete", response=ApiResponse)
 @permission_required("customers_delete")
-def deleteCustomerGroups(request, payload: DeleteSchema):
+def deleteCustomerGroups(request, payload: BulkIdsSchema):
     return CustomerGroupService.delete(payload.dict(), request)
 
 
@@ -80,7 +79,7 @@ def updateCustomerGroup(request, group_id: int, payload: CustomerGroupUpdateIn):
 
 @router.delete("/delete", response=ApiResponse)
 @permission_required("customers_delete")
-def deleteCustomers(request, payload: DeleteSchema):
+def deleteCustomers(request, payload: BulkIdsSchema):
     return CustomerService.delete(payload.dict(), request)
 
 

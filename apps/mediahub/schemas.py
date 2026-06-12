@@ -1,11 +1,6 @@
-from typing import List, Optional, Union
+from typing import Optional
 
 from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
 
 class MediaUpdateIn(Schema):
     alt_text: str = ""

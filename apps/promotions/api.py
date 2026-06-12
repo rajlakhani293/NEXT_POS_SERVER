@@ -5,7 +5,8 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.promotions.schemas import CouponIn, CouponUpdateIn, DeleteSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.promotions.schemas import CouponIn, CouponUpdateIn
 from apps.promotions.services import CouponService
 
 
@@ -32,7 +33,7 @@ def getCouponDropdown(request):
 
 @router.delete("/coupons/delete", response=ApiResponse)
 @permission_required("promotions_delete")
-def deleteCoupons(request, payload: DeleteSchema):
+def deleteCoupons(request, payload: BulkIdsSchema):
     return CouponService.delete(payload.dict(), request)
 
 

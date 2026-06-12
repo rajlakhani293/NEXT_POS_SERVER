@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import List, Optional
 
-from ninja import Schema
+from ninja import Field, Schema
 
 
 class SaleItemIn(Schema):
@@ -34,9 +34,9 @@ class SaleCreateIn(Schema):
     tax_amount: Decimal = Decimal("0")
     tendered_amount: Decimal = Decimal("0")
     note: str = ""
-    coupon_codes: List[str] = []
+    coupon_codes: List[str] = Field(default_factory=list)
     items: List[SaleItemIn]
-    payments: List[SalePaymentIn] = []
+    payments: List[SalePaymentIn] = Field(default_factory=list)
 
 
 class SaleListIn(Schema):
@@ -53,10 +53,10 @@ class SaleListIn(Schema):
 
 class SaleHoldIn(Schema):
     customer_id: Optional[int] = None
-    coupon_codes: List[str] = []
+    coupon_codes: List[str] = Field(default_factory=list)
     note: str = ""
     items: List[SaleItemIn]
-    payments: List[SalePaymentIn] = []
+    payments: List[SalePaymentIn] = Field(default_factory=list)
 
 
 class SaleVoidIn(Schema):
@@ -84,7 +84,7 @@ class InstallmentPlanCreateIn(Schema):
     total_amount: Decimal = Decimal("0")
     minimum_first_payment: Decimal = Decimal("0")
     final_payment_date: Optional[str] = None
-    lines: List[InstallmentLineCreateIn] = []
+    lines: List[InstallmentLineCreateIn] = Field(default_factory=list)
 
 
 class InstallmentLineUpdateIn(Schema):

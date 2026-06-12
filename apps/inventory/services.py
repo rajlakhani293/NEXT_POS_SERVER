@@ -8,15 +8,9 @@ from apps.catalog.models import Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
+from apps.common.helpers import buildCode, decimalValue
 from apps.common.responses import successResponse
 from apps.inventory.models import StockAdjustment, StockLedger
-
-
-def decimalValue(value):
-    return Decimal(str(value or 0))
-
-
 STOCK_INCREASE_ACTIONS = ["added"]
 STOCK_REDUCE_ACTIONS = ["deleted", "defective", "lost"]
 STOCK_SET_ACTION = "set"
@@ -27,21 +21,6 @@ STOCK_ADJUSTMENT_LABELS = {
     "lost": "Lost",
     "set": "Set",
 }
-
-
-def ledgerWithProductName(item, request):
-    data = dict(item)
-    data["product_name"] = None
-    if data.get("product_id"):
-        product = commonQuery.findOneRecord(
-            Product,
-            data["product_id"],
-            options={"attributes": ["name"]},
-            request=request,
-            tenant_config=True,
-        )
-        data["product_name"] = product["name"] if product else None
-    return data
 
 
 class StockAdjustmentService:
@@ -191,6 +170,7 @@ class StockLedgerService:
             "attributes": [
                 "id",
                 "product_id",
+                "product__name",
                 "entry_type",
                 "quantity",
                 "unit_cost",
@@ -210,5 +190,6 @@ class StockLedgerService:
             request=request,
             tenant_config=True,
         )
-        result["items"] = [ledgerWithProductName(item, request) for item in result["items"]]
+        for item in result["items"]:
+            item["product_name"] = item.pop("product__name", None)
         return successResponse("Stock ledger retrieved successfully.", data=result)

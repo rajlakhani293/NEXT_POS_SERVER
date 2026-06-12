@@ -912,14 +912,22 @@ class ProductService:
                 "allow_decimal_qty",
                 "expiry_tracking_enabled",
                 "category_id",
+                "category__name",
                 "brand_id",
+                "brand__name",
                 "unit_id",
+                "unit__name",
                 "tax_group_id",
+                "tax_group__name",
                 "status",
             ],
         }
         result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
-        result["items"] = [ProductService.attachDisplayData(item, request) for item in result["items"]]
+        for item in result["items"]:
+            item["category_name"] = item.pop("category__name", None)
+            item["brand_name"] = item.pop("brand__name", None)
+            item["unit_name"] = item.pop("unit__name", None)
+            item["tax_group_name"] = item.pop("tax_group__name", None)
         return successResponse("Products retrieved successfully.", data=result)
 
     @staticmethod

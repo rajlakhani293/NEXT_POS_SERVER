@@ -1,17 +1,8 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import List, Optional
 
-from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
+from ninja import Field, Schema
+from apps.common.schemas import ActiveStatus
 
 class RewardRuleIn(Schema):
     from_amount: Decimal = Decimal("0")
@@ -27,7 +18,7 @@ class RewardSystemIn(Schema):
     from_amount: Decimal = Decimal("0")
     to_amount: Decimal = Decimal("0")
     reward: int = 0
-    rules: List[RewardRuleIn] = []
+    rules: List[RewardRuleIn] = Field(default_factory=list)
 
 
 class RewardSystemUpdateIn(Schema):
@@ -39,7 +30,7 @@ class RewardSystemUpdateIn(Schema):
     to_amount: Optional[Decimal] = None
     reward: Optional[int] = None
     rules: Optional[List[RewardRuleIn]] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class RewardBalanceAdjustIn(Schema):

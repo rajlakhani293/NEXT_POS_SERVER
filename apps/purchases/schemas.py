@@ -1,17 +1,8 @@
 from decimal import Decimal
-from typing import List, Literal, Optional, Union
+from typing import List, Optional
 
-from ninja import Schema
-
-
-class DeleteSchema(Schema):
-    ids: Union[int, List[int]]
-
-
-class StatusUpdateSchema(Schema):
-    ids: Union[int, List[int]]
-    status: Literal[0, 1]
-
+from ninja import Field, Schema
+from apps.common.schemas import ActiveStatus
 
 class SupplierIn(Schema):
     name: str
@@ -31,7 +22,7 @@ class SupplierUpdateIn(Schema):
     contact_person: Optional[str] = None
     tax_number: Optional[str] = None
     address: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class PurchaseItemIn(Schema):
@@ -51,7 +42,7 @@ class PurchaseOrderIn(Schema):
     discount_amount: Decimal = Decimal("0")
     shipping_amount: Decimal = Decimal("0")
     note: str = ""
-    items: List[PurchaseItemIn] = []
+    items: List[PurchaseItemIn] = Field(default_factory=list)
 
 
 class PurchaseOrderUpdateIn(Schema):
@@ -63,7 +54,7 @@ class PurchaseOrderUpdateIn(Schema):
     discount_amount: Optional[Decimal] = None
     shipping_amount: Optional[Decimal] = None
     note: Optional[str] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class PurchaseReceiveItemIn(Schema):

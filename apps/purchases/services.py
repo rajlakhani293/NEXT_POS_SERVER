@@ -1,5 +1,6 @@
 # type: ignore
 from decimal import Decimal
+import logging
 from uuid import uuid4
 
 from django.db import transaction
@@ -12,20 +13,20 @@ from apps.catalog.models import Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode, validateTenantRelationId, validateTenantRelationIds
+from apps.common.helpers import (
+    buildCode,
+    decimalValue as money,
+    decimalValue as qty,
+    validateTenantRelationId,
+    validateTenantRelationIds,
+)
 from apps.common.responses import successResponse
 from apps.inventory.models import StockLedger
 from apps.notifications.services import NotificationService
 from apps.payments.services import PaymentTypeService
 from apps.purchases.models import PurchaseItem, PurchaseOrder, PurchasePayment, Supplier
 
-
-def money(value):
-    return Decimal(str(value or 0))
-
-
-def qty(value):
-    return Decimal(str(value or 0))
+logger = logging.getLogger(__name__)
 
 
 class SupplierService:
@@ -162,13 +163,13 @@ class PurchaseOrderService:
             tenant_config=True,
         )
         subtotal = sum(
-            [qty(item.get("ordered_quantity")) * money(item.get("cost_price")) for item in items],
+            (qty(item.get("ordered_quantity")) * money(item.get("cost_price")) for item in items),
             Decimal("0"),
         )
-        tax_amount = sum([money(item.get("tax_amount")) for item in items], Decimal("0"))
+        tax_amount = sum((money(item.get("tax_amount")) for item in items), Decimal("0"))
         total = subtotal - money(order.get("discount_amount")) + tax_amount + money(order.get("shipping_amount"))
-        total_ordered = sum([qty(item.get("ordered_quantity")) for item in items], Decimal("0"))
-        total_received = sum([qty(item.get("received_quantity")) for item in items], Decimal("0"))
+        total_ordered = sum((qty(item.get("ordered_quantity")) for item in items), Decimal("0"))
+        total_received = sum((qty(item.get("received_quantity")) for item in items), Decimal("0"))
         workflow_status = order.get("workflow_status") or "draft"
         if total_ordered > 0:
             workflow_status = (
@@ -377,7 +378,10 @@ class PurchaseOrderService:
                             request=request,
                         )
                 except Exception:
-                    pass
+                    logger.exception(
+                        "Failed to create low-stock notification for product %s",
+                        item["product_id"],
+                    )
             for item in PurchaseItem.objects.filter(purchase_order_id=order_id):
                 total_ordered += item.ordered_quantity
                 total_received += item.received_quantity

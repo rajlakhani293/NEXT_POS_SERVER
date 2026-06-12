@@ -3,14 +3,13 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.registers.schemas import (
     CashMovementIn,
     CashRegisterIn,
     CashRegisterUpdateIn,
     CloseShiftIn,
-    DeleteSchema,
     OpenShiftIn,
-    StatusUpdateSchema,
 )
 from apps.registers.services import CashierShiftService, RegisterService
 
@@ -47,7 +46,7 @@ def getAllRegisters(request, payload: dict = None):
 
 @router.delete("/delete", response=ApiResponse)
 @permission_required("cash_register_close")
-def deleteRegisters(request, payload: DeleteSchema):
+def deleteRegisters(request, payload: BulkIdsSchema):
     return RegisterService.delete(payload.dict(), request)
 
 

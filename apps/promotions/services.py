@@ -152,6 +152,49 @@ def attachCouponTargets(coupon, request):
     return data
 
 
+def attachCouponTargetsBatch(coupons, request):
+    coupon_ids = [item["id"] for item in coupons]
+    if not coupon_ids:
+        return coupons
+
+    link_config = [
+        (CouponProduct, "product_ids", "product_id"),
+        (CouponCategory, "category_ids", "category_id"),
+        (CouponCustomer, "customer_ids", "customer_id"),
+        (CouponCustomerGroup, "customer_group_ids", "customer_group_id"),
+    ]
+    links_by_coupon = {
+        coupon_id: {field: [] for field in LINK_FIELDS}
+        for coupon_id in coupon_ids
+    }
+    for link_model, output_field, relation_field in link_config:
+        records = commonQuery.findAllRecords(
+            link_model,
+            {"coupon_id__in": coupon_ids},
+            {"attributes": ["coupon_id", relation_field]},
+            request=request,
+            tenant_config=True,
+        )
+        for record in records:
+            links_by_coupon[record["coupon_id"]][output_field].append(
+                record[relation_field]
+            )
+
+    enriched = []
+    for coupon in coupons:
+        data = dict(coupon)
+        data.update(links_by_coupon[data["id"]])
+        data["target_summary"] = "All Customers"
+        if data["customer_group_ids"] and data["customer_ids"]:
+            data["target_summary"] = "Customer Groups + Particular Customers"
+        elif data["customer_group_ids"]:
+            data["target_summary"] = "Customer Groups"
+        elif data["customer_ids"]:
+            data["target_summary"] = "Particular Customers"
+        enriched.append(data)
+    return enriched
+
+
 class CouponService:
     @staticmethod
     def create(data, request):
@@ -198,7 +241,7 @@ class CouponService:
             request=request,
             tenant_config=True,
         )
-        result["items"] = [attachCouponTargets(item, request) for item in result["items"]]
+        result["items"] = attachCouponTargetsBatch(result["items"], request)
         return successResponse("Coupons retrieved successfully.", data=result)
 
     @staticmethod

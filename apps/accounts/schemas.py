@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from ninja import Schema
+from apps.common.schemas import ActiveStatus
 from pydantic import Field
 
 
@@ -75,7 +76,7 @@ class UserUpdateIn(Schema):
     email: Optional[str] = None
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
-    status: Optional[int] = None
+    status: Optional[ActiveStatus] = None
 
 
 class LoginOut(Schema):

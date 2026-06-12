@@ -212,6 +212,7 @@ class PaymentTypeService:
     @staticmethod
     def deletePaymentTypes(data, request):
         ids = data.get("ids") or []
+        ids = ids if isinstance(ids, list) else [ids]
         if PaymentType.objects.filter(
             id__in=ids,
             company_id=request.user.company_id,
@@ -232,9 +233,22 @@ class PaymentTypeService:
     @staticmethod
     def updatePaymentTypeStatus(data, request):
         status = data.get("status")
+        ids = data.get("ids") or []
+        ids = ids if isinstance(ids, list) else [ids]
+        if PaymentType.objects.filter(
+            id__in=ids,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            is_system=True,
+        ).exists():
+            raise api_error(
+                400,
+                ErrorCodes.BAD_REQUEST,
+                "Default payment types cannot be deactivated.",
+            )
         count = commonQuery.updateStatusById(
             PaymentType,
-            data.get("ids"),
+            ids,
             status,
             request=request,
             tenant_config={"company_id": True, "branch_id": True},
