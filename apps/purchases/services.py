@@ -12,7 +12,7 @@ from apps.catalog.models import Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode
+from apps.common.helpers import buildCode, validateTenantRelationId, validateTenantRelationIds
 from apps.common.responses import successResponse
 from apps.inventory.models import StockLedger
 from apps.notifications.services import NotificationService
@@ -244,10 +244,13 @@ class PurchaseOrderService:
                 tenant_config=True,
             )
             created_items = []
+            validateTenantRelationIds(
+                Product,
+                [item.get("product_id") for item in items],
+                request=request,
+                label="Product",
+            )
             for item in items:
-                product = commonQuery.findOneRecord(Product, item["product_id"], request=request, tenant_config=True)
-                if product is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
                 created_items.append(commonQuery.createRecord(PurchaseItem, {**item, "purchase_order_id": order["id"]}, request=request, tenant_config=True))
             Supplier.objects.filter(id=supplier["id"]).update(payable_amount=F("payable_amount") + total)
             order["items"] = created_items
@@ -522,9 +525,7 @@ class PurchaseOrderService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Purchase order not found.")
         items, _, _ = PurchaseOrderService.calculateItems([data])
         item = items[0]
-        product = commonQuery.findOneRecord(Product, item["product_id"], request=request, tenant_config=True)
-        if product is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        validateTenantRelationId(Product, item["product_id"], request=request, label="Product")
         created = commonQuery.createRecord(
             PurchaseItem,
             {**item, "purchase_order_id": order_id},
@@ -549,9 +550,7 @@ class PurchaseOrderService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
         update_data = dict(data or {})
         if update_data.get("product_id"):
-            product = commonQuery.findOneRecord(Product, update_data["product_id"], request=request, tenant_config=True)
-            if product is None:
-                raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+            validateTenantRelationId(Product, update_data["product_id"], request=request, label="Product")
         if update_data.get("ordered_quantity") is not None and qty(update_data.get("ordered_quantity")) < qty(item.get("received_quantity")):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Ordered quantity cannot be less than received quantity.")
         if "ordered_quantity" in update_data and "cost_price" in update_data:

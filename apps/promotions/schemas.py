@@ -45,4 +45,3 @@ class CouponUpdateIn(Schema):
     category_ids: Optional[List[int]] = None
     customer_ids: Optional[List[int]] = None
     customer_group_ids: Optional[List[int]] = None
-    status: Optional[int] = None

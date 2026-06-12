@@ -6,7 +6,7 @@ from apps.catalog.models import Category, Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildUniqueValue, validateUniqueFields
+from apps.common.helpers import buildUniqueValue, validateTenantRelationIds, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerGroup
 from apps.promotions.models import (
@@ -53,16 +53,62 @@ def splitCouponData(data):
 
 
 def validateIds(model, ids, request, label):
-    ids = ids or []
-    for item_id in ids:
-        record = commonQuery.findOneRecord(
-            model,
-            item_id,
-            request=request,
-            tenant_config=True,
+    return validateTenantRelationIds(model, ids or [], request=request, label=label)
+
+
+def getExistingCouponTargetLinks(coupon_id, request):
+    return {
+        "product_ids": [
+            item["product_id"]
+            for item in commonQuery.findAllRecords(
+                CouponProduct,
+                {"coupon_id": coupon_id},
+                {"attributes": ["product_id"]},
+                request=request,
+                tenant_config=True,
+            )
+        ],
+        "category_ids": [
+            item["category_id"]
+            for item in commonQuery.findAllRecords(
+                CouponCategory,
+                {"coupon_id": coupon_id},
+                {"attributes": ["category_id"]},
+                request=request,
+                tenant_config=True,
+            )
+        ],
+        "customer_ids": [
+            item["customer_id"]
+            for item in commonQuery.findAllRecords(
+                CouponCustomer,
+                {"coupon_id": coupon_id},
+                {"attributes": ["customer_id"]},
+                request=request,
+                tenant_config=True,
+            )
+        ],
+        "customer_group_ids": [
+            item["customer_group_id"]
+            for item in commonQuery.findAllRecords(
+                CouponCustomerGroup,
+                {"coupon_id": coupon_id},
+                {"attributes": ["customer_group_id"]},
+                request=request,
+                tenant_config=True,
+            )
+        ],
+    }
+
+
+def validateCouponTargetScope(links):
+    has_target = any(links.get(field) for field in LINK_FIELDS)
+    if not has_target:
+        raise api_error(
+            400,
+            ErrorCodes.BAD_REQUEST,
+            "Select at least one coupon target: product, category, customer, or customer group.",
         )
-        if record is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, f"{label} not found.")
 
 
 def replaceLinks(coupon_id, links, request):
@@ -95,46 +141,7 @@ def replaceLinks(coupon_id, links, request):
 
 def attachCouponTargets(coupon, request):
     data = dict(coupon)
-    data["product_ids"] = [
-        item["product_id"]
-        for item in commonQuery.findAllRecords(
-            CouponProduct,
-            {"coupon_id": data["id"]},
-            {"attributes": ["product_id"]},
-            request=request,
-            tenant_config=True,
-        )
-    ]
-    data["category_ids"] = [
-        item["category_id"]
-        for item in commonQuery.findAllRecords(
-            CouponCategory,
-            {"coupon_id": data["id"]},
-            {"attributes": ["category_id"]},
-            request=request,
-            tenant_config=True,
-        )
-    ]
-    data["customer_ids"] = [
-        item["customer_id"]
-        for item in commonQuery.findAllRecords(
-            CouponCustomer,
-            {"coupon_id": data["id"]},
-            {"attributes": ["customer_id"]},
-            request=request,
-            tenant_config=True,
-        )
-    ]
-    data["customer_group_ids"] = [
-        item["customer_group_id"]
-        for item in commonQuery.findAllRecords(
-            CouponCustomerGroup,
-            {"coupon_id": data["id"]},
-            {"attributes": ["customer_group_id"]},
-            request=request,
-            tenant_config=True,
-        )
-    ]
+    data.update(getExistingCouponTargetLinks(data["id"], request))
     data["target_summary"] = "All Customers"
     if data["customer_group_ids"] and data["customer_ids"]:
         data["target_summary"] = "Customer Groups + Particular Customers"
@@ -150,6 +157,7 @@ class CouponService:
     def create(data, request):
         with transaction.atomic():
             coupon_data, links = splitCouponData(data)
+            validateCouponTargetScope(links)
             coupon_data["code"] = buildCouponCode(coupon_data.get("code"), request)
             coupon = commonQuery.createRecord(
                 Coupon,
@@ -228,6 +236,9 @@ class CouponService:
             if coupon is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Coupon not found.")
             coupon_data, links = splitCouponData(data)
+            final_links = getExistingCouponTargetLinks(coupon_id, request)
+            final_links.update(links)
+            validateCouponTargetScope(final_links)
             if "code" in coupon_data:
                 coupon_data["code"] = buildCouponCode(coupon_data.get("code"), request, exclude_id=coupon_id)
             updated = commonQuery.updateRecordById(

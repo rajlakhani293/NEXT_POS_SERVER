@@ -2,6 +2,7 @@ import traceback
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError
 from ninja import NinjaAPI
 from ninja.errors import HttpError, ValidationError
 
@@ -70,6 +71,38 @@ def format_validation_errors(errors):
     return formatted
 
 
+def humanize_db_field(field_name):
+    field_name = str(field_name or "").strip("` ")
+    if field_name.endswith("_id"):
+        field_name = field_name[:-3]
+    return field_name.replace("_", " ").title() or "Related record"
+
+
+def parse_integrity_error(exc: IntegrityError):
+    message = str(exc)
+    lower_message = message.lower()
+
+    if "foreign key constraint fails" in lower_message:
+        field_name = "related record"
+        if "foreign key (`" in lower_message:
+            field_name = message.split("FOREIGN KEY (`", 1)[1].split("`", 1)[0]
+        elif "foreign key (" in lower_message:
+            field_name = message.split("FOREIGN KEY (", 1)[1].split(")", 1)[0]
+        label = humanize_db_field(field_name)
+        return f"Invalid {label} selected.", {"field": field_name}
+
+    if "duplicate entry" in lower_message or "unique constraint" in lower_message:
+        field_name = "value"
+        if " for key " in lower_message:
+            field_name = message.rsplit(" for key ", 1)[-1].strip("'\"() ")
+            field_name = field_name.split(".")[-1]
+            for suffix in ["_uniq", "_unique", "_key"]:
+                field_name = field_name.removesuffix(suffix)
+        return "This record already exists.", {"field": field_name}
+
+    return "Database validation failed.", None
+
+
 @api.exception_handler(HttpError)
 def http_error_handler(request, exc: HttpError):
     message = str(exc.message)
@@ -100,6 +133,15 @@ def django_validation_error_handler(request, exc: DjangoValidationError):
         data={"errors": exc.messages},
     )
     return api.create_response(request, payload.dict(), status=422)
+
+
+@api.exception_handler(IntegrityError)
+def integrity_error_handler(request, exc: IntegrityError):
+    if settings.DEBUG:
+        traceback.print_exc()
+    message, data = parse_integrity_error(exc)
+    payload = errorResponse(message, data=data)
+    return api.create_response(request, payload.dict(), status=400)
 
 
 @api.exception_handler(Exception)

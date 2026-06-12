@@ -116,6 +116,62 @@ def validateUniqueFields(
             )
 
 
+def validateTenantRelationIds(model, ids, request=None, label=None, tenant_config=True, required=False):
+    from apps.common.commonQuery import commonQuery
+    from apps.common.error_codes import ErrorCodes
+    from apps.common.exceptions import api_error
+
+    raw_ids = ids if isinstance(ids, (list, tuple, set)) else [ids]
+    normalized_ids = []
+    for item_id in raw_ids:
+        if item_id in (None, ""):
+            continue
+        try:
+            normalized_id = int(item_id)
+        except (TypeError, ValueError):
+            raise api_error(
+                400,
+                ErrorCodes.BAD_REQUEST,
+                f"Invalid {label or model._meta.verbose_name.title()} selected.",
+            )
+        if normalized_id > 0:
+            normalized_ids.append(normalized_id)
+
+    unique_ids = list(dict.fromkeys(normalized_ids))
+    relation_label = label or model._meta.verbose_name.title()
+
+    if required and not unique_ids:
+        raise api_error(400, ErrorCodes.BAD_REQUEST, f"{relation_label} is required.")
+    if not unique_ids:
+        return []
+
+    records = commonQuery.findAllRecords(
+        model,
+        {"id__in": unique_ids},
+        {"attributes": ["id"]},
+        request=request,
+        tenant_config=tenant_config,
+    )
+    found_ids = {int(record["id"]) for record in records}
+    missing_ids = [item_id for item_id in unique_ids if item_id not in found_ids]
+    if missing_ids:
+        raise api_error(404, ErrorCodes.NOT_FOUND, f"{relation_label} not found.")
+
+    return unique_ids
+
+
+def validateTenantRelationId(model, item_id, request=None, label=None, tenant_config=True, required=False):
+    ids = validateTenantRelationIds(
+        model,
+        [item_id],
+        request=request,
+        label=label,
+        tenant_config=tenant_config,
+        required=required,
+    )
+    return ids[0] if ids else None
+
+
 def buildUniqueValue(model, request, field_name, raw_value, exclude_id=None):
     from apps.common.commonQuery import commonQuery
 

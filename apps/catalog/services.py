@@ -13,7 +13,7 @@ from apps.catalog.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildSku, saveProductImage, validateUniqueFields
+from apps.common.helpers import buildSku, saveProductImage, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
 
 
@@ -806,42 +806,37 @@ class ProductService:
             if image_url:
                 data["image"] = image_url
 
-            category = None
-            brand = None
-            tax_group = None
-            unit = None
+            category_id = None
+            brand_id = None
+            tax_group_id = None
             if data.get("category_id"):
-                category = commonQuery.findOneRecord(
-                    Category, data["category_id"], request=request, tenant_config=True
+                category_id = validateTenantRelationId(
+                    Category, data["category_id"], request=request, label="Category"
                 )
-                if category is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
             if data.get("brand_id"):
-                brand = commonQuery.findOneRecord(
-                    Brand, data["brand_id"], request=request, tenant_config=True
+                brand_id = validateTenantRelationId(
+                    Brand, data["brand_id"], request=request, label="Brand"
                 )
-                if brand is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
             if data.get("tax_group_id"):
-                tax_group = commonQuery.findOneRecord(
-                    TaxGroup, data["tax_group_id"], request=request, tenant_config=True
+                tax_group_id = validateTenantRelationId(
+                    TaxGroup, data["tax_group_id"], request=request, label="Tax group"
                 )
-                if tax_group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-            unit = commonQuery.findOneRecord(
-                Unit, data["unit_id"], request=request, tenant_config=True
+            unit_id = validateTenantRelationId(
+                Unit,
+                data.get("unit_id"),
+                request=request,
+                label="Unit",
+                required=True,
             )
-            if unit is None:
-                raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
 
             product = commonQuery.createRecord(
                 Product,
                 { 
                     **data,
-                    "category_id": category["id"] if category else None,
-                    "brand_id": brand["id"] if brand else None,
-                    "tax_group_id": tax_group["id"] if tax_group else None,
-                    "unit_id": unit["id"] if unit else None,
+                    "category_id": category_id,
+                    "brand_id": brand_id,
+                    "tax_group_id": tax_group_id,
+                    "unit_id": unit_id,
                 },
                 request=request,
                 tenant_config=True,
@@ -870,33 +865,21 @@ class ProductService:
             if product is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
             if data.get("category_id"):
-                category = commonQuery.findOneRecord(
-                    Category, data["category_id"], request=request, tenant_config=True
+                data["category_id"] = validateTenantRelationId(
+                    Category, data["category_id"], request=request, label="Category"
                 )
-                if category is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
-                data["category_id"] = category["id"]
             if data.get("brand_id"):
-                brand = commonQuery.findOneRecord(
-                    Brand, data["brand_id"], request=request, tenant_config=True
+                data["brand_id"] = validateTenantRelationId(
+                    Brand, data["brand_id"], request=request, label="Brand"
                 )
-                if brand is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Brand not found.")
-                data["brand_id"] = brand["id"]
             if data.get("tax_group_id"):
-                tax_group = commonQuery.findOneRecord(
-                    TaxGroup, data["tax_group_id"], request=request, tenant_config=True
+                data["tax_group_id"] = validateTenantRelationId(
+                    TaxGroup, data["tax_group_id"], request=request, label="Tax group"
                 )
-                if tax_group is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")
-                data["tax_group_id"] = tax_group["id"]
             if data.get("unit_id"):
-                unit = commonQuery.findOneRecord(
-                    Unit, data["unit_id"], request=request, tenant_config=True
+                data["unit_id"] = validateTenantRelationId(
+                    Unit, data["unit_id"], request=request, label="Unit"
                 )
-                if unit is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
-                data["unit_id"] = unit["id"]
             if "sku" in data:
                 data["sku"] = buildSku(
                     Product,
