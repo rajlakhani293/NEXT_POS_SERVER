@@ -86,64 +86,6 @@ class SaleItem(TenantAwareModel):
     item_status = models.CharField(max_length=20, default="sold")
 
 
-class SaleTax(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="tax_lines")
-    tax = models.ForeignKey("catalog.Tax", on_delete=models.PROTECT, related_name="sale_tax_lines")
-    taxable_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    tax_rate = models.DecimalField(max_digits=8, decimal_places=2)
-    tax_amount = models.DecimalField(max_digits=12, decimal_places=2)
-
-
-class SaleCoupon(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="coupons")
-    coupon = models.ForeignKey("promotions.Coupon", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_coupons")
-    code = models.CharField(max_length=120)
-    discount_type = models.CharField(max_length=30, blank=True)
-    discount_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-
-
-class SaleStorage(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="storage_records")
-    key = models.CharField(max_length=120)
-    value = models.JSONField(default=dict, blank=True)
-
-    class Meta:
-        unique_together = [("sale_order", "key")]
-
-
-class SaleSetting(TenantAwareModel):
-    sale_order = models.OneToOneField(SaleOrder, on_delete=models.CASCADE, related_name="settings")
-    settings = models.JSONField(default=dict, blank=True)
-    allow_refund = models.BooleanField(default=True)
-    allow_exchange = models.BooleanField(default=True)
-    print_receipt = models.BooleanField(default=True)
-
-
-class SaleAddress(TenantAwareModel):
-    ADDRESS_TYPES = [("billing", "Billing"), ("shipping", "Shipping")]
-
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="addresses")
-    address_type = models.CharField(max_length=20, choices=ADDRESS_TYPES)
-    first_name = models.CharField(max_length=120, blank=True)
-    last_name = models.CharField(max_length=120, blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
-    address_1 = models.CharField(max_length=255, blank=True)
-    address_2 = models.CharField(max_length=255, blank=True)
-    city = models.CharField(max_length=120, blank=True)
-    state = models.CharField(max_length=120, blank=True)
-    country = models.CharField(max_length=120, blank=True)
-    postal_code = models.CharField(max_length=20, blank=True)
-
-
-class SaleNote(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="notes")
-    title = models.CharField(max_length=150, blank=True)
-    body = models.TextField()
-    visibility = models.CharField(max_length=20, default="private")
-
-
 class InstallmentPlan(TenantAwareModel):
     sale_order = models.OneToOneField(SaleOrder, on_delete=models.CASCADE, related_name="installment_plan")
     total_installments = models.PositiveIntegerField(default=0)
@@ -182,13 +124,6 @@ class ReturnItem(TenantAwareModel):
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     total = models.DecimalField(max_digits=14, decimal_places=2)
     condition = models.CharField(max_length=20, default="good")
-
-
-class ReturnItemTax(TenantAwareModel):
-    return_item = models.ForeignKey(ReturnItem, on_delete=models.CASCADE, related_name="tax_lines")
-    tax = models.ForeignKey("catalog.Tax", on_delete=models.PROTECT, related_name="return_item_taxes")
-    tax_rate = models.DecimalField(max_digits=8, decimal_places=2)
-    tax_amount = models.DecimalField(max_digits=12, decimal_places=2)
 
 
 class ExchangeOrderLink(TenantAwareModel):

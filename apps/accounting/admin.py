@@ -4,7 +4,6 @@ from apps.accounting.models import (
     ActiveTransactionHistory,
     Transaction,
     TransactionAccount,
-    TransactionActionRule,
     TransactionBalanceDay,
     TransactionBalanceMonth,
     TransactionHistory,
@@ -47,9 +46,3 @@ class TransactionBalanceDayAdmin(admin.ModelAdmin):
 class TransactionBalanceMonthAdmin(admin.ModelAdmin):
     list_display = ("account", "year", "month", "opening_balance", "total_credit", "total_debit", "closing_balance", "status")
     list_filter = ("year", "month", "status")
-
-
-@admin.register(TransactionActionRule)
-class TransactionActionRuleAdmin(admin.ModelAdmin):
-    list_display = ("source_type", "action_name", "debit_account", "credit_account", "is_system", "status")
-    list_filter = ("source_type", "is_system", "status")

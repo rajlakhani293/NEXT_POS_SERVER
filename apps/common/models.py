@@ -1,7 +1,6 @@
 # type: ignore
 import uuid
 
-from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -82,26 +81,6 @@ class TenantAwareModel(BaseModel):
         "organizations.Branch",
         on_delete=models.CASCADE,
         related_name="%(class)ss",
-    )
-
-    class Meta:
-        abstract = True
-
-
-class OwnedModel(models.Model):
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="created_%(class)ss",
-    )
-    updated_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="updated_%(class)ss",
     )
 
     class Meta:

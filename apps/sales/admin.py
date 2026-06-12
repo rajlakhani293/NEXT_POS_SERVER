@@ -8,20 +8,14 @@ from apps.sales.models import (
     InstallmentPlan,
     ReturnItem,
     ReturnOrder,
-    SaleAddress,
     SaleItem,
-    SaleNote,
     SaleOrder,
-    SaleTax,
 )
 
 
 admin.site.register(CartDraft, TenantModelAdmin)
 admin.site.register(SaleOrder, TenantModelAdmin)
 admin.site.register(SaleItem, TenantModelAdmin)
-admin.site.register(SaleTax, TenantModelAdmin)
-admin.site.register(SaleAddress, TenantModelAdmin)
-admin.site.register(SaleNote, TenantModelAdmin)
 admin.site.register(InstallmentPlan, TenantModelAdmin)
 admin.site.register(InstallmentLine, TenantModelAdmin)
 admin.site.register(ReturnOrder, TenantModelAdmin)

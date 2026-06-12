@@ -94,7 +94,6 @@ class AccessToken(BaseModel):
     def is_expired(self):
         return self.expires_at <= timezone.now()
 
-
 class OtpRequest(BaseModel):
     PURPOSE_CHOICES = [
         ("login", "Login"),
@@ -114,51 +113,3 @@ class OtpRequest(BaseModel):
     @property
     def is_expired(self):
         return self.expires_at <= timezone.now()
-
-
-class UserRoleRelation(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="role_relations")
-    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="user_relations")
-    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="user_role_relations")
-    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, null=True, blank=True, related_name="user_role_relations")
-
-    class Meta:
-        unique_together = [("user", "role", "branch")]
-
-
-class PermissionAccess(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="permission_accesses", null=True, blank=True)
-    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="permission_accesses", null=True, blank=True)
-    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name="access_records")
-    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="permission_accesses")
-    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, null=True, blank=True, related_name="permission_accesses")
-    is_allowed = models.BooleanField(default=True)
-
-
-class UserScope(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scopes")
-    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="user_scopes")
-    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, null=True, blank=True, related_name="user_scopes")
-    scope_type = models.CharField(max_length=40, default="branch")
-    scope_value = models.CharField(max_length=120, blank=True)
-
-
-class UserAttribute(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="attributes")
-    key = models.CharField(max_length=120)
-    value = models.TextField(blank=True)
-
-    class Meta:
-        unique_together = [("user", "key")]
-
-
-class UserWidget(BaseModel):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="widgets")
-    widget_key = models.CharField(max_length=120)
-    title = models.CharField(max_length=150, blank=True)
-    settings = models.JSONField(default=dict, blank=True)
-    sort_order = models.PositiveIntegerField(default=0)
-    is_visible = models.BooleanField(default=True)
-
-    class Meta:
-        unique_together = [("user", "widget_key")]

@@ -136,31 +136,3 @@ class TransactionBalanceMonth(TenantAwareModel):
     class Meta:
         unique_together = [("branch", "account", "year", "month")]
         ordering = ["-year", "-month"]
-
-
-class TransactionActionRule(TenantAwareModel):
-    source_type = models.CharField(max_length=40)
-    action_name = models.CharField(max_length=80)
-    debit_account = models.ForeignKey(
-        TransactionAccount,
-        on_delete=models.PROTECT,
-        related_name="debit_rules",
-        blank=True,
-        null=True,
-    )
-    credit_account = models.ForeignKey(
-        TransactionAccount,
-        on_delete=models.PROTECT,
-        related_name="credit_rules",
-        blank=True,
-        null=True,
-    )
-    description = models.TextField(blank=True)
-    is_system = models.BooleanField(default=False)
-
-    class Meta:
-        unique_together = [("branch", "source_type", "action_name")]
-        ordering = ["source_type", "action_name"]
-
-    def __str__(self):
-        return f"{self.source_type}: {self.action_name}"

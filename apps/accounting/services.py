@@ -1,3 +1,4 @@
+# type:ignore
 from django.db import transaction
 from django.db.models import F
 from django.utils.dateparse import parse_date, parse_datetime

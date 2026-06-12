@@ -1,15 +1,6 @@
 # type: ignore
 from django.db import models
-from apps.common.models import CompanyAwareModel, TenantAwareModel
-
-
-class Setting(TenantAwareModel):
-    key = models.CharField(max_length=150)
-    value = models.JSONField(default=dict, blank=True)
-    description = models.TextField(blank=True)
-
-    class Meta:
-        unique_together = [("branch", "key")]
+from apps.common.models import CompanyAwareModel
 
 
 class BusinessSetting(CompanyAwareModel):
@@ -28,18 +19,3 @@ class BusinessSetting(CompanyAwareModel):
 
     def __str__(self):
         return f"{self.company.name} Business Settings"
-
-
-class Option(CompanyAwareModel):
-    key = models.CharField(max_length=150)
-    value = models.JSONField(default=dict, blank=True)
-    group = models.CharField(max_length=80, blank=True)
-    is_public = models.BooleanField(default=False)
-    description = models.TextField(blank=True)
-
-    class Meta:
-        unique_together = [("company", "key")]
-        ordering = ["group", "key"]
-
-    def __str__(self):
-        return self.key

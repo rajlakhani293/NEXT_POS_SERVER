@@ -8,7 +8,6 @@ from ninja.errors import HttpError, ValidationError
 
 from apps.accounts.api import router as accounts_router
 from apps.accounting.api import router as accounting_router
-from apps.audit.api import router as audit_router
 from apps.catalog.api import router as catalog_router
 from apps.customers.api import router as customers_router
 from apps.expenses.api import router as expenses_router
@@ -45,7 +44,6 @@ api.add_router("/promotions/", promotions_router)
 api.add_router("/rewards/", rewards_router)
 api.add_router("/expenses/", expenses_router)
 api.add_router("/reports/", reports_router)
-api.add_router("/audit/", audit_router)
 api.add_router("/settings/", settings_router)
 
 

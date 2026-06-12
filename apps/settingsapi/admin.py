@@ -1,8 +1,6 @@
 from django.contrib import admin
 
-from apps.common.admin import TenantModelAdmin
-from apps.settingsapi.models import BusinessSetting, Setting
+from apps.settingsapi.models import BusinessSetting
 
 
-admin.site.register(Setting, TenantModelAdmin)
-admin.site.register(BusinessSetting, TenantModelAdmin)
+admin.site.register(BusinessSetting)
