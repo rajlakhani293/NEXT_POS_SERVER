@@ -6,6 +6,7 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
+from apps.accounting.services import AccountingService
 from apps.catalog.models import Product, ProductUnitQuantity
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
@@ -1808,6 +1809,50 @@ class SaleService:
 
             customer = SaleCustomerService.applyCustomerImpact(sale_order, request)
             reward = SaleRewardService.processRewards(sale_order, request) if settings.enable_customer_rewards else None
+            AccountingService.reflectEvent(
+                "order_unpaid",
+                total,
+                name=f"Order {sale_order['code']}",
+                transaction_type="income",
+                source_type="sale",
+                source_id=sale_order["id"],
+                transaction_date=timezone.now(),
+                description=sale_order.get("note") or "Sale created",
+                reference_number=sale_order["code"],
+                request=request,
+            )
+            if paid_amount > 0:
+                AccountingService.reflectEvent(
+                    "order_from_unpaid_to_paid",
+                    min(paid_amount, total),
+                    name=f"Order payment {sale_order['code']}",
+                    transaction_type="income",
+                    source_type="sale",
+                    source_id=sale_order["id"],
+                    transaction_date=timezone.now(),
+                    description="Sale payment received",
+                    reference_number=sale_order["code"],
+                    request=request,
+                )
+            cogs_amount = sum(
+                (
+                    money(item.get("cost_price")) * quantity(item.get("quantity"))
+                    for item in sale_items
+                ),
+                Decimal("0"),
+            )
+            AccountingService.reflectEvent(
+                "order_cogs",
+                cogs_amount,
+                name=f"Order COGS {sale_order['code']}",
+                transaction_type="expense",
+                source_type="sale",
+                source_id=sale_order["id"],
+                transaction_date=timezone.now(),
+                description="Cost of goods sold",
+                reference_number=sale_order["code"],
+                request=request,
+            )
 
             if data.get("draft_id"):
                 draft = commonQuery.findOneRecord(
@@ -1883,6 +1928,18 @@ class SaleService:
                 },
                 request=request,
                 tenant_config=True,
+            )
+            AccountingService.reflectEvent(
+                "unpaid_order_voided",
+                sale_order.get("total"),
+                name=f"Voided order {sale_order['code']}",
+                transaction_type="adjustment",
+                source_type="sale",
+                source_id=sale_order_id,
+                transaction_date=timezone.now(),
+                description=data.get("note") or "Unpaid sale voided",
+                reference_number=sale_order["code"],
+                request=request,
             )
             return successResponse("Sale voided successfully.", data=updated)
 
@@ -1965,6 +2022,18 @@ class SaleService:
                     tenant_config=True,
                 )
 
+            AccountingService.reflectEvent(
+                "order_from_unpaid_to_paid",
+                collected_amount,
+                name=f"Due collection {sale_order['code']}",
+                transaction_type="income",
+                source_type="sale",
+                source_id=sale_order_id,
+                transaction_date=timezone.now(),
+                description=data.get("note") or "Sale due collected",
+                reference_number=sale_order["code"],
+                request=request,
+            )
             refreshed_sale = SaleService.buildSaleDetail(sale_order_id, request)
             return successResponse(
                 "Due collected successfully.",
@@ -2241,6 +2310,18 @@ class SaleService:
                     tenant_config=True,
                 )
 
+            AccountingService.reflectEvent(
+                "order_from_unpaid_to_paid",
+                amount,
+                name=f"Installment payment {sale_order['code']}",
+                transaction_type="income",
+                source_type="sale",
+                source_id=sale_order_id,
+                transaction_date=timezone.now(),
+                description=data.get("note") or "Sale installment payment",
+                reference_number=sale_order["code"],
+                request=request,
+            )
             refreshed_sale = SaleService.buildSaleDetail(sale_order_id, request)
             return successResponse("Installment paid successfully.", data=refreshed_sale)
 
@@ -2309,6 +2390,18 @@ class SaleService:
                 request,
             )
             updated_sale = SaleRefundService.updateSalePaymentStatus(sale_order["id"], request)
+            AccountingService.reflectEvent(
+                "order_refunded",
+                prepared["total"],
+                name=f"Order refund {sale_order['code']}",
+                transaction_type="adjustment",
+                source_type="sale",
+                source_id=sale_order["id"],
+                transaction_date=timezone.now(),
+                description=data.get("note") or "Sale refunded",
+                reference_number=sale_order["code"],
+                request=request,
+            )
 
             return successResponse(
                 "Sale return processed successfully.",

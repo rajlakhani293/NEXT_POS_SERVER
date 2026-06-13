@@ -1,8 +1,14 @@
+# type:ignore
 from django.db import transaction
 from django.db.models import F
-
-from apps.accounting.models import ActiveTransactionHistory, Transaction, TransactionHistory
-from apps.accounting.services import AccountingService
+from apps.accounting.models import (
+    AccountingSetting,
+    ActiveTransactionHistory,
+    Transaction,
+    TransactionAccount,
+    TransactionHistory,
+)
+from apps.accounting.services import ACCOUNT_CODES, AccountingService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -19,21 +25,25 @@ class ExpenseCategoryService:
         {
             "name": "Direct Expenses",
             "code": "direct-expenses",
+            "account_code": ACCOUNT_CODES["direct_expenses"],
             "description": "Default direct expense category.",
         },
         {
             "name": "Operating Expenses",
             "code": "operating-expenses",
+            "account_code": ACCOUNT_CODES["operating_expenses"],
             "description": "Default operating expense category.",
         },
         {
             "name": "Rent Expenses",
             "code": "rent-expenses",
+            "account_code": ACCOUNT_CODES["rent_expenses"],
             "description": "Default rent expense category.",
         },
         {
             "name": "Other Expenses",
             "code": "other-expenses",
+            "account_code": ACCOUNT_CODES["other_expenses"],
             "description": "Default other expense category.",
         },
     ]
@@ -42,6 +52,11 @@ class ExpenseCategoryService:
     def ensureDefaultCategories(company, branch):
         seeded = []
         for item in ExpenseCategoryService.DEFAULT_CATEGORIES:
+            account = TransactionAccount.objects.filter(
+                company_id=company.id,
+                branch_id=branch.id,
+                code=item["account_code"],
+            ).first()
             category, _created = ExpenseCategory.objects.get_or_create(
                 company_id=company.id,
                 branch_id=branch.id,
@@ -49,13 +64,24 @@ class ExpenseCategoryService:
                 defaults={
                     "name": item["name"],
                     "description": item["description"],
+                    "account": account,
                 },
             )
+            if account and category.account_id != account.id:
+                category.account = account
+                category.save(update_fields=["account", "updated_at"])
             seeded.append(category)
         return seeded
 
     @staticmethod
     def create(data, request):
+        if data.get("account_id"):
+            validateTenantRelationId(
+                TransactionAccount,
+                data["account_id"],
+                request=request,
+                label="Transaction account",
+            )
         data["code"] = buildCode(ExpenseCategory, data.get("name"), data.get("code"), request)
         category = commonQuery.createRecord(ExpenseCategory, data, request=request, tenant_config=True)
         return successResponse("Expense category created successfully.", data=category)
@@ -66,7 +92,7 @@ class ExpenseCategoryService:
             ExpenseCategory,
             data,
             [["name", True, True], ["code", True, True], ["description", True, True]],
-            {"attributes": ["id", "name", "code", "description", "status"]},
+            {"attributes": ["id", "name", "code", "account_id", "account__name", "description", "status"]},
             request=request,
             tenant_config=True,
         )
@@ -77,7 +103,7 @@ class ExpenseCategoryService:
         data = commonQuery.findAllRecords(
             ExpenseCategory,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name", "code", "account_id", "account__name"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
@@ -92,6 +118,13 @@ class ExpenseCategoryService:
 
     @staticmethod
     def update(category_id, data, request):
+        if data.get("account_id"):
+            validateTenantRelationId(
+                TransactionAccount,
+                data["account_id"],
+                request=request,
+                label="Transaction account",
+            )
         if data.get("code"):
             data["code"] = buildCode(
                 ExpenseCategory,
@@ -200,18 +233,47 @@ class ExpenseEntryService:
                 tenant_config=True,
             )
 
+        category = ExpenseCategory.objects.filter(
+            id=expense.get("category_id"),
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).first()
+        setting = AccountingSetting.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).first()
+        AccountingService.ensureForRequest(request)
+        category = category or ExpenseCategory.objects.filter(
+            id=expense.get("category_id"),
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).first()
+        setting = setting or AccountingSetting.objects.get(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        )
+        expense_account_id = category.account_id if category and category.account_id else setting.expense_accounts.values_list("id", flat=True).first()
+        if not expense_account_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Configure an expense account before recording expenses.")
+        group_code = f"expense:{expense['id']}"
+        common = {
+            "name": "Expense",
+            "transaction_type": "expense",
+            "amount": expense.get("amount"),
+            "source_type": "expense",
+            "source_id": expense["id"],
+            "transaction_date": expense.get("expense_date"),
+            "description": expense.get("note") or "Expense",
+            "reference_number": expense.get("reference_number") or "",
+            "event_key": "expense_paid",
+            "group_code": group_code,
+            "request": request,
+        }
+        AccountingService.record(account_id=expense_account_id, action_type="increase", **common)
         AccountingService.record(
-            account_code="expense",
-            name="Expense",
-            transaction_type="expense",
-            action_type="debit",
-            amount=expense.get("amount"),
-            source_type="expense",
-            source_id=expense["id"],
-            transaction_date=expense.get("expense_date"),
-            description=expense.get("note") or "Expense",
-            reference_number=expense.get("reference_number") or "",
-            request=request,
+            account_id=setting.paid_expense_offset_account_id,
+            action_type="decrease",
+            **common,
         )
 
     @staticmethod

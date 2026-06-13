@@ -7,12 +7,14 @@ from apps.common.schemas import ActiveStatus
 class ExpenseCategoryIn(Schema):
     name: str
     code: Optional[str] = None
+    account_id: Optional[int] = None
     description: str = ""
 
 
 class ExpenseCategoryUpdateIn(Schema):
     name: Optional[str] = None
     code: Optional[str] = None
+    account_id: Optional[int] = None
     description: Optional[str] = None
     status: Optional[ActiveStatus] = None
 

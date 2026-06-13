@@ -256,6 +256,18 @@ class PurchaseOrderService:
             for item in items:
                 created_items.append(commonQuery.createRecord(PurchaseItem, {**item, "purchase_order_id": order["id"]}, request=request, tenant_config=True))
             Supplier.objects.filter(id=supplier["id"]).update(payable_amount=F("payable_amount") + total)
+            AccountingService.reflectEvent(
+                "procurement_unpaid",
+                total,
+                name=f"Procurement {order['code']}",
+                transaction_type="expense",
+                source_type="purchase",
+                source_id=order["id"],
+                transaction_date=order.get("order_date"),
+                description=order.get("note") or "Procurement created",
+                reference_number=order["code"],
+                request=request,
+            )
             order["items"] = created_items
             return successResponse("Purchase order created successfully.", data=order)
 
@@ -414,12 +426,11 @@ class PurchaseOrderService:
             )
             PurchaseOrder.objects.filter(id=order_id).update(paid_amount=F("paid_amount") + amount)
             Supplier.objects.filter(id=order["supplier_id"]).update(payable_amount=F("payable_amount") - amount)
-            AccountingService.record(
-                account_code=AccountingService.accountForPaymentType(data.get("payment_type")),
+            AccountingService.reflectEvent(
+                "procurement_from_unpaid_to_paid",
+                amount,
                 name=f"Purchase payment {order['code']}",
                 transaction_type="expense",
-                action_type="debit",
-                amount=amount,
                 source_type="purchase",
                 source_id=order_id,
                 transaction_date=data.get("paid_at") or timezone.now(),

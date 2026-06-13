@@ -4,6 +4,13 @@ from apps.common.models import TenantAwareModel
 
 
 class ExpenseCategory(TenantAwareModel):
+    account = models.ForeignKey(
+        "accounting.TransactionAccount",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="expense_categories",
+    )
     name = models.CharField(max_length=150)
     code = models.SlugField(max_length=120)
     description = models.TextField(blank=True)

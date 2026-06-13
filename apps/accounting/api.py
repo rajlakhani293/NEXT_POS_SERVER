@@ -2,11 +2,20 @@ from typing import Optional
 from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.accounting.schemas import (
+    AccountingSettingIn,
     ManualTransactionIn,
     TransactionAccountIn,
     TransactionAccountUpdateIn,
+    TransactionRuleIn,
+    TransactionRuleUpdateIn,
 )
-from apps.accounting.services import AccountingService, TransactionAccountService, TransactionService
+from apps.accounting.services import (
+    AccountingService,
+    AccountingSettingService,
+    TransactionAccountService,
+    TransactionRuleService,
+    TransactionService,
+)
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
@@ -56,7 +65,53 @@ def getAccountById(request, account_id: int):
 def updateAccount(request, account_id: int, payload: TransactionAccountUpdateIn):
     return TransactionAccountService.update(account_id, payload.dict(exclude_none=True), request)
 
-# 
+@router.get("/rules/actions", response=ApiResponse)
+@permission_required("reports_view")
+def getAccountingActions(request):
+    return TransactionRuleService.eventOptions()
+
+
+@router.get("/rules", response=ApiResponse)
+@permission_required("reports_view")
+def getAccountingRules(request):
+    return TransactionRuleService.getAll(request)
+
+
+@router.post("/rules/", response=ApiResponse)
+@permission_required("settings_update")
+def createAccountingRule(request, payload: TransactionRuleIn):
+    return TransactionRuleService.create(payload.dict(), request)
+
+
+@router.put("/rules/{rule_id}", response=ApiResponse)
+@permission_required("settings_update")
+def updateAccountingRule(request, rule_id: int, payload: TransactionRuleUpdateIn):
+    return TransactionRuleService.update(rule_id, payload.dict(exclude_none=True), request)
+
+
+@router.delete("/rules/delete", response=ApiResponse)
+@permission_required("settings_update")
+def deleteAccountingRules(request, payload: BulkIdsSchema):
+    return TransactionRuleService.delete(payload.dict(), request)
+
+
+@router.post("/rules/reset", response=ApiResponse)
+@permission_required("settings_update")
+def resetAccountingRules(request):
+    return TransactionRuleService.reset(request)
+
+
+@router.get("/settings", response=ApiResponse)
+@permission_required("reports_view")
+def getAccountingSettings(request):
+    return AccountingSettingService.get(request)
+
+
+@router.put("/settings", response=ApiResponse)
+@permission_required("settings_update")
+def updateAccountingSettings(request, payload: AccountingSettingIn):
+    return AccountingSettingService.update(payload.dict(), request)
+
 
 @router.post("/transactions/", response=ApiResponse)
 @permission_required("settings_update")

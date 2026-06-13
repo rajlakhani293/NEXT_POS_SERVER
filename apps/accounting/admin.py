@@ -1,9 +1,11 @@
 from django.contrib import admin
 
 from apps.accounting.models import (
+    AccountingSetting,
     ActiveTransactionHistory,
     Transaction,
     TransactionAccount,
+    TransactionActionRule,
     TransactionBalanceDay,
     TransactionBalanceMonth,
     TransactionHistory,
@@ -46,3 +48,23 @@ class TransactionBalanceDayAdmin(admin.ModelAdmin):
 class TransactionBalanceMonthAdmin(admin.ModelAdmin):
     list_display = ("account", "year", "month", "opening_balance", "total_credit", "total_debit", "closing_balance", "status")
     list_filter = ("year", "month", "status")
+
+
+@admin.register(TransactionActionRule)
+class TransactionActionRuleAdmin(admin.ModelAdmin):
+    list_display = (
+        "event_key",
+        "action",
+        "account",
+        "offset_action",
+        "offset_account",
+        "status",
+        "company",
+        "branch",
+    )
+    list_filter = ("event_key", "action", "offset_action", "status")
+
+
+@admin.register(AccountingSetting)
+class AccountingSettingAdmin(admin.ModelAdmin):
+    list_display = ("company", "branch", "sales_revenue_account", "order_cash_account")
