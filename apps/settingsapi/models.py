@@ -8,6 +8,16 @@ class BusinessSetting(CompanyAwareModel):
     enable_customer_rewards = models.BooleanField(default=False)
     enable_credit_account = models.BooleanField(default=False)
     enable_cash_registers = models.BooleanField(default=True)
+    allow_decimal_quantities = models.BooleanField(default=True)
+    quick_product_enabled = models.BooleanField(default=True)
+    show_quantity = models.BooleanField(default=True)
+    currency_precision = models.PositiveSmallIntegerField(default=2)
+    hide_empty_categories = models.BooleanField(default=True)
+    unit_price_editable = models.BooleanField(default=True)
+    default_change_payment_type = models.CharField(
+        max_length=80,
+        default="cash-payment",
+    )
     order_types = models.JSONField(default=list, blank=True)
 
     class Meta:

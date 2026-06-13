@@ -211,6 +211,26 @@ ROLE_CATALOG = [
             "view_profit_report",
         ],
     },
+    {
+        "name": "User",
+        "code": "user",
+        "description": "Basic company user without operational access until permissions are assigned.",
+        "flags": {
+            "is_store_manager": False,
+            "is_cashier": False,
+        },
+        "permissions": [],
+    },
+    {
+        "name": "Store Customer",
+        "code": "store-customer",
+        "description": "Customer-facing role without back-office access.",
+        "flags": {
+            "is_store_manager": False,
+            "is_cashier": False,
+        },
+        "permissions": [],
+    },
 ]
 
 

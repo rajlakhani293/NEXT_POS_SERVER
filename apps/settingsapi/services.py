@@ -16,6 +16,13 @@ BUSINESS_SETTING_FIELDS = [
     "enable_customer_rewards",
     "enable_credit_account",
     "enable_cash_registers",
+    "allow_decimal_quantities",
+    "quick_product_enabled",
+    "show_quantity",
+    "currency_precision",
+    "hide_empty_categories",
+    "unit_price_editable",
+    "default_change_payment_type",
     "order_types",
 ]
 
@@ -28,6 +35,13 @@ class BusinessSettingService:
             "enable_customer_rewards": False,
             "enable_credit_account": False,
             "enable_cash_registers": True,
+            "allow_decimal_quantities": True,
+            "quick_product_enabled": True,
+            "show_quantity": True,
+            "currency_precision": 2,
+            "hide_empty_categories": True,
+            "unit_price_editable": True,
+            "default_change_payment_type": "cash-payment",
             "order_types": ["takeaway", "delivery"],
         }
 
@@ -93,7 +107,15 @@ class BusinessSettingService:
         for field in BUSINESS_SETTING_FIELDS:
             if field == "order_types":
                 continue
-            setattr(settings, field, bool(data.get(field)))
+            if field == "currency_precision":
+                precision = int(data.get(field, 2))
+                if precision < 0 or precision > 6:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Currency precision must be between 0 and 6.")
+                setattr(settings, field, precision)
+            elif field == "default_change_payment_type":
+                setattr(settings, field, data.get(field) or "cash-payment")
+            else:
+                setattr(settings, field, bool(data.get(field)))
         settings.order_types = BusinessSettingService.normalizeOrderTypes(data.get("order_types"))
         settings.save()
         return BusinessSettingService.get(user)

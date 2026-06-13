@@ -6,8 +6,8 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateTenantRelationId, validateUniqueFields
 from apps.common.commonQuery import commonQuery
+from apps.common.tenantBootstrap import TenantBootstrapService
 from apps.organizations.models import Branch, Company, StateMaster
-from apps.payments.services import PaymentTypeService
 
 
 class OrganizationsService:
@@ -139,7 +139,7 @@ class OrganizationsService:
             )
             company = Company.objects.get(id=user.company_id)
             branch = Branch.objects.get(id=branch_data["id"])
-            PaymentTypeService.ensureDefaultPaymentTypes(company, branch)
+            TenantBootstrapService.ensureBranchDefaults(company, branch)
             return branch_data
 
     @staticmethod

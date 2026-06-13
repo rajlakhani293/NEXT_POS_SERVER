@@ -17,16 +17,13 @@ from google.oauth2 import id_token as google_id_token
 
 from apps.accounts.models import AccessToken, OtpRequest, Role, User
 from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
-from apps.accounting.services import AccountingService
 from apps.common.authz import get_user_permission_codenames
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance, validateUniqueFields
-from apps.expenses.services import ExpenseCategoryService
+from apps.common.tenantBootstrap import TenantBootstrapService
 from apps.organizations.models import Branch, Company
-from apps.payments.services import PaymentTypeService
-from apps.registers.services import RegisterService
 from apps.settingsapi.services import BusinessSettingService
 
 
@@ -267,12 +264,7 @@ class AccountsService:
             is_head_office=True,
         )
 
-        AccountsService.seedDefaultRoles(company)
-        BusinessSettingService.ensureCompanySettings(company)
-        PaymentTypeService.ensureDefaultPaymentTypes(company, branch)
-        AccountingService.ensureDefaultAccounting(company, branch)
-        ExpenseCategoryService.ensureDefaultCategories(company, branch)
-        RegisterService.ensureDefaultRegister(company, branch)
+        TenantBootstrapService.ensureTenantDefaults(company, branch)
         role = Role.objects.filter(company_id=company.id, code="administrator").first()
         if role is None:
             raise api_error(
