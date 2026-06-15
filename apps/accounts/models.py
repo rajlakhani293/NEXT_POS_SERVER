@@ -27,11 +27,6 @@ class Role(BaseModel):
 
 
 class User(AbstractUser):
-    AUTH_PROVIDER_CHOICES = [
-        ("otp", "OTP"),
-        ("google", "Google"),
-    ]
-
     company = models.ForeignKey(
         "organizations.Company",
         on_delete=models.SET_NULL,
@@ -56,11 +51,8 @@ class User(AbstractUser):
     full_name = models.CharField(max_length=255, blank=True)
     profile_image = models.URLField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
-    auth_provider = models.CharField(max_length=20, choices=AUTH_PROVIDER_CHOICES, default="otp")
-    google_sub = models.CharField(max_length=255, blank=True, unique=True, null=True)
-    is_phone_verified = models.BooleanField(default=False)
-    is_email_verified = models.BooleanField(default=False)
-    onboarding_completed = models.BooleanField(default=False)
+    theme = models.CharField(max_length=50, default="light")
+    language = models.CharField(max_length=20, default="en")
     is_cashier = models.BooleanField(default=False)
     is_store_manager = models.BooleanField(default=False)
     status = models.IntegerField(

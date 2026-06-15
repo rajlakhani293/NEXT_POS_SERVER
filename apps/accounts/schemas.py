@@ -7,6 +7,20 @@ from apps.common.schemas import ActiveStatus
 from pydantic import Field
 
 
+class LoginIn(Schema):
+    username: str = Field(..., min_length=3, example="storeadmin")
+    password: str = Field(..., min_length=8, example="StrongPassword123!")
+    device_name: Optional[str] = Field("", example="Owner Laptop")
+
+
+class RegisterIn(Schema):
+    username: str = Field(..., min_length=3, example="storeadmin")
+    email: str = Field(..., example="owner@example.com")
+    password: str = Field(..., min_length=8, example="StrongPassword123!")
+    password_confirm: str = Field(..., min_length=8, example="StrongPassword123!")
+    device_name: Optional[str] = Field("", example="Owner Laptop")
+
+
 class SendOtpIn(Schema):
     phone: str = Field(..., description="Phone number that will receive or simulate the OTP.", example="9999999999")
 
@@ -19,17 +33,16 @@ class VerifyOtpIn(Schema):
 
 class UserOut(Schema):
     id: int
+    username: str
     email: str = ""
     full_name: str = ""
     profile_image: str = ""
     phone: str = ""
+    theme: str = "light"
+    language: str = "en"
     company_id: Optional[int] = None
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
-    auth_provider: str
-    is_phone_verified: bool
-    is_email_verified: bool
-    onboarding_completed: bool
     is_cashier: bool
     is_store_manager: bool
     status: int
@@ -62,6 +75,8 @@ class BranchSwitchIn(Schema):
 
 
 class UserIn(Schema):
+    username: str = Field(..., min_length=3, example="counterstaff")
+    password: str = Field(..., min_length=8, example="StrongPassword123!")
     full_name: str = Field(..., example="Counter Staff")
     phone: str = Field("", example="9999999999")
     email: str = Field("", example="staff@example.com")
@@ -71,6 +86,8 @@ class UserIn(Schema):
 
 
 class UserUpdateIn(Schema):
+    username: Optional[str] = Field(None, min_length=3)
+    password: Optional[str] = Field(None, min_length=8)
     full_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None

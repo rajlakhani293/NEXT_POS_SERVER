@@ -22,22 +22,18 @@ class UserAdmin(DjangoUserAdmin):
         "company",
         "branch",
         "role",
-        "auth_provider",
+        "theme",
+        "language",
         "is_active",
         "is_staff",
-        "onboarding_completed",
     )
     list_filter = (
         "is_active",
         "is_staff",
         "is_superuser",
-        "auth_provider",
         "company",
         "branch",
         "role",
-        "onboarding_completed",
-        "is_phone_verified",
-        "is_email_verified",
     )
     search_fields = ("username", "full_name", "email", "phone")
     readonly_fields = ("last_login", "date_joined")
@@ -51,11 +47,8 @@ class UserAdmin(DjangoUserAdmin):
                     "company",
                     "branch",
                     "role",
-                    "auth_provider",
-                    "google_sub",
-                    "is_phone_verified",
-                    "is_email_verified",
-                    "onboarding_completed",
+                    "theme",
+                    "language",
                     "is_cashier",
                     "is_store_manager",
                 )

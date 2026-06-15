@@ -1,7 +1,5 @@
 # type: ignore
 import secrets
-import random
-import os
 from datetime import timedelta
 from typing import Optional
 
@@ -12,9 +10,6 @@ from django.db import transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
-from google.auth.transport import requests as google_requests
-from google.oauth2 import id_token as google_id_token
-
 from apps.accounts.models import AccessToken, OtpRequest, Role, User
 from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
 from apps.common.authz import get_user_permission_codenames
@@ -104,7 +99,6 @@ class AccountsService:
     def serializeUser(user: User):
         user_data = serializeModelInstance(user)
         for key in [
-            "username",
             "password",
             "first_name",
             "last_name",
@@ -167,54 +161,6 @@ class AccountsService:
         return code
 
     @staticmethod
-    def getGoogleClientIds():
-        raw = os.getenv("GOOGLE_CLIENT_IDS", "").strip()
-        single = os.getenv("GOOGLE_CLIENT_ID", "").strip()
-        values = []
-        if raw:
-            values.extend([item.strip() for item in raw.split(",") if item.strip()])
-        if single:
-            values.append(single)
-        return list(dict.fromkeys(values))
-
-    @staticmethod
-    def verifyGoogleIdToken(encoded_token: str):
-        client_ids = AccountsService.getGoogleClientIds()
-        if not client_ids:
-            raise api_error(
-                500,
-                ErrorCodes.GOOGLE_CLIENT_ID_NOT_CONFIGURED,
-                "Google client ID is not configured on the server.",
-            )
-
-        request_adapter = google_requests.Request()
-        try:
-            token_info = google_id_token.verify_oauth2_token(
-                encoded_token,
-                request_adapter,
-                client_ids[0] if len(client_ids) == 1 else None,
-            )
-        except ValueError:
-            raise api_error(401, ErrorCodes.INVALID_GOOGLE_ID_TOKEN, "Invalid Google ID token.")
-
-        audience = token_info.get("aud")
-        issuer = token_info.get("iss")
-        if audience not in client_ids:
-            raise api_error(
-                401,
-                ErrorCodes.GOOGLE_TOKEN_AUDIENCE_INVALID,
-                "Google ID token audience is not allowed.",
-            )
-        if issuer not in ["accounts.google.com", "https://accounts.google.com"]:
-            raise api_error(
-                401,
-                ErrorCodes.GOOGLE_TOKEN_ISSUER_INVALID,
-                "Google ID token issuer is invalid.",
-            )
-
-        return token_info
-
-    @staticmethod
     def issueAccessToken(user: User, device_name: str = "", request=None):
         token = commonQuery.createRecord(
             AccessToken,
@@ -235,231 +181,97 @@ class AccountsService:
         }
 
     @staticmethod
-    def initializeUserWorkspace(
-        email: str = "",
-        phone: str = "",
-        full_name: str = "",
-        provider: str = "otp",
-        google_sub: str = "",
-        profile_image: str = "",
-    ):
+    def register(request, payload):
+        if payload.password != payload.password_confirm:
+            raise api_error(
+                422,
+                ErrorCodes.VALIDATION_ERROR,
+                "Password confirmation does not match.",
+            )
+        if User.objects.filter(username__iexact=payload.username).exists():
+            raise api_error(
+                422,
+                ErrorCodes.VALIDATION_ERROR,
+                "The username is already taken.",
+            )
+        if payload.email and User.objects.filter(email__iexact=payload.email).exists():
+            raise api_error(
+                422,
+                ErrorCodes.VALIDATION_ERROR,
+                "The email is already taken.",
+            )
+
         placeholder_company_name = "Enter your company name"
         branch_name = "Main Branch"
-
-        company_code = AccountsService.generateUniqueCode(Company, placeholder_company_name)
-        company = Company.objects.create(
-            name=placeholder_company_name,
-            legal_name=placeholder_company_name,
-            code=company_code,
-            email=email,
-            phone=phone,
-        )
-
-        branch_code = AccountsService.generateUniqueCode(Branch, branch_name, company.id)
-        branch = Branch.objects.create(
-            company_id=company.id,
-            name=branch_name,
-            code=branch_code,
-            phone=phone,
-            is_head_office=True,
-        )
-
-        TenantBootstrapService.ensureTenantDefaults(company, branch)
-        role = Role.objects.filter(company_id=company.id, code="administrator").first()
-        if role is None:
-            raise api_error(
-                500,
-                ErrorCodes.SERVER_ERROR,
-                "Default administrator role could not be created.",
+        with transaction.atomic():
+            company_code = AccountsService.generateUniqueCode(
+                Company,
+                placeholder_company_name,
             )
-
-        username = f"superadmin-{company_code}"
-
-        user = User(
-            username=username,
-            email=email,
-            phone=phone,
-            full_name=full_name or "Super Admin",
-            profile_image=profile_image,
-            company=company,
-            branch=branch,
-            role=role,
-            auth_provider=provider,
-            google_sub=google_sub or None,
-            is_phone_verified=bool(phone and provider == "otp"),
-            is_email_verified=bool(email and provider == "google"),
-            onboarding_completed=False,
-            is_staff=True,
-            is_superuser=True,
-            is_store_manager=True,
-        )
-        user.set_unusable_password()
-        user.save()
-        return user
-
-    @staticmethod
-    def sendOtp(payload):
-        existing_user = User.objects.filter(phone=payload.phone).exists()
-        purpose = "login" if existing_user else "signup"
-
-        code = f"{random.randint(100000, 999999)}"
-        expires_at = timezone.now() + timedelta(minutes=10)
-
-        OtpRequest.objects.filter(phone=payload.phone, verified_at__isnull=True, status=0).update(
-            status=1,
-            deleted_at=timezone.now(),
-        )
-
-        otp_request = commonQuery.createRecord(
-            OtpRequest,
-            {
-                "phone": payload.phone,
-                "code": code,
-                "purpose": purpose,
-                "expires_at": expires_at,
-            },
-            tenant_config={},
-        )
-
-        return {
-            "phone": otp_request["phone"],
-            "purpose": otp_request["purpose"],
-            "expires_at": otp_request["expires_at"],
-            "otp_code": otp_request["code"],
-            "message": "OTP generated successfully.",
-        }
-
-    @staticmethod
-    def verifyOtp(request, payload):
-        otp_request = (
-            OtpRequest.objects.filter(
-                phone=payload.phone,
-                code=payload.code,
-                verified_at__isnull=True,
+            company = Company.objects.create(
+                name=placeholder_company_name,
+                legal_name=placeholder_company_name,
+                code=company_code,
+                email=payload.email,
+            )
+            branch = Branch.objects.create(
+                company=company,
+                name=branch_name,
+                code=AccountsService.generateUniqueCode(
+                    Branch,
+                    branch_name,
+                    company.id,
+                ),
+                is_head_office=True,
+            )
+            TenantBootstrapService.ensureTenantDefaults(company, branch)
+            role = Role.objects.filter(
+                company=company,
+                code="administrator",
+                status=0,
+            ).first()
+            if role is None:
+                raise api_error(
+                    500,
+                    ErrorCodes.SERVER_ERROR,
+                    "Default administrator role could not be created.",
+                )
+            user = User.objects.create_user(
+                username=payload.username,
+                email=payload.email,
+                password=payload.password,
+                full_name=payload.username,
+                company=company,
+                branch=branch,
+                role=role,
+                is_staff=True,
+                is_superuser=True,
+                is_store_manager=True,
                 status=0,
             )
-            .order_by("-created_at")
-            .first()
-        )
 
-        if otp_request is None:
-            raise api_error(400, ErrorCodes.INVALID_OTP, "Invalid OTP.")
-        if otp_request.is_expired:
-            otp_request.status = 1
-            otp_request.deleted_at = timezone.now()
-            otp_request.save(update_fields=["status", "deleted_at"])
-            raise api_error(400, ErrorCodes.OTP_EXPIRED, "OTP has expired.")
-
-        otp_request.verified_at = timezone.now()
-        otp_request.save(update_fields=["verified_at", "updated_at"])
-
-        return AccountsService.identityLogin(
+        return AccountsService.issueAccessToken(
+            user,
+            payload.device_name or "",
             request,
-            type(
-                "OtpIdentityPayload",
-                (),
-                {
-                    "provider": "otp",
-                    "provider_user_id": None,
-                    "phone": payload.phone,
-                    "email": "",
-                    "full_name": getattr(payload, "full_name", "") or "",
-                    "profile_image": "",
-                    "device_name": payload.device_name or "",
-                },
-            )(),
         )
 
     @staticmethod
-    def identityLogin(request, payload):
-        provider = (payload.provider or "").lower().strip()
-        if provider not in ["otp", "google"]:
+    def login(request, payload):
+        user = User.objects.filter(username=payload.username).first()
+        if user is None or not user.check_password(payload.password):
+            raise api_error(401, ErrorCodes.PERMISSION_DENIED, "Invalid username or password.")
+        if user.status != 0 or not user.is_active:
             raise api_error(
-                400,
-                ErrorCodes.UNSUPPORTED_PROVIDER,
-                "Supported providers are otp and google.",
+                403,
+                ErrorCodes.PERMISSION_DENIED,
+                "Unable to login, the provided account is not active.",
             )
-
-        if provider == "otp" and not payload.phone:
-            raise api_error(400, ErrorCodes.PHONE_REQUIRED, "Phone is required for OTP login.")
-        if provider == "google" and not payload.provider_user_id:
-            raise api_error(
-                400,
-                ErrorCodes.PROVIDER_USER_ID_REQUIRED,
-                "provider_user_id is required for Google login.",
-            )
-
-        user = None
-        if provider == "google":
-            user = User.objects.filter(google_sub=payload.provider_user_id).select_related("role").first()
-            if user is None and payload.email:
-                user = User.objects.filter(email__iexact=payload.email).select_related("role").first()
-        elif provider == "otp":
-            user = User.objects.filter(phone=payload.phone).select_related("role").first()
-
-        with transaction.atomic():
-            if user is None:
-                user = AccountsService.initializeUserWorkspace(
-                    email=payload.email,
-                    phone=payload.phone,
-                    full_name=payload.full_name,
-                    provider=provider,
-                    google_sub=payload.provider_user_id or "",
-                    profile_image=getattr(payload, "profile_image", "") or "",
-                )
-            else:
-                updated_fields = []
-                if payload.full_name and user.full_name != payload.full_name:
-                    user.full_name = payload.full_name
-                    updated_fields.append("full_name")
-                if payload.email and not user.email:
-                    user.email = payload.email
-                    updated_fields.append("email")
-                if payload.phone and not user.phone:
-                    user.phone = payload.phone
-                    updated_fields.append("phone")
-                if getattr(payload, "profile_image", "") and not user.profile_image:
-                    user.profile_image = payload.profile_image
-                    updated_fields.append("profile_image")
-                if provider == "google" and payload.provider_user_id and user.google_sub != payload.provider_user_id:
-                    user.google_sub = payload.provider_user_id
-                    updated_fields.append("google_sub")
-                if provider == "google" and user.is_email_verified is False and payload.email:
-                    user.is_email_verified = True
-                    updated_fields.append("is_email_verified")
-                if provider == "otp" and user.is_phone_verified is False and payload.phone:
-                    user.is_phone_verified = True
-                    updated_fields.append("is_phone_verified")
-                if updated_fields:
-                    user.save(update_fields=updated_fields)
-
-        return AccountsService.issueAccessToken(user, payload.device_name or "", request)
-
-    @staticmethod
-    def googleLogin(request, payload):
-        if not payload.id_token:
-            raise api_error(
-                400,
-                ErrorCodes.GOOGLE_ID_TOKEN_REQUIRED,
-                "id_token is required for Google login.",
-            )
-
-        token_info = AccountsService.verifyGoogleIdToken(payload.id_token)
-
-        normalized_payload = type(
-            "GoogleIdentityPayload",
-            (),
-            {
-                "provider": "google",
-                "provider_user_id": token_info.get("sub"),
-                "phone": payload.phone or "",
-                "email": token_info.get("email", "") or payload.email or "",
-                "full_name": token_info.get("name", "") or payload.full_name or "",
-                "profile_image": token_info.get("picture", "") or getattr(payload, "profile_image", "") or "",
-                "device_name": payload.device_name or "",
-            },
-        )()
-        return AccountsService.identityLogin(request, normalized_payload)
+        return AccountsService.issueAccessToken(
+            user,
+            payload.device_name or "",
+            request,
+        )
 
     @staticmethod
     def currentUser(user: User):
@@ -704,6 +516,7 @@ class AccountsService:
             {
                 "attributes": [
                     "id",
+                    "username",
                     "full_name",
                     "phone",
                     "email",
@@ -711,7 +524,6 @@ class AccountsService:
                     "branch__name",
                     "role_id",
                     "role__name",
-                    "auth_provider",
                     "is_cashier",
                     "is_store_manager",
                     "status",
@@ -756,33 +568,37 @@ class AccountsService:
             if role is None:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
 
-        full_name = data.get("full_name") or "Staff User"
+        username = data.get("username")
+        password = data.get("password")
+        full_name = data.get("full_name") or username
         phone = data.get("phone") or ""
         email = data.get("email") or ""
         validateUniqueFields(
             User,
-            {"phone": phone, "email": email},
+            {"username": username, "phone": phone, "email": email},
             scope="global",
             status_in=(0, 1),
-            case_insensitive=["email"],
-            messages={"phone": "Phone already exists.", "email": "Email already exists."},
+            case_insensitive=["username", "email"],
+            messages={
+                "username": "Username already exists.",
+                "phone": "Phone already exists.",
+                "email": "Email already exists.",
+            },
         )
 
-        target_user = User(
-            username=f"user-{secrets.token_hex(8)}",
+        target_user = User.objects.create_user(
+            username=username,
+            password=password,
             company_id=user.company_id,
             branch=branch,
             role=role,
             full_name=full_name,
             phone=phone,
             email=email,
-            auth_provider="otp" if phone else "google",
             is_cashier=role.is_cashier if role else False,
             is_store_manager=role.is_store_manager if role else False,
             status=data.get("status", 0),
         )
-        target_user.set_unusable_password()
-        target_user.save()
         return AccountsService.serializeUser(target_user)
 
     @staticmethod
@@ -794,12 +610,20 @@ class AccountsService:
         data = payload.dict(exclude_unset=True)
         validateUniqueFields(
             User,
-            {"phone": data.get("phone"), "email": data.get("email")},
+            {
+                "username": data.get("username"),
+                "phone": data.get("phone"),
+                "email": data.get("email"),
+            },
             scope="global",
             exclude_id=user_id,
             status_in=(0, 1),
-            case_insensitive=["email"],
-            messages={"phone": "Phone already exists.", "email": "Email already exists."},
+            case_insensitive=["username", "email"],
+            messages={
+                "username": "Username already exists.",
+                "phone": "Phone already exists.",
+                "email": "Email already exists.",
+            },
         )
         if data.get("branch_id"):
             branch = Branch.objects.filter(company_id=user.company_id, id=data["branch_id"], status__in=[0, 1]).first()
@@ -814,9 +638,11 @@ class AccountsService:
             target_user.is_cashier = role.is_cashier
             target_user.is_store_manager = role.is_store_manager
 
-        for field in ["full_name", "phone", "email"]:
+        for field in ["username", "full_name", "phone", "email"]:
             if field in data:
                 setattr(target_user, field, data[field] or "")
+        if data.get("password"):
+            target_user.set_password(data["password"])
         if "status" in data:
             target_user.status = data["status"]
         target_user.save()

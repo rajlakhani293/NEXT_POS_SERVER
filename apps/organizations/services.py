@@ -85,14 +85,9 @@ class OrganizationsService:
                 branch.postal_code = branch_payload.postal_code or ""
                 branch.save()
 
-            if getattr(user, "onboarding_completed", False) is False:
-                user.onboarding_completed = True
-                user.save(update_fields=["onboarding_completed"])
-
         return {
             "company": serializeModelInstance(company),
             "branch": serializeModelInstance(branch),
-            "onboarding_completed": True,
         }
 
     @staticmethod

@@ -2,7 +2,16 @@ from typing import Optional
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
-from apps.accounts.schemas import BranchSwitchIn, GoogleLoginIn, IdentityAuthIn, RoleAssignIn, RoleIn, RoleUpdateIn, SendOtpIn, UserIn, UserUpdateIn, VerifyOtpIn
+from apps.accounts.schemas import (
+    BranchSwitchIn,
+    LoginIn,
+    RegisterIn,
+    RoleAssignIn,
+    RoleIn,
+    RoleUpdateIn,
+    UserIn,
+    UserUpdateIn,
+)
 from apps.accounts.services import AccountsService
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
@@ -19,49 +28,16 @@ def defaultRoles(request):
     return successResponse("Default role blueprint fetched successfully.", data=data)
 
 
-@router.post("/send-otp", response=ApiResponse)
-def sendOtp(request, payload: SendOtpIn):
-    """Generate an OTP code for login or signup. Returns the code directly for development use."""
-    data = AccountsService.sendOtp(payload)
-    return successResponse("OTP generated successfully.", data=data)
+@router.post("/register", response=ApiResponse)
+def register(request, payload: RegisterIn):
+    data = AccountsService.register(request, payload)
+    return successResponse("Account created successfully.", data=data)
 
 
-@router.post("/verify-otp", response=ApiResponse)
-def verifyOtp(request, payload: VerifyOtpIn):
-    """Verify a locally generated OTP and complete login or signup with auto-onboarding."""
-    data = AccountsService.verifyOtp(request, payload)
-    return successResponse("OTP verified successfully.", data=data)
-
-
-@router.post("/identity-login", response=ApiResponse)
-def identityLogin(request, payload: IdentityAuthIn):
-    """Complete login/signup after an external identity provider has already verified the user."""
-    data = AccountsService.identityLogin(request, payload)
-    return successResponse("Identity login successful.", data=data)
-
-
-@router.post("/google-login", response=ApiResponse)
-def googleLogin(request, payload: GoogleLoginIn):
-    """Frontend Google Sign-In contract.
-
-    Frontend flow:
-    1. Complete Google Sign-In in the browser or app.
-    2. Read the Google `credential` / ID token from Google.
-    3. Send it here as:
-       {
-         "provider": "google",
-         "id_token": "<google-id-token>",
-         "device_name": "Owner Laptop"
-       }
-
-    Backend flow:
-    - verify the ID token with Google
-    - create or find the user
-    - auto-create placeholder company and Main Branch when the user is new
-    - return your app bearer token for future API requests
-    """
-    data = AccountsService.googleLogin(request, payload)
-    return successResponse("Google login successful.", data=data)
+@router.post("/login", response=ApiResponse)
+def login(request, payload: LoginIn):
+    data = AccountsService.login(request, payload)
+    return successResponse("You have been successfully connected.", data=data)
 
 
 @router.get("/session-data", auth=auth_bearer, response=ApiResponse)
