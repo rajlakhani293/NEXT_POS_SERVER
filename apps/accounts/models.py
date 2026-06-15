@@ -82,6 +82,26 @@ class User(AbstractUser):
         return self.full_name or self.phone or self.email or self.username
 
 
+class UserRoleRelation(BaseModel):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="role_relations",
+    )
+    role = models.ForeignKey(
+        Role,
+        on_delete=models.CASCADE,
+        related_name="user_relations",
+    )
+
+    class Meta:
+        unique_together = [("user", "role")]
+        ordering = ["user_id", "role_id"]
+
+    def __str__(self):
+        return f"{self.user} - {self.role}"
+
+
 class AccessToken(BaseModel):
     user = models.ForeignKey(
         User,

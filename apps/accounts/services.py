@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
-from apps.accounts.models import AccessToken, Role, User
+from apps.accounts.models import AccessToken, Role, User, UserRoleRelation
 from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
 from apps.common.authz import get_user_permission_codenames
 from apps.common.commonQuery import commonQuery
@@ -96,6 +96,45 @@ class AccountsService:
         return seeded_roles
 
     @staticmethod
+    def setUserRoles(user: User, roles):
+        role_list = [role for role in roles if role]
+        role_ids = [role.id for role in role_list]
+
+        UserRoleRelation.objects.filter(user_id=user.id).exclude(role_id__in=role_ids).update(
+            status=2,
+            deleted_at=timezone.now(),
+        )
+        for role in role_list:
+            relation, _created = UserRoleRelation.objects.get_or_create(
+                user_id=user.id,
+                role_id=role.id,
+                defaults={"status": 0},
+            )
+            if relation.status != 0:
+                relation.status = 0
+                relation.deleted_at = None
+                relation.save(update_fields=["status", "deleted_at"])
+
+        primary_role = role_list[0] if role_list else None
+        user.role = primary_role
+        user.is_cashier = any(role.is_cashier for role in role_list)
+        user.is_store_manager = any(role.is_store_manager for role in role_list)
+        user.save(update_fields=["role", "is_cashier", "is_store_manager"])
+
+    @staticmethod
+    def getUserRoles(user: User):
+        role_ids = list(
+            user.role_relations.filter(status=0).values_list("role_id", flat=True)
+        )
+        if getattr(user, "role_id", None) and user.role_id not in role_ids:
+            role_ids.insert(0, user.role_id)
+        return list(
+            Role.objects.filter(id__in=role_ids, status__in=[0, 1])
+            .prefetch_related("permissions")
+            .order_by("name")
+        )
+
+    @staticmethod
     def serializeUser(user: User):
         user_data = serializeModelInstance(user)
         for key in [
@@ -107,10 +146,12 @@ class AccountsService:
         ]:
             user_data.pop(key, None)
 
+        roles = AccountsService.getUserRoles(user)
         return {
             **user_data,
             "permissions": sorted(list(get_user_permission_codenames(user))),
             "role": AccountsService.serializeRole(user.role) if getattr(user, "role", None) else None,
+            "roles": [AccountsService.serializeRole(role) for role in roles],
         }
 
     @staticmethod
@@ -249,6 +290,7 @@ class AccountsService:
                 is_store_manager=True,
                 status=0,
             )
+            AccountsService.setUserRoles(user, [role])
 
         return AccountsService.issueAccessToken(
             user,
@@ -589,6 +631,8 @@ class AccountsService:
             is_store_manager=role.is_store_manager if role else False,
             status=data.get("status", 0),
         )
+        if role:
+            AccountsService.setUserRoles(target_user, [role])
         return AccountsService.serializeUser(target_user)
 
     @staticmethod
@@ -624,9 +668,7 @@ class AccountsService:
             role = Role.objects.filter(company_id=user.company_id, id=data["role_id"], status__in=[0, 1]).first()
             if role is None:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
-            target_user.role = role
-            target_user.is_cashier = role.is_cashier
-            target_user.is_store_manager = role.is_store_manager
+            AccountsService.setUserRoles(target_user, [role])
 
         for field in ["username", "full_name", "phone", "email"]:
             if field in data:
@@ -767,7 +809,7 @@ class AccountsService:
                 ErrorCodes.ADMINISTRATOR_ROLE_DELETE_FORBIDDEN,
                 "Administrator role cannot be deleted.",
             )
-        if role.users.filter(status__in=[0, 1]).exists():
+        if role.users.filter(status__in=[0, 1]).exists() or role.user_relations.filter(status=0, user__status__in=[0, 1]).exists():
             raise api_error(
                 400,
                 ErrorCodes.ROLE_IN_USE,
@@ -793,8 +835,5 @@ class AccountsService:
         if role is None:
             raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
 
-        target_user.role = role
-        target_user.is_cashier = role.is_cashier
-        target_user.is_store_manager = role.is_store_manager
-        target_user.save(update_fields=["role", "is_cashier", "is_store_manager"])
+        AccountsService.setUserRoles(target_user, [role])
         return AccountsService.serializeUser(target_user)

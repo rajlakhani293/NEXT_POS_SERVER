@@ -2,7 +2,7 @@
 from django.db import transaction
 from django.utils.text import slugify
 
-from apps.accounts.models import Role, User
+from apps.accounts.models import Role, User, UserRoleRelation
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -57,6 +57,18 @@ def getOrCreateCustomerRole(request):
         code=CUSTOMER_ROLE_CODE,
         description="Customer account used for POS orders, rewards, coupons, and account history.",
     )
+
+
+def assignCustomerRole(user, role):
+    relation, _created = UserRoleRelation.objects.get_or_create(
+        user_id=user.id,
+        role_id=role.id,
+        defaults={"status": 0},
+    )
+    if relation.status != 0:
+        relation.status = 0
+        relation.deleted_at = None
+        relation.save(update_fields=["status", "deleted_at"])
 
 
 def splitCustomerData(data):
@@ -149,7 +161,8 @@ class CustomerService:
 
             customer_data["username"] = customer_data.get("username") or buildUniqueCustomerUsername(customer_data)
             customer_data["full_name"] = customer_data.get("full_name") or buildCustomerDisplayName(customer_data)
-            customer_data["role_id"] = getOrCreateCustomerRole(request).id
+            customer_role = getOrCreateCustomerRole(request)
+            customer_data["role_id"] = customer_role.id
             customer_data["company_id"] = getattr(request.user, "company_id", None)
             customer_data["branch_id"] = getattr(request.user, "branch_id", None)
 
@@ -157,6 +170,7 @@ class CustomerService:
                 password=None,
                 **customer_data,
             )
+            assignCustomerRole(customer_instance, customer_role)
             customer = commonQuery.findOneRecord(
                 Customer,
                 customer_instance.id,

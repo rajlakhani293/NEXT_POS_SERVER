@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from apps.accounts.models import AccessToken, Role, User
+from apps.accounts.models import AccessToken, Role, User, UserRoleRelation
 from apps.common.admin import SmartModelAdmin
 
 
@@ -55,6 +55,13 @@ class UserAdmin(DjangoUserAdmin):
             },
         ),
     )
+
+
+@admin.register(UserRoleRelation)
+class UserRoleRelationAdmin(SmartModelAdmin):
+    list_display = ("id", "user", "role", "status", "created_at")
+    list_filter = ("status", "role")
+    search_fields = ("user__username", "user__full_name", "role__name", "role__code")
 
 
 @admin.register(AccessToken)

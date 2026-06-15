@@ -1,5 +1,5 @@
+# type:ignore
 from functools import wraps
-
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 
@@ -13,8 +13,20 @@ def get_user_permission_codenames(user):
 
     permissions = set(user.user_permissions.values_list("codename", flat=True))
 
+    role_ids = set(
+        user.role_relations.filter(status=0).values_list("role_id", flat=True)
+    )
     if getattr(user, "role_id", None):
-        permissions.update(user.role.permissions.values_list("codename", flat=True))
+        role_ids.add(user.role_id)
+
+    if role_ids:
+        from apps.accounts.models import Role
+
+        permissions.update(
+            Role.objects.filter(id__in=role_ids, status=0)
+            .values_list("permissions__codename", flat=True)
+            .exclude(permissions__codename__isnull=True)
+        )
 
     return permissions
 

@@ -1,6 +1,7 @@
 # type: ignore
 from django.contrib.auth.models import UserManager
 from django.db import models
+from django.db.models import Q
 
 from apps.accounts.models import User
 from apps.common.models import TenantAwareModel
@@ -35,7 +36,15 @@ class CustomerGroup(TenantAwareModel):
 
 class CustomerManager(UserManager):
     def get_queryset(self):
-        return super().get_queryset().filter(role__code=CUSTOMER_ROLE_CODE)
+        return (
+            super()
+            .get_queryset()
+            .filter(
+                Q(role_relations__role__code=CUSTOMER_ROLE_CODE, role_relations__status=0)
+                | Q(role__code=CUSTOMER_ROLE_CODE)
+            )
+            .distinct()
+        )
 
 
 class Customer(User):
