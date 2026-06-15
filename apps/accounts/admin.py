@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from apps.accounts.models import AccessToken, OtpRequest, Role, User
+from apps.accounts.models import AccessToken, Role, User
 from apps.common.admin import SmartModelAdmin
 
 
@@ -70,19 +70,3 @@ class AccessTokenAdmin(SmartModelAdmin):
     )
     search_fields = ("user__username", "user__full_name", "token", "device_name")
     readonly_fields = ("token", "created_at", "updated_at", "deleted_at")
-
-
-@admin.register(OtpRequest)
-class OtpRequestAdmin(SmartModelAdmin):
-    list_display = (
-        "id",
-        "phone",
-        "purpose",
-        "code",
-        "expires_at",
-        "verified_at",
-        "attempts",
-        "status",
-    )
-    search_fields = ("phone", "code")
-    list_filter = ("purpose", "status")

@@ -65,7 +65,7 @@ def switchBranch(request, payload: BranchSwitchIn):
 
 @router.delete("/workspace", auth=auth_bearer, response=ApiResponse)
 def deleteWorkspace(request):
-    """Delete the current signup-created workspace including company, branches, tenant data, users, roles, tokens, and OTP records."""
+    """Delete the current signup-created workspace and its tenant data."""
     data = AccountsService.deleteWorkspace(request.user)
     return successResponse("Workspace deleted successfully.", data=data)
 

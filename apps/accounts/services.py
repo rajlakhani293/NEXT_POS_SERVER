@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
-from apps.accounts.models import AccessToken, OtpRequest, Role, User
+from apps.accounts.models import AccessToken, Role, User
 from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
 from apps.common.authz import get_user_permission_codenames
 from apps.common.commonQuery import commonQuery
@@ -473,12 +473,6 @@ class AccountsService:
         user_ids = list(
             User.objects.filter(company_id=company.id).values_list("id", flat=True)
         )
-        phones = [
-            phone
-            for phone in User.objects.filter(id__in=user_ids)
-            .exclude(phone="")
-            .values_list("phone", flat=True)
-        ]
         branch_ids = list(
             Branch.objects.filter(company_id=company.id).values_list("id", flat=True)
         )
@@ -490,7 +484,6 @@ class AccountsService:
             token_count, _ = AccessToken.objects.filter(user_id__in=user_ids).delete()
             tenant_deleted_summary = AccountsService._deleteCompanyScopedModels(company.id)
             deleted_user_count, _ = User.objects.filter(id__in=user_ids).delete()
-            deleted_otp_count, _ = OtpRequest.objects.filter(phone__in=phones).delete()
             deleted_company_count, _ = Company.objects.filter(id=company.id).delete()
 
         return {
@@ -502,7 +495,6 @@ class AccountsService:
             "deleted_tenant_records": tenant_deleted_summary,
             "deleted_company_count": deleted_company_count,
             "deleted_user_count": deleted_user_count,
-            "deleted_otp_count": deleted_otp_count,
             "note": "Shared Django permission definitions are global and were not deleted.",
         }
 

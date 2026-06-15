@@ -85,23 +85,3 @@ class AccessToken(BaseModel):
     @property
     def is_expired(self):
         return self.expires_at <= timezone.now()
-
-class OtpRequest(BaseModel):
-    PURPOSE_CHOICES = [
-        ("login", "Login"),
-        ("signup", "Signup"),
-    ]
-
-    phone = models.CharField(max_length=20)
-    code = models.CharField(max_length=6)
-    purpose = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default="login")
-    expires_at = models.DateTimeField()
-    verified_at = models.DateTimeField(blank=True, null=True)
-    attempts = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    @property
-    def is_expired(self):
-        return self.expires_at <= timezone.now()

@@ -31,7 +31,6 @@ class SmartModelAdmin(admin.ModelAdmin):
             "status",
             "company",
             "branch",
-            "auth_provider",
             "customer_type",
             "entry_type",
             "payment_type",
