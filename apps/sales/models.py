@@ -6,11 +6,11 @@ from apps.common.models import TenantAwareModel
 class CartDraft(TenantAwareModel):
     code = models.CharField(max_length=50)
     customer = models.ForeignKey(
-        "customers.Customer",
+        "accounts.User",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="cart_drafts",
+        related_name="customer_cart_drafts",
     )
     cashier = models.ForeignKey(
         "accounts.User",
@@ -43,7 +43,7 @@ class SaleOrder(TenantAwareModel):
         ("delivery", "Delivery"),
     ]
 
-    customer = models.ForeignKey("customers.Customer", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
+    customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_sale_orders")
     cashier = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     register = models.ForeignKey("registers.CashRegister", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     shift = models.ForeignKey("registers.CashierShift", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
@@ -107,7 +107,7 @@ class ReturnOrder(TenantAwareModel):
     STATUSES = [("draft", "Draft"), ("processed", "Processed"), ("cancelled", "Cancelled")]
 
     sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="returns")
-    customer = models.ForeignKey("customers.Customer", on_delete=models.SET_NULL, null=True, blank=True, related_name="returns")
+    customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_returns")
     cashier = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="processed_returns")
     return_type = models.CharField(max_length=20, choices=RETURN_TYPES, default="refund")
     return_status = models.CharField(max_length=20, choices=STATUSES, default="processed")

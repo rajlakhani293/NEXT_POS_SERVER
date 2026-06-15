@@ -27,22 +27,11 @@ class RewardRule(TenantAwareModel):
         ordering = ["from_amount"]
 
 
-class CustomerRewardBalance(TenantAwareModel):
-    customer = models.ForeignKey("customers.Customer", on_delete=models.CASCADE, related_name="reward_balances")
-    reward_system = models.ForeignKey(RewardSystem, on_delete=models.CASCADE, related_name="customer_balances")
-    points = models.PositiveIntegerField(default=0)
-    lifetime_points = models.PositiveIntegerField(default=0)
-    target_points = models.PositiveIntegerField(default=0)
-
-    class Meta:
-        unique_together = [("customer", "reward_system")]
-
-
 class RewardRedemption(TenantAwareModel):
-    customer = models.ForeignKey("customers.Customer", on_delete=models.CASCADE, related_name="reward_redemptions")
+    customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="reward_redemptions")
     reward_system = models.ForeignKey(RewardSystem, on_delete=models.PROTECT, related_name="redemptions")
     customer_coupon = models.ForeignKey(
-        "promotions.CustomerCoupon",
+        "customers.CustomerCoupon",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

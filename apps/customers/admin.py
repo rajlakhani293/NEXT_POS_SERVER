@@ -3,10 +3,11 @@ from django.contrib import admin
 from apps.common.admin import TenantModelAdmin
 from apps.customers.models import (
     Customer,
+    CustomerAccountHistory,
     CustomerAddress,
-    CustomerCreditLedger,
+    CustomerCoupon,
     CustomerGroup,
-    CustomerWalletTransaction,
+    CustomerReward,
 )
 
 
@@ -17,28 +18,27 @@ admin.site.register(CustomerGroup, TenantModelAdmin)
 class CustomerAdmin(TenantModelAdmin):
     list_display = (
         "id",
-        "display_name",
+        "first_name",
+        "last_name",
         "company",
         "branch",
         "group",
-        "customer_type",
         "phone",
         "email",
         "owed_amount",
-        "wallet_balance",
+        "account_amount",
         "status",
     )
     search_fields = (
-        "name",
+        "first_name",
+        "last_name",
         "phone",
         "email",
-        "company_name",
-        "gst_number",
-        "code",
     )
-    list_filter = ("company", "branch", "group", "customer_type", "status")
+    list_filter = ("company", "branch", "group", "status")
 
 
 admin.site.register(CustomerAddress, TenantModelAdmin)
-admin.site.register(CustomerWalletTransaction, TenantModelAdmin)
-admin.site.register(CustomerCreditLedger, TenantModelAdmin)
+admin.site.register(CustomerAccountHistory, TenantModelAdmin)
+admin.site.register(CustomerCoupon, TenantModelAdmin)
+admin.site.register(CustomerReward, TenantModelAdmin)

@@ -18,11 +18,17 @@ from apps.common.helpers import (
     jsonsafe,
 )
 from apps.common.responses import successResponse
-from apps.customers.models import Customer, CustomerAccountHistory, CustomerCreditLedger, CustomerWalletTransaction
+from apps.customers.models import (
+    Customer,
+    CustomerAccountHistory,
+    CustomerCoupon,
+    CustomerGroup,
+    CustomerReward,
+)
 from apps.inventory.models import StockLedger
 from apps.payments.models import RefundPayment, SalePayment
 from apps.payments.services import PaymentTypeService
-from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct, CustomerCoupon
+from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
 from apps.registers.models import CashierShift, CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
@@ -187,7 +193,7 @@ class SaleValidationService:
         return normalized
 
     @staticmethod
-    def ensurePaymentRules(total, paid_amount, due_amount, customer, settings):
+    def ensurePaymentRules(total, paid_amount, due_amount, customer, settings, request):
         if paid_amount > total:
             return
         if due_amount <= 0:
@@ -198,6 +204,24 @@ class SaleValidationService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required when sale has due amount.")
         if not settings.enable_credit_account:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer credit account is disabled.")
+        if customer.get("group_id"):
+            group = commonQuery.findOneRecord(
+                CustomerGroup,
+                customer["group_id"],
+                options={"attributes": ["minimal_credit_payment"]},
+                request=request,
+                tenant_config=True,
+            )
+            minimum_percentage = money(
+                group.get("minimal_credit_payment") if group else 0
+            )
+            minimum_payment = total * minimum_percentage / Decimal("100")
+            if minimum_payment > 0 and paid_amount < minimum_payment:
+                raise api_error(
+                    400,
+                    ErrorCodes.BAD_REQUEST,
+                    f"A minimum payment of {minimum_payment:.2f} is required for this customer group.",
+                )
 
 
 class SaleRegisterService:
@@ -255,37 +279,22 @@ class SaleRegisterService:
 class SaleCustomerAccountService:
     @staticmethod
     def applyAccountPayment(customer, sale_order, amount, payment_note, request):
-        balance_before = money(customer.get("wallet_balance"))
+        balance_before = money(customer.get("account_amount"))
         if balance_before < amount:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer account balance is not enough for this payment.")
         balance_after = balance_before - amount
-        Customer.objects.filter(id=customer["id"]).update(wallet_balance=balance_after)
-        customer["wallet_balance"] = balance_after
+        Customer.objects.filter(id=customer["id"]).update(account_amount=balance_after)
+        customer["account_amount"] = balance_after
         commonQuery.createRecord(
             CustomerAccountHistory,
             {
                 "customer_id": customer["id"],
                 "amount": amount,
-                "action": "debit",
-                "balance_before": balance_before,
-                "balance_after": balance_after,
-                "reference_type": "sale_order",
-                "reference_id": sale_order["id"],
-                "note": payment_note or f"Sale payment for {sale_order['code']}",
-            },
-            request=request,
-            tenant_config=True,
-        )
-        commonQuery.createRecord(
-            CustomerWalletTransaction,
-            {
-                "customer_id": customer["id"],
-                "entry_type": "payment",
-                "amount": amount,
-                "balance_after": balance_after,
-                "note": payment_note or f"Sale payment for {sale_order['code']}",
-                "reference_type": "sale_order",
-                "reference_id": sale_order["id"],
+                "previous_amount": balance_before,
+                "next_amount": balance_after,
+                "operation": "payment",
+                "order_id": sale_order["id"],
+                "description": payment_note or f"Sale payment for {sale_order['code']}",
             },
             request=request,
             tenant_config=True,
@@ -444,8 +453,9 @@ class SaleCouponService:
             {
                 "coupon_id": coupon["id"],
                 "customer_id": customer["id"],
+                "name": coupon.get("name") or "",
+                "limit_usage": coupon.get("limit_usage") or 0,
                 "code": coupon["code"],
-                "expires_at": coupon.get("valid_until"),
             },
             request=request,
             tenant_config=True,
@@ -460,10 +470,8 @@ class SaleCouponService:
             issued_coupon = SaleCouponService.findIssuedCoupon(code, customer.get("id") if customer else None, request)
             coupon = None
             if issued_coupon:
-                if issued_coupon.get("is_redeemed"):
+                if issued_coupon.get("status") != 0:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, f"Coupon {code} is already redeemed.")
-                if issued_coupon.get("expires_at") and timezone.localtime() > issued_coupon["expires_at"]:
-                    raise api_error(400, ErrorCodes.BAD_REQUEST, f"Coupon {code} has expired.")
                 coupon = commonQuery.findOneRecord(Coupon, issued_coupon["coupon_id"], request=request, tenant_config=True)
             else:
                 coupon = SaleCouponService.findBaseCoupon(code, request)
@@ -499,12 +507,11 @@ class SaleCouponService:
             )
 
             if issued_coupon:
-                usage_count = int(issued_coupon.get("usage_count") or 0) + 1
-                update_data = {"usage_count": usage_count}
+                usage_count = int(issued_coupon.get("usage") or 0) + 1
+                update_data = {"usage": usage_count}
                 limit_usage = int(coupon.get("limit_usage") or 0)
                 if limit_usage > 0 and usage_count >= limit_usage:
-                    update_data["is_redeemed"] = True
-                    update_data["redeemed_at"] = timezone.now()
+                    update_data["status"] = 1
                 commonQuery.updateRecordById(
                     CustomerCoupon,
                     issued_coupon["id"],
@@ -645,16 +652,15 @@ class SaleCustomerService:
         if money(sale_order.get("due_amount")) > 0:
             balance_after = money(customer_before.get("owed_amount") if customer_before else 0) + money(sale_order["due_amount"])
             commonQuery.createRecord(
-                CustomerCreditLedger,
+                CustomerAccountHistory,
                 {
                     "customer_id": customer_id,
                     "amount": sale_order["due_amount"],
-                    "direction": "increase",
-                    "balance_after": balance_after,
-                    "reason": "sale_due",
-                    "reference_type": "sale_order",
-                    "reference_id": sale_order["id"],
-                    "note": f"Due created for sale {sale_order['code']}",
+                    "previous_amount": customer_before.get("owed_amount") if customer_before else 0,
+                    "next_amount": balance_after,
+                    "operation": "add",
+                    "order_id": sale_order["id"],
+                    "description": f"Due created for sale {sale_order['code']}",
                 },
                 request=request,
                 tenant_config=True,
@@ -803,13 +809,12 @@ class SaleDraftService:
                     request=request,
                     tenant_config=True,
                 )
-            usage_count = max(int(issued_coupon.get("usage_count") or 0) - 1, 0)
-            update_data = {"usage_count": usage_count}
-            if issued_coupon.get("is_redeemed") and coupon:
+            usage_count = max(int(issued_coupon.get("usage") or 0) - 1, 0)
+            update_data = {"usage": usage_count}
+            if issued_coupon.get("status") != 0 and coupon:
                 limit_usage = int(coupon.get("limit_usage") or 0)
                 if limit_usage <= 0 or usage_count < limit_usage:
-                    update_data["is_redeemed"] = False
-                    update_data["redeemed_at"] = None
+                    update_data["status"] = 0
             commonQuery.updateRecordById(
                 CustomerCoupon,
                 customer_coupon_id,
@@ -824,7 +829,7 @@ class SaleDraftService:
         if not customer_id:
             return
 
-        from apps.rewards.models import CustomerRewardBalance, RewardRedemption
+        from apps.rewards.models import RewardRedemption
         from apps.rewards.services import findMatchingRule, getCustomerRewardSystem
 
         customer = commonQuery.findOneRecord(
@@ -873,8 +878,8 @@ class SaleDraftService:
         ]
 
         balance = commonQuery.findOneRecord(
-            CustomerRewardBalance,
-            {"customer_id": customer_id, "reward_system_id": reward_system["id"]},
+            CustomerReward,
+            {"customer_id": customer_id, "reward_id": reward_system["id"]},
             request=request,
             tenant_config=True,
         )
@@ -882,14 +887,11 @@ class SaleDraftService:
             return
 
         next_points = max(int(balance.get("points") or 0) + restored_points - earned_points, 0)
-        next_lifetime = max(int(balance.get("lifetime_points") or 0) - earned_points, 0)
-
         commonQuery.updateRecordById(
-            CustomerRewardBalance,
+            CustomerReward,
             balance["id"],
             {
                 "points": next_points,
-                "lifetime_points": next_lifetime,
             },
             request=request,
             tenant_config=True,
@@ -1001,16 +1003,15 @@ class SaleVoidService:
 
         if due_amount > 0:
             commonQuery.createRecord(
-                CustomerCreditLedger,
+                CustomerAccountHistory,
                 {
                     "customer_id": customer_id,
                     "amount": due_amount,
-                    "direction": "decrease",
-                    "balance_after": next_owed_amount,
-                    "reason": "sale_void",
-                    "reference_type": "sale_order",
-                    "reference_id": sale_order["id"],
-                    "note": f"Due reversed for void sale {sale_order['code']}",
+                    "previous_amount": customer.get("owed_amount") if customer else 0,
+                    "next_amount": next_owed_amount,
+                    "operation": "deduct",
+                    "order_id": sale_order["id"],
+                    "description": f"Due reversed for void sale {sale_order['code']}",
                 },
                 request=request,
                 tenant_config=True,
@@ -1206,34 +1207,19 @@ class SaleRefundService:
 
     @staticmethod
     def creditCustomerAccount(customer, sale_order, amount, note, request):
-        balance_before = money(customer.get("wallet_balance"))
+        balance_before = money(customer.get("account_amount"))
         balance_after = balance_before + amount
-        Customer.objects.filter(id=customer["id"]).update(wallet_balance=balance_after)
+        Customer.objects.filter(id=customer["id"]).update(account_amount=balance_after)
         commonQuery.createRecord(
             CustomerAccountHistory,
             {
                 "customer_id": customer["id"],
                 "amount": amount,
-                "action": "credit",
-                "balance_before": balance_before,
-                "balance_after": balance_after,
-                "reference_type": "sale_return",
-                "reference_id": sale_order["id"],
-                "note": note or f"Refund for sale {sale_order['code']}",
-            },
-            request=request,
-            tenant_config=True,
-        )
-        commonQuery.createRecord(
-            CustomerWalletTransaction,
-            {
-                "customer_id": customer["id"],
-                "entry_type": "refund",
-                "amount": amount,
-                "balance_after": balance_after,
-                "reference_type": "sale_return",
-                "reference_id": sale_order["id"],
-                "note": note or f"Refund for sale {sale_order['code']}",
+                "previous_amount": balance_before,
+                "next_amount": balance_after,
+                "operation": "refund",
+                "order_id": sale_order["id"],
+                "description": note or f"Refund for sale {sale_order['code']}",
             },
             request=request,
             tenant_config=True,
@@ -1781,7 +1767,14 @@ class SaleService:
             due_amount = max(total - paid_amount, Decimal("0"))
             change_amount = max(paid_amount - total, Decimal("0"))
             SaleValidationService.ensureCashChangeSupported(change_amount, payment_summary["cash_paid_amount"])
-            SaleValidationService.ensurePaymentRules(total, paid_amount, due_amount, customer, settings)
+            SaleValidationService.ensurePaymentRules(
+                total,
+                paid_amount,
+                due_amount,
+                customer,
+                settings,
+                request,
+            )
 
             payment_status = "paid" if due_amount == 0 else ("partially_paid" if paid_amount > 0 else "unpaid")
 
@@ -2007,16 +2000,15 @@ class SaleService:
                     tenant_config=True,
                 )
                 commonQuery.createRecord(
-                    CustomerCreditLedger,
+                    CustomerAccountHistory,
                     {
                         "customer_id": customer["id"],
                         "amount": collected_amount,
-                        "direction": "decrease",
-                        "balance_after": next_owed_amount,
-                        "reason": "sale_due_collection",
-                        "reference_type": "sale_order",
-                        "reference_id": sale_order_id,
-                        "note": data.get("note") or f"Due collected for sale {sale_order['code']}",
+                        "previous_amount": customer.get("owed_amount"),
+                        "next_amount": next_owed_amount,
+                        "operation": "payment",
+                        "order_id": sale_order_id,
+                        "description": data.get("note") or f"Due collected for sale {sale_order['code']}",
                     },
                     request=request,
                     tenant_config=True,
@@ -2295,16 +2287,15 @@ class SaleService:
                     tenant_config=True,
                 )
                 commonQuery.createRecord(
-                    CustomerCreditLedger,
+                    CustomerAccountHistory,
                     {
                         "customer_id": customer["id"],
                         "amount": amount,
-                        "direction": "decrease",
-                        "balance_after": next_owed_amount,
-                        "reason": "sale_installment_payment",
-                        "reference_type": "sale_order",
-                        "reference_id": sale_order_id,
-                        "note": data.get("note") or f"Installment payment for sale {sale_order['code']}",
+                        "previous_amount": customer.get("owed_amount"),
+                        "next_amount": next_owed_amount,
+                        "operation": "payment",
+                        "order_id": sale_order_id,
+                        "description": data.get("note") or f"Installment payment for sale {sale_order['code']}",
                     },
                     request=request,
                     tenant_config=True,

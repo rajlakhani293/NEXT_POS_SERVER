@@ -48,9 +48,25 @@ class User(AbstractUser):
         blank=True,
         related_name="users",
     )
+    group = models.ForeignKey(
+        "customers.CustomerGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="customers",
+    )
     full_name = models.CharField(max_length=255, blank=True)
     profile_image = models.URLField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
+    gender = models.CharField(max_length=20, blank=True)
+    pobox = models.CharField(max_length=50, blank=True)
+    birth_date = models.DateField(blank=True, null=True)
+    purchases_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    owed_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    credit_limit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    account_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    total_sales = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    total_sales_count = models.PositiveIntegerField(default=0)
     theme = models.CharField(max_length=50, default="light")
     language = models.CharField(max_length=20, default="en")
     is_cashier = models.BooleanField(default=False)

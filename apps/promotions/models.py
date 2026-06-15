@@ -42,7 +42,7 @@ class CouponCategory(TenantAwareModel):
 
 class CouponCustomer(TenantAwareModel):
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name="coupon_customers")
-    customer = models.ForeignKey("customers.Customer", on_delete=models.CASCADE, related_name="coupon_links")
+    customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="coupon_links")
 
     class Meta:
         unique_together = [("coupon", "customer")]
@@ -56,25 +56,11 @@ class CouponCustomerGroup(TenantAwareModel):
         unique_together = [("coupon", "customer_group")]
 
 
-class CustomerCoupon(TenantAwareModel):
-    coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name="issued_coupons")
-    customer = models.ForeignKey("customers.Customer", on_delete=models.CASCADE, related_name="coupons")
-    code = models.CharField(max_length=150)
-    issued_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(blank=True, null=True)
-    usage_count = models.PositiveIntegerField(default=0)
-    is_redeemed = models.BooleanField(default=False)
-    redeemed_at = models.DateTimeField(blank=True, null=True)
-
-    class Meta:
-        unique_together = [("customer", "code")]
-
-
 class AppliedCoupon(TenantAwareModel):
     sale_order = models.ForeignKey("sales.SaleOrder", on_delete=models.CASCADE, related_name="applied_coupons")
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_orders")
     customer_coupon = models.ForeignKey(
-        CustomerCoupon,
+        "customers.CustomerCoupon",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

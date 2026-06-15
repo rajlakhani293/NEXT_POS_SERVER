@@ -8,14 +8,13 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildUniqueValue, validateTenantRelationIds, validateUniqueFields
 from apps.common.responses import successResponse
-from apps.customers.models import Customer, CustomerGroup
+from apps.customers.models import Customer, CustomerCoupon, CustomerGroup
 from apps.promotions.models import (
     AppliedCoupon,
     Coupon,
     CouponCategory,
     CouponCustomer,
     CouponCustomerGroup,
-    CustomerCoupon,
     CouponProduct,
 )
 

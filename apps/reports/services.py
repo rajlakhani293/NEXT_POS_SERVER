@@ -10,7 +10,7 @@ from django.db.models.functions import TruncDate
 from apps.common.commonQuery import commonQuery
 from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
-from apps.customers.models import Customer, CustomerCreditLedger
+from apps.customers.models import Customer, CustomerAccountHistory
 from apps.expenses.models import ExpenseEntry
 from apps.inventory.models import StockLedger
 from apps.payments.models import SalePayment
@@ -227,8 +227,8 @@ class ReportService:
         result = commonQuery.fetchPaginatedData(
             Customer,
             data,
-            [["name", True, True], ["phone", True, True], ["code", True, True]],
-            {"attributes": ["id", "name", "phone", "code", "owed_amount", "credit_limit_amount", "wallet_balance", "status"]},
+            [["first_name", True, True], ["last_name", True, True], ["phone", True, True]],
+            {"attributes": ["id", "first_name", "last_name", "phone", "owed_amount", "credit_limit_amount", "account_amount", "status"]},
             request=request,
             tenant_config=True,
         )
@@ -275,20 +275,20 @@ class ReportService:
     @staticmethod
     def customerCreditLedger(data, request):
         result = commonQuery.fetchPaginatedData(
-            CustomerCreditLedger,
+            CustomerAccountHistory,
             data,
-            [["direction", True, True], ["reason", True, True], ["note", True, True]],
+            [["operation", True, True], ["description", True, True]],
             {
                 "attributes": [
                     "id",
                     "customer_id",
-                    "customer__name",
+                    "customer__first_name",
+                    "customer__last_name",
                     "amount",
-                    "direction",
-                    "balance_after",
-                    "reason",
-                    "reference_type",
-                    "reference_id",
+                    "operation",
+                    "previous_amount",
+                    "next_amount",
+                    "description",
                     "created_at",
                     "status",
                 ],
@@ -516,7 +516,7 @@ class ReportService:
         if customer is None:
             return successResponse("Customer statement retrieved successfully.", data={"customer": None, "items": [], "total": 0})
         result = commonQuery.fetchPaginatedData(
-            CustomerCreditLedger,
+            CustomerAccountHistory,
             {
                 **(data or {}),
                 "filter": {
@@ -524,18 +524,18 @@ class ReportService:
                     "customer_id": customer_id,
                 },
             },
-            [["direction", True, True], ["reason", True, True], ["note", True, True]],
+            [["operation", True, True], ["description", True, True]],
             {
                 "attributes": [
                     "id",
                     "customer_id",
-                    "customer__name",
+                    "customer__first_name",
+                    "customer__last_name",
                     "amount",
-                    "direction",
-                    "balance_after",
-                    "reason",
-                    "reference_type",
-                    "reference_id",
+                    "operation",
+                    "previous_amount",
+                    "next_amount",
+                    "description",
                     "created_at",
                     "status",
                 ],

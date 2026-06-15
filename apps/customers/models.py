@@ -1,13 +1,23 @@
 # type: ignore
+from django.contrib.auth.models import UserManager
 from django.db import models
+
+from apps.accounts.models import User
 from apps.common.models import TenantAwareModel
+
+
+CUSTOMER_ROLE_CODE = "store-customer"
 
 
 class CustomerGroup(TenantAwareModel):
     name = models.CharField(max_length=150)
-    code = models.SlugField(max_length=150)
     description = models.TextField(blank=True)
-    credit_limit = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    minimal_credit_payment = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Minimum percentage the customer must pay when creating a credit sale.",
+    )
     reward_system = models.ForeignKey(
         "rewards.RewardSystem",
         on_delete=models.SET_NULL,
@@ -17,48 +27,30 @@ class CustomerGroup(TenantAwareModel):
     )
 
     class Meta:
-        unique_together = [("branch", "code")]
         ordering = ["name"]
 
     def __str__(self):
         return self.name
 
 
-class Customer(TenantAwareModel):
-    CUSTOMER_TYPES = [
-        ("retail", "Retail"),
-        ("wholesale", "Wholesale"),
-        ("walk_in", "Walk In"),
-    ]
+class CustomerManager(UserManager):
+    def get_queryset(self):
+        return super().get_queryset().filter(role__code=CUSTOMER_ROLE_CODE)
 
-    group = models.ForeignKey(
-        CustomerGroup,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="customers",
-    )
-    customer_type = models.CharField(max_length=20, choices=CUSTOMER_TYPES, default="retail")
-    name = models.CharField(max_length=255)
-    email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    code = models.CharField(max_length=50, blank=True)
-    gender = models.CharField(max_length=20, blank=True)
-    birth_date = models.DateField(blank=True, null=True)
-    gst_number = models.CharField(max_length=50, blank=True)
-    company_name = models.CharField(max_length=255, blank=True)
-    opening_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    credit_limit_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    owed_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    wallet_balance = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    total_sales = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_sales_count = models.PositiveIntegerField(default=0)
+
+class Customer(User):
+    objects = CustomerManager()
 
     class Meta:
-        ordering = ["name", "id"]
+        proxy = True
+        ordering = ["first_name", "last_name", "id"]
+
+    @property
+    def name(self):
+        return f"{self.first_name} {self.last_name}".strip()
 
     def __str__(self):
-        return self.name
+        return self.name or self.email or self.phone or f"Customer #{self.pk}"
 
 
 class CustomerAddress(TenantAwareModel):
@@ -68,72 +60,95 @@ class CustomerAddress(TenantAwareModel):
     ]
 
     customer = models.ForeignKey(
-        Customer,
+        "accounts.User",
         on_delete=models.CASCADE,
         related_name="addresses",
     )
-    address_type = models.CharField(max_length=20, choices=ADDRESS_TYPES)
-    address_line_1 = models.CharField(max_length=255, blank=True)
-    pincode = models.CharField(max_length=20, blank=True)
+    type = models.CharField(max_length=20, choices=ADDRESS_TYPES, default="billing")
+    email = models.EmailField(blank=True)
+    first_name = models.CharField(max_length=120, blank=True)
+    last_name = models.CharField(max_length=120, blank=True)
+    phone = models.CharField(max_length=20, blank=True)
+    address_1 = models.CharField(max_length=255, blank=True)
+    address_2 = models.CharField(max_length=255, blank=True)
+    country = models.CharField(max_length=120, blank=True)
     city = models.CharField(max_length=120, blank=True)
-    state = models.ForeignKey(
-        "organizations.StateMaster",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="customer_addresses",
-    )
+    pobox = models.CharField(max_length=50, blank=True)
+    company_name = models.CharField(max_length=255, blank=True)
 
     class Meta:
-        ordering = ["customer_id", "address_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["customer", "type"],
+                name="unique_customer_address_type",
+            ),
+        ]
+        ordering = ["customer_id", "type"]
 
-
-class CustomerWalletTransaction(TenantAwareModel):
-    ENTRY_TYPES = [
-        ("credit", "Credit"),
-        ("debit", "Debit"),
-        ("refund", "Refund"),
-        ("payment", "Payment"),
-        ("adjustment", "Adjustment"),
-    ]
-
-    customer = models.ForeignKey(
-        Customer,
-        on_delete=models.CASCADE,
-        related_name="wallet_transactions",
-    )
-    entry_type = models.CharField(max_length=20, choices=ENTRY_TYPES)
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    balance_after = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    note = models.TextField(blank=True)
-    reference_type = models.CharField(max_length=50, blank=True)
-    reference_id = models.PositiveBigIntegerField(blank=True, null=True)
-
-
-class CustomerCreditLedger(TenantAwareModel):
-    customer = models.ForeignKey(
-        Customer,
-        on_delete=models.CASCADE,
-        related_name="credit_entries",
-    )
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    direction = models.CharField(max_length=10, choices=[("increase", "Increase"), ("decrease", "Decrease")])
-    balance_after = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    reason = models.CharField(max_length=120)
-    reference_type = models.CharField(max_length=50, blank=True)
-    reference_id = models.PositiveBigIntegerField(blank=True, null=True)
-    note = models.TextField(blank=True)
+    def __str__(self):
+        return f"{self.customer} - {self.get_type_display()}"
 
 
 class CustomerAccountHistory(TenantAwareModel):
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name="account_history")
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    action = models.CharField(max_length=20, choices=[("credit", "Credit"), ("debit", "Debit")])
-    balance_before = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    balance_after = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    reference_type = models.CharField(max_length=50, blank=True)
-    reference_id = models.PositiveBigIntegerField(blank=True, null=True)
-    note = models.TextField(blank=True)
+    OPERATIONS = [
+        ("deduct", "Deduct"),
+        ("refund", "Refund"),
+        ("add", "Add"),
+        ("payment", "Payment"),
+    ]
+
+    customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="account_history")
+    order = models.ForeignKey(
+        "sales.SaleOrder",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="customer_account_history",
+    )
+    previous_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    next_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    operation = models.CharField(max_length=20, choices=OPERATIONS, default="add")
+    description = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]
+
+
+class CustomerCoupon(TenantAwareModel):
+    coupon = models.ForeignKey(
+        "promotions.Coupon",
+        on_delete=models.CASCADE,
+        related_name="issued_coupons",
+    )
+    customer = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="coupons",
+    )
+    name = models.CharField(max_length=150, blank=True, default="")
+    usage = models.PositiveIntegerField(default=0)
+    limit_usage = models.PositiveIntegerField(default=0)
+    code = models.CharField(max_length=150)
+
+    class Meta:
+        unique_together = [("customer", "code")]
+
+
+class CustomerReward(TenantAwareModel):
+    customer = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.CASCADE,
+        related_name="reward_balances",
+    )
+    reward = models.ForeignKey(
+        "rewards.RewardSystem",
+        on_delete=models.CASCADE,
+        related_name="customer_rewards",
+    )
+    reward_name = models.CharField(max_length=150, blank=True, default="")
+    points = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    target = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+
+    class Meta:
+        unique_together = [("customer", "reward")]

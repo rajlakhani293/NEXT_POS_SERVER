@@ -1,18 +1,62 @@
 # type: ignore
 from django.db import transaction
+from django.utils.text import slugify
 
+from apps.accounts.models import Role, User
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode, validateTenantRelationId
+from apps.common.helpers import validateTenantRelationId
 from apps.common.responses import successResponse
-from apps.customers.models import Customer, CustomerAddress, CustomerCreditLedger, CustomerGroup
-from apps.organizations.models import StateMaster
+from apps.customers.models import CUSTOMER_ROLE_CODE, Customer, CustomerAccountHistory, CustomerAddress, CustomerGroup
 from apps.rewards.models import RewardSystem
 
 
-ADDRESS_FIELDS = ["address_line_1", "pincode", "city", "state_id"]
+ADDRESS_FIELDS = [
+    "email",
+    "first_name",
+    "last_name",
+    "phone",
+    "address_1",
+    "address_2",
+    "country",
+    "pobox",
+    "city",
+    "company_name",
+]
 ADDRESS_TYPES = ["billing", "shipping"]
+
+
+def buildCustomerDisplayName(data):
+    return f"{data.get('first_name') or ''} {data.get('last_name') or ''}".strip()
+
+
+def buildUniqueCustomerUsername(data):
+    base = slugify(
+        data.get("email")
+        or data.get("phone")
+        or buildCustomerDisplayName(data)
+        or "customer"
+    ) or "customer"
+    username = base
+    counter = 1
+    while User.objects.filter(username=username).exists():
+        counter += 1
+        username = f"{base}-{counter}"
+    return username
+
+
+def getOrCreateCustomerRole(request):
+    company_id = getattr(request.user, "company_id", None)
+    role = Role.objects.filter(company_id=company_id, code=CUSTOMER_ROLE_CODE).first()
+    if role:
+        return role
+    return Role.objects.create(
+        company_id=company_id,
+        name="Store Customer",
+        code=CUSTOMER_ROLE_CODE,
+        description="Customer account used for POS orders, rewards, coupons, and account history.",
+    )
 
 
 def splitCustomerData(data):
@@ -43,47 +87,35 @@ def hydrateCustomer(customer, request):
         )
         customer_data["group_name"] = group["name"] if group else None
 
-    addresses = {}
-    for address_type in ADDRESS_TYPES:
-        addresses[address_type] = commonQuery.findOneRecord(
-            CustomerAddress,
-            {"customer_id": customer_data["id"], "address_type": address_type},
-            request=request,
-            tenant_config=True,
-        )
+    address_records = commonQuery.findAllRecords(
+        CustomerAddress,
+        {"customer_id": customer_data["id"]},
+        {"order": ["type"]},
+        request=request,
+        tenant_config=True,
+    )
+    addresses = {address_type: None for address_type in ADDRESS_TYPES}
+    for address in address_records:
+        addresses[address["type"]] = address
     customer_data["addresses"] = addresses
     customer_data["address"] = addresses.get("billing")
     return customer_data
 
 
-def validateAddressState(address_data, request):
-    state_id = address_data.get("state_id")
-    if not state_id:
-        return
-    validateTenantRelationId(
-        StateMaster,
-        state_id,
-        request=request,
-        label="State",
-        tenant_config={},
-    )
-
-
 def upsertCustomerAddress(customer_id, address_type, address_data, request):
     if not any(value for value in address_data.values()):
         return None
-    validateAddressState(address_data, request)
 
     existing = commonQuery.findOneRecord(
         CustomerAddress,
-        {"customer_id": customer_id, "address_type": address_type},
+        {"customer_id": customer_id, "type": address_type},
         request=request,
         tenant_config=True,
     )
     payload = {
         **address_data,
         "customer_id": customer_id,
-        "address_type": address_type,
+        "type": address_type,
     }
     if existing:
         return commonQuery.updateRecordById(
@@ -115,17 +147,19 @@ class CustomerService:
                     tenant_config=True,
                 )
 
-            customer_data["code"] = buildCode(
-                Customer,
-                customer_data.get("name"),
-                customer_data.get("code"),
-                request,
+            customer_data["username"] = customer_data.get("username") or buildUniqueCustomerUsername(customer_data)
+            customer_data["full_name"] = customer_data.get("full_name") or buildCustomerDisplayName(customer_data)
+            customer_data["role_id"] = getOrCreateCustomerRole(request).id
+            customer_data["company_id"] = getattr(request.user, "company_id", None)
+            customer_data["branch_id"] = getattr(request.user, "branch_id", None)
+
+            customer_instance = Customer.objects.create_user(
+                password=None,
+                **customer_data,
             )
-            if not customer_data.get("owed_amount"):
-                customer_data["owed_amount"] = customer_data.get("opening_balance") or 0
-            customer = commonQuery.createRecord(
+            customer = commonQuery.findOneRecord(
                 Customer,
-                customer_data,
+                customer_instance.id,
                 request=request,
                 tenant_config=True,
             )
@@ -139,25 +173,23 @@ class CustomerService:
     @staticmethod
     def getAll(data, request):
         fieldConfig = [
-            ["name", True, True],
+            ["first_name", True, True],
+            ["last_name", True, True],
             ["phone", True, True],
             ["email", True, True],
-            ["code", True, True],
         ]
         options = {
             "attributes": [
                 "id",
-                "name",
+                "first_name",
+                "last_name",
                 "phone",
                 "email",
-                "code",
-                "customer_type",
-                "company_name",
-                "gst_number",
-                "opening_balance",
+                "pobox",
+                "purchases_amount",
                 "credit_limit_amount",
                 "owed_amount",
-                "wallet_balance",
+                "account_amount",
                 "status",
             ],
         }
@@ -169,6 +201,8 @@ class CustomerService:
             request=request,
             tenant_config=True,
         )
+        for item in result.get("items", []):
+            item["name"] = f"{item.get('first_name') or ''} {item.get('last_name') or ''}".strip()
         return successResponse("Customers retrieved successfully.", data=result)
 
     @staticmethod
@@ -177,8 +211,8 @@ class CustomerService:
             Customer,
             {},
             {
-                "attributes": ["id", "name", "phone"],
-                "order": ["name"],
+                "attributes": ["id", "first_name", "last_name", "phone"],
+                "order": ["first_name", "last_name"],
             },
             request=request,
             tenant_config=True,
@@ -186,7 +220,7 @@ class CustomerService:
         data = [
             {
                 "id": customer["id"],
-                "name": customer.get("name")
+                "name": f"{customer.get('first_name') or ''} {customer.get('last_name') or ''}".strip()
                 or customer.get("phone")
                 or f"Customer #{customer['id']}",
                 "phone": customer.get("phone"),
@@ -200,7 +234,7 @@ class CustomerService:
         data = commonQuery.findAllRecords(
             CustomerGroup,
             {},
-            {"attributes": ["id", "name", "code"], "order": ["name"]},
+            {"attributes": ["id", "name"], "order": ["name"]},
             request=request,
             tenant_config=True,
         )
@@ -238,15 +272,6 @@ class CustomerService:
                     request=request,
                     label="Customer group",
                     tenant_config=True,
-                )
-
-            if "code" in customer_data:
-                customer_data["code"] = buildCode(
-                    Customer,
-                    customer_data.get("name") or customer.get("name"),
-                    customer_data.get("code"),
-                    request,
-                    exclude_id=customer_id,
                 )
 
             customer_data = commonQuery.updateRecordById(
@@ -319,15 +344,14 @@ class CustomerService:
                 tenant_config=True,
             )
             ledger = commonQuery.createRecord(
-                CustomerCreditLedger,
+                CustomerAccountHistory,
                 {
                     "customer_id": customer_id,
                     "amount": amount,
-                    "direction": direction,
-                    "balance_after": balance_after,
-                    "reason": data.get("reason") or "adjustment",
-                    "reference_type": "manual_adjustment",
-                    "note": data.get("note") or "",
+                    "previous_amount": current_balance,
+                    "next_amount": balance_after,
+                    "operation": "add" if direction == "increase" else "deduct",
+                    "description": data.get("note") or data.get("reason") or "Manual adjustment",
                 },
                 request=request,
                 tenant_config=True,
@@ -341,20 +365,18 @@ class CustomerService:
         if customer is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
         result = commonQuery.fetchPaginatedData(
-            CustomerCreditLedger,
+            CustomerAccountHistory,
             data,
-            [["direction", True, True], ["reason", True, True], ["note", True, True]],
+            [["operation", True, True], ["description", True, True]],
             {
                 "attributes": [
                     "id",
                     "customer_id",
                     "amount",
-                    "direction",
-                    "balance_after",
-                    "reason",
-                    "reference_type",
-                    "reference_id",
-                    "note",
+                    "operation",
+                    "previous_amount",
+                    "next_amount",
+                    "description",
                     "created_at",
                     "status",
                 ],
@@ -379,12 +401,6 @@ class CustomerGroupService:
                     tenant_config=True,
                 )
 
-            data["code"] = buildCode(
-                CustomerGroup,
-                data.get("name"),
-                data.get("code"),
-                request,
-            )
             group = commonQuery.createRecord(
                 CustomerGroup,
                 data,
@@ -395,14 +411,13 @@ class CustomerGroupService:
 
     @staticmethod
     def getAll(data, request):
-        fieldConfig = [["name", True, True], ["code", True, True]]
+        fieldConfig = [["name", True, True]]
         options = {
             "attributes": [
                 "id",
                 "name",
-                "code",
                 "description",
-                "credit_limit",
+                "minimal_credit_payment",
                 "reward_system_id",
                 "status",
             ],
@@ -452,15 +467,6 @@ class CustomerGroupService:
                     request=request,
                     label="Reward system",
                     tenant_config=True,
-                )
-
-            if "code" in data:
-                data["code"] = buildCode(
-                    CustomerGroup,
-                    data.get("name") or group.get("name"),
-                    data.get("code"),
-                    request,
-                    exclude_id=group_id,
                 )
 
             updated = commonQuery.updateRecordById(

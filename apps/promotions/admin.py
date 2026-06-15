@@ -8,7 +8,6 @@ from apps.promotions.models import (
     CouponCustomer,
     CouponCustomerGroup,
     CouponProduct,
-    CustomerCoupon,
 )
 
 
@@ -17,5 +16,4 @@ admin.site.register(CouponProduct, TenantModelAdmin)
 admin.site.register(CouponCategory, TenantModelAdmin)
 admin.site.register(CouponCustomer, TenantModelAdmin)
 admin.site.register(CouponCustomerGroup, TenantModelAdmin)
-admin.site.register(CustomerCoupon, TenantModelAdmin)
 admin.site.register(AppliedCoupon, TenantModelAdmin)
