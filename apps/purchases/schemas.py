@@ -2,58 +2,72 @@ from decimal import Decimal
 from typing import List, Optional
 
 from ninja import Field, Schema
+
 from apps.common.schemas import ActiveStatus
 
+
 class SupplierIn(Schema):
-    name: str
-    code: Optional[str] = None
-    email: str = ""
-    phone: str = ""
-    contact_person: str = ""
-    tax_number: str = ""
-    address: str = ""
+    first_name: str
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    address_1: Optional[str] = None
+    address_2: Optional[str] = None
+    description: Optional[str] = None
 
 
 class SupplierUpdateIn(Schema):
-    name: Optional[str] = None
-    code: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
-    contact_person: Optional[str] = None
-    tax_number: Optional[str] = None
-    address: Optional[str] = None
+    address_1: Optional[str] = None
+    address_2: Optional[str] = None
+    description: Optional[str] = None
     status: Optional[ActiveStatus] = None
 
 
 class PurchaseItemIn(Schema):
     product_id: int
-    ordered_quantity: Decimal
-    received_quantity: Decimal = Decimal("0")
-    cost_price: Decimal
-    tax_amount: Decimal = Decimal("0")
+    unit_id: int
+    name: Optional[str] = None
+    gross_purchase_price: Decimal = Decimal("0")
+    net_purchase_price: Decimal = Decimal("0")
+    purchase_price: Decimal
+    quantity: Decimal
+    available_quantity: Optional[Decimal] = None
+    tax_group_id: Optional[int] = None
+    barcode: Optional[str] = None
+    expiration_date: Optional[str] = None
+    tax_type: str = "exclusive"
+    tax_value: Decimal = Decimal("0")
+    total_purchase_price: Optional[Decimal] = None
+    convert_unit_id: Optional[int] = None
 
 
 class PurchaseOrderIn(Schema):
-    supplier_id: int
-    code: Optional[str] = None
-    order_date: str
-    expected_date: Optional[str] = None
-    workflow_status: str = "draft"
-    discount_amount: Decimal = Decimal("0")
-    shipping_amount: Decimal = Decimal("0")
-    note: str = ""
-    items: List[PurchaseItemIn] = Field(default_factory=list)
+    provider_id: int
+    name: Optional[str] = None
+    invoice_reference: Optional[str] = None
+    automatic_approval: bool = False
+    delivery_time: Optional[str] = None
+    invoice_date: Optional[str] = None
+    payment_status: str = "unpaid"
+    delivery_status: str = "pending"
+    description: Optional[str] = None
+    products: List[PurchaseItemIn] = Field(default_factory=list)
 
 
 class PurchaseOrderUpdateIn(Schema):
-    supplier_id: Optional[int] = None
-    code: Optional[str] = None
-    order_date: Optional[str] = None
-    expected_date: Optional[str] = None
-    workflow_status: Optional[str] = None
-    discount_amount: Optional[Decimal] = None
-    shipping_amount: Optional[Decimal] = None
-    note: Optional[str] = None
+    provider_id: Optional[int] = None
+    name: Optional[str] = None
+    invoice_reference: Optional[str] = None
+    automatic_approval: Optional[bool] = None
+    delivery_time: Optional[str] = None
+    invoice_date: Optional[str] = None
+    payment_status: Optional[str] = None
+    delivery_status: Optional[str] = None
+    description: Optional[str] = None
     status: Optional[ActiveStatus] = None
 
 
@@ -77,21 +91,28 @@ class PurchasePaymentIn(Schema):
 
 class PurchaseItemUpdateIn(Schema):
     product_id: Optional[int] = None
-    ordered_quantity: Optional[Decimal] = None
-    cost_price: Optional[Decimal] = None
-    tax_amount: Optional[Decimal] = None
+    unit_id: Optional[int] = None
+    name: Optional[str] = None
+    gross_purchase_price: Optional[Decimal] = None
+    net_purchase_price: Optional[Decimal] = None
+    purchase_price: Optional[Decimal] = None
+    quantity: Optional[Decimal] = None
+    available_quantity: Optional[Decimal] = None
+    tax_group_id: Optional[int] = None
+    barcode: Optional[str] = None
+    expiration_date: Optional[str] = None
+    tax_type: Optional[str] = None
+    tax_value: Optional[Decimal] = None
+    total_purchase_price: Optional[Decimal] = None
+    convert_unit_id: Optional[int] = None
 
 
-class PurchaseProductBulkUpdateItemIn(Schema):
+class PurchaseProductBulkUpdateItemIn(PurchaseItemIn):
     purchase_item_id: Optional[int] = None
-    product_id: int
-    ordered_quantity: Decimal
-    cost_price: Decimal
-    tax_amount: Decimal = Decimal("0")
 
 
 class PurchaseProductsBulkUpdateIn(Schema):
-    items: List[PurchaseProductBulkUpdateItemIn]
+    products: List[PurchaseProductBulkUpdateItemIn] = Field(default_factory=list)
 
 
 class PurchasePaymentStatusIn(Schema):

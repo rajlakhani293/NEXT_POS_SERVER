@@ -4,25 +4,13 @@ from django.utils.text import slugify
 
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateTenantRelationId, validateUniqueFields
+from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateUniqueFields
 from apps.common.commonQuery import commonQuery
 from apps.common.tenantBootstrap import TenantBootstrapService
-from apps.organizations.models import Branch, Company, StateMaster
+from apps.organizations.models import Branch, Company
 
 
 class OrganizationsService:
-    @staticmethod
-    def ensureState(state_id):
-        if not state_id:
-            return None
-        return validateTenantRelationId(
-            StateMaster,
-            state_id,
-            label="State",
-            tenant_config={},
-            status_in=(0,),
-        )
-
     @staticmethod
     def generateBranchCode(company_id, name, code=""):
         base_code = slugify(code or name) or "branch"
@@ -59,15 +47,13 @@ class OrganizationsService:
             )
 
         with transaction.atomic():
-            company_state_id = OrganizationsService.ensureState(company_payload.state_id)
-
             company.name = company_payload.name
             company.legal_name = company_payload.legal_name or company_payload.name
             company.email = company_payload.email or ""
             company.phone = company_payload.phone or ""
             company.gst_number = company_payload.gst_number or ""
             company.city_name = company_payload.city_name or ""
-            company.state_id = company_state_id
+            company.state = company_payload.state or ""
             company.address = company_payload.address or ""
             if logo:
                 company.logo = saveCompanyLogo(logo, request) or ""
@@ -76,12 +62,11 @@ class OrganizationsService:
             company.save()
 
             if branch_payload is not None:
-                branch_state_id = OrganizationsService.ensureState(branch_payload.state_id)
                 branch.name = branch_payload.name
                 branch.phone = branch_payload.phone or ""
                 branch.address = branch_payload.address or ""
                 branch.city = branch_payload.city or ""
-                branch.state_id = branch_state_id
+                branch.state = branch_payload.state or ""
                 branch.postal_code = branch_payload.postal_code or ""
                 branch.save()
 
@@ -91,21 +76,13 @@ class OrganizationsService:
         }
 
     @staticmethod
-    def stateDropdown():
-        return list(
-            StateMaster.objects.filter(status=0)
-            .order_by("name")
-            .values("id", "name", "code")
-        )
-
-    @staticmethod
     def listBranches(data, request):
         field_config = [["name", True, True], ["code", True, True], ["phone", True, False]]
         result = commonQuery.fetchPaginatedData(
             Branch,
             data,
             field_config,
-            {"attributes": ["id", "name", "code", "phone", "city", "state_id", "state__name", "is_head_office", "status"]},
+            {"attributes": ["id", "name", "code", "phone", "city", "state", "is_head_office", "status"]},
             request=request,
             tenant_config={"company_id": True},
         )
@@ -124,7 +101,6 @@ class OrganizationsService:
     @staticmethod
     def createBranch(user, data, request):
         with transaction.atomic():
-            OrganizationsService.ensureState(data.get("state_id"))
             code = OrganizationsService.generateBranchCode(user.company_id, data.get("name"), data.get("code"))
             branch_data = commonQuery.createRecord(
                 Branch,
@@ -171,8 +147,6 @@ class OrganizationsService:
                     status_in=None,
                     messages={"code": "Branch code already exists."},
                 )
-            if data.get("state_id"):
-                OrganizationsService.ensureState(data.get("state_id"))
             updated = commonQuery.updateRecordById(
                 Branch,
                 branch_id,

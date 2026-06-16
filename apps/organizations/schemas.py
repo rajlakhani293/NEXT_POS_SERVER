@@ -12,7 +12,7 @@ class CompanyUpdateIn(Schema):
     phone: Optional[str] = Field("", description="Primary company phone number.", example="9999999999")
     gst_number: Optional[str] = Field("", description="GST or tax number.", example="24ABCDE1234F1Z5")
     city_name: Optional[str] = Field("", description="Company city name.", example="Surat")
-    state_id: Optional[int] = Field(None, description="Company state master id.", example=11)
+    state: Optional[str] = Field("", description="Company state name.", example="Gujarat")
     address: Optional[str] = Field("", description="Company address.", example="Ring Road, Surat, Gujarat")
     logo: Optional[str] = Field("", description="Company logo URL.", example="https://example.com/logo.png")
 
@@ -22,7 +22,7 @@ class BranchUpdateIn(Schema):
     phone: Optional[str] = Field("", description="Branch contact phone.", example="9999999999")
     address: Optional[str] = Field("", description="Branch street address.", example="Ground Floor, Ring Road")
     city: Optional[str] = Field("", description="Branch city.", example="Surat")
-    state_id: Optional[int] = Field(None, description="Branch state master id.", example=11)
+    state: Optional[str] = Field("", description="Branch state name.", example="Gujarat")
     postal_code: Optional[str] = Field("", description="Branch postal code.", example="395002")
 
 
@@ -36,7 +36,7 @@ class BranchPatchIn(Schema):
     phone: Optional[str] = None
     address: Optional[str] = None
     city: Optional[str] = None
-    state_id: Optional[int] = None
+    state: Optional[str] = None
     postal_code: Optional[str] = None
     is_head_office: Optional[bool] = None
     status: Optional[ActiveStatus] = None
@@ -53,7 +53,7 @@ class OrganizationSetupIn(Schema):
             "phone": "9999999999",
             "gst_number": "24ABCDE1234F1Z5",
             "city_name": "Surat",
-            "state_id": 11,
+            "state": "Gujarat",
             "address": "Ring Road, Surat, Gujarat",
             "logo": "https://example.com/logo.png",
         },
@@ -66,7 +66,7 @@ class OrganizationSetupIn(Schema):
             "phone": "9999999999",
             "address": "Ground Floor, Ring Road",
             "city": "Surat",
-            "state_id": 11,
+            "state": "Gujarat",
             "postal_code": "395002",
         },
     )

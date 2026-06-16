@@ -57,12 +57,6 @@ def updateCompany(request):
     return successResponse("Organization updated successfully.", data=data)
 
 
-@router.get("/states/dropdown-list", auth=auth_bearer, response=ApiResponse)
-def stateDropdown(request):
-    data = OrganizationsService.stateDropdown()
-    return successResponse("State dropdown retrieved successfully.", data=data)
-
-
 @router.post("/branches/", auth=auth_bearer, response=ApiResponse)
 @permission_required("branches_create")
 def createBranch(request, payload: BranchIn):

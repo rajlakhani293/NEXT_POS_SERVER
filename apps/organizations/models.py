@@ -10,20 +10,9 @@ class Company(BaseModel):
     phone = models.CharField(max_length=20, blank=True)
     gst_number = models.CharField(max_length=50, blank=True)
     city_name = models.CharField(max_length=120, blank=True)
-    state = models.ForeignKey("StateMaster", on_delete=models.SET_NULL, null=True, blank=True, related_name="companies")
+    state = models.CharField(max_length=120, blank=True)
     address = models.TextField(blank=True)
     logo = models.URLField(blank=True)
-
-    class Meta:
-        ordering = ["name"]
-
-    def __str__(self):
-        return self.name
-
-
-class StateMaster(BaseModel):
-    name = models.CharField(max_length=120, unique=True)
-    code = models.SlugField(max_length=120, unique=True)
 
     class Meta:
         ordering = ["name"]
@@ -42,7 +31,7 @@ class Branch(BaseModel):
     code = models.SlugField(max_length=100)
     address = models.TextField(blank=True)
     city = models.CharField(max_length=120, blank=True)
-    state = models.ForeignKey(StateMaster, on_delete=models.SET_NULL, null=True, blank=True, related_name="branches")
+    state = models.CharField(max_length=120, blank=True)
     postal_code = models.CharField(max_length=20, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     is_head_office = models.BooleanField(default=False)

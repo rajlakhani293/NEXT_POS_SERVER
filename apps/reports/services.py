@@ -80,8 +80,8 @@ class ReportService:
             refund_total=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
         )
         purchases = PurchaseOrder.objects.filter(**base).aggregate(
-            total_purchase=Coalesce(Sum("total"), zero),
-            total_purchase_due=Coalesce(Sum("total"), zero) - Coalesce(Sum("paid_amount"), zero),
+            total_purchase=Coalesce(Sum("value"), zero),
+            total_purchase_due=Coalesce(Sum("value", filter=Q(payment_status="unpaid")), zero),
             purchase_count=Count("id"),
         )
         expenses = ExpenseEntry.objects.filter(**expense_filters).aggregate(
@@ -93,7 +93,7 @@ class ReportService:
             customer_count=Count("id"),
         )
         suppliers = Supplier.objects.filter(**base).aggregate(
-            total_supplier_payable=Coalesce(Sum("payable_amount"), zero),
+            total_supplier_payable=Coalesce(Sum("amount_due"), zero),
             supplier_count=Count("id"),
         )
         best_customers = list(
@@ -238,11 +238,14 @@ class ReportService:
         result = commonQuery.fetchPaginatedData(
             Supplier,
             data,
-            [["name", True, True], ["phone", True, True], ["code", True, True]],
-            {"attributes": ["id", "name", "phone", "code", "payable_amount", "status"]},
+            [["first_name", True, True], ["last_name", True, True], ["phone", True, True], ["email", True, True]],
+            {"attributes": ["id", "first_name", "last_name", "phone", "email", "amount_due", "amount_paid", "status"]},
             request=request,
             tenant_config=True,
         )
+        for item in result["items"]:
+            item["name"] = " ".join([part for part in [item.get("first_name"), item.get("last_name")] if part]).strip()
+            item["payable_amount"] = item.get("amount_due")
         return successResponse("Supplier payable report retrieved successfully.", data=result)
 
     @staticmethod
