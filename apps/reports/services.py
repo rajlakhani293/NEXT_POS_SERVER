@@ -17,7 +17,7 @@ from apps.payments.models import SalePayment
 from apps.purchases.models import PurchaseOrder, Supplier
 from apps.registers.models import CashierShift
 from apps.reports.models import DashboardDay, DashboardMonth
-from apps.catalog.models import Product
+from apps.catalog.models import Product, ProductUnitQuantity
 from apps.sales.models import SaleItem, SaleOrder
 
 
@@ -428,74 +428,111 @@ class ReportService:
 
     @staticmethod
     def productsReport(data, request):
-        queryset = Product.objects.filter(**tenantFilter(request)).annotate(
+        queryset = ProductUnitQuantity.objects.filter(
+            **tenantFilter(request),
+        ).annotate(
             sold_quantity=Coalesce(Sum("sale_items__quantity"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=3))),
             sold_amount=Coalesce(Sum("sale_items__total"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
         )
         search = (data or {}).get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
+            queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
         rows = queryset.values(
             "id",
-            "name",
-            "sku",
-            "barcode",
-            "product_type",
-            "current_stock",
-            "min_stock",
-            "purchase_price",
-            "selling_price",
+            "product_id",
+            "product__name",
+            "product__sku",
+            "product__barcode",
+            "product__product_type",
+            "quantity",
+            "low_quantity",
+            "cogs",
+            "sale_price",
             "sold_quantity",
             "sold_amount",
             "status",
-        ).order_by("name")
-        return successResponse("Products report retrieved successfully.", data=paginatedResponse(rows, data))
+        ).order_by("product__name")
+        result = paginatedResponse(rows, data)
+        for item in result["items"]:
+            item["name"] = item.pop("product__name", None)
+            item["sku"] = item.pop("product__sku", None)
+            item["barcode"] = item.pop("product__barcode", None) or item.get("barcode")
+            item["product_type"] = item.pop("product__product_type", None)
+            item["current_stock"] = item.pop("quantity", 0)
+            item["min_stock"] = item.pop("low_quantity", 0)
+            item["purchase_price"] = item.pop("cogs", 0)
+            item["selling_price"] = item.pop("sale_price", 0)
+        return successResponse("Products report retrieved successfully.", data=result)
 
     @staticmethod
     def lowStockReport(data, request):
-        queryset = Product.objects.filter(
+        queryset = ProductUnitQuantity.objects.filter(
             **tenantFilter(request),
-            track_stock=True,
-            current_stock__lte=F("min_stock"),
+            stock_alert_enabled=True,
+            quantity__lte=F("low_quantity"),
         ).values(
             "id",
-            "name",
-            "sku",
+            "product_id",
+            "product__name",
+            "product__sku",
+            "product__barcode",
             "barcode",
-            "current_stock",
-            "min_stock",
-            "max_stock",
-            "purchase_price",
-            "selling_price",
+            "quantity",
+            "low_quantity",
+            "cogs",
+            "sale_price",
             "status",
-        ).order_by("current_stock", "name")
+        ).order_by("quantity", "product__name")
         search = (data or {}).get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
-        return successResponse("Low stock report retrieved successfully.", data=paginatedResponse(queryset, data))
+            queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
+        result = paginatedResponse(queryset, data)
+        for item in result["items"]:
+            item["name"] = item.pop("product__name", None)
+            item["sku"] = item.pop("product__sku", None)
+            item["barcode"] = item.pop("product__barcode", None) or item.get("barcode")
+            item["current_stock"] = item.pop("quantity", 0)
+            item["min_stock"] = item.pop("low_quantity", 0)
+            item["max_stock"] = None
+            item["purchase_price"] = item.pop("cogs", 0)
+            item["selling_price"] = item.pop("sale_price", 0)
+        return successResponse("Low stock report retrieved successfully.", data=result)
 
     @staticmethod
     def stockReport(data, request):
-        queryset = Product.objects.filter(**tenantFilter(request))
+        queryset = ProductUnitQuantity.objects.filter(**tenantFilter(request))
         search = (data or {}).get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
+            queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
         rows = queryset.values(
             "id",
-            "name",
-            "sku",
+            "product_id",
+            "product__name",
+            "product__sku",
+            "product__barcode",
             "barcode",
-            "product_type",
-            "track_stock",
-            "current_stock",
-            "opening_stock",
-            "min_stock",
-            "max_stock",
-            "purchase_price",
-            "selling_price",
+            "product__product_type",
+            "product__stock_management",
+            "quantity",
+            "low_quantity",
+            "cogs",
+            "sale_price",
             "status",
-        ).order_by("name")
-        return successResponse("Stock report retrieved successfully.", data=paginatedResponse(rows, data))
+        ).order_by("product__name")
+        result = paginatedResponse(rows, data)
+        for item in result["items"]:
+            item["name"] = item.pop("product__name", None)
+            item["sku"] = item.pop("product__sku", None)
+            item["barcode"] = item.pop("product__barcode", None) or item.get("barcode")
+            item["product_type"] = item.pop("product__product_type", None)
+            item["track_stock"] = item.pop("product__stock_management", None) != "disabled"
+            item["current_stock"] = item.pop("quantity", 0)
+            item["opening_stock"] = None
+            item["min_stock"] = item.pop("low_quantity", 0)
+            item["max_stock"] = None
+            item["purchase_price"] = item.pop("cogs", 0)
+            item["selling_price"] = item.pop("sale_price", 0)
+        return successResponse("Stock report retrieved successfully.", data=result)
 
     @staticmethod
     def cashierReport(data, request):

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from ninja import Schema
 
@@ -201,3 +201,21 @@ class ProductUnitQuantityUpdateIn(Schema):
     convert_unit_id: Optional[int] = None
     cogs: Optional[float] = None
     status: Optional[ActiveStatus] = None
+
+
+class ProductAdjustmentUnitIn(Schema):
+    unit_id: int
+    sale_price: float = 0
+
+
+class ProductAdjustmentItemIn(Schema):
+    id: int
+    adjust_action: str
+    adjust_quantity: float
+    adjust_reason: str = ""
+    adjust_unit: ProductAdjustmentUnitIn
+    procurement_product_id: Optional[int] = None
+
+
+class ProductAdjustmentIn(Schema):
+    products: List[ProductAdjustmentItemIn]

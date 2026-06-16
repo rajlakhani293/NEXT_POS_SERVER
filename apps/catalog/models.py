@@ -207,6 +207,25 @@ class ProductTax(TenantAwareModel):
 
 
 class ProductHistory(TenantAwareModel):
+    ACTION_STOCKED = "procured"
+    ACTION_DELETED = "deleted"
+    ACTION_TRANSFER_OUT = "outgoing-transfer"
+    ACTION_TRANSFER_IN = "incoming-transfer"
+    ACTION_TRANSFER_REJECTED = "transfer-rejected"
+    ACTION_TRANSFER_CANCELED = "transfer-canceled"
+    ACTION_REMOVED = "removed"
+    ACTION_ADDED = "added"
+    ACTION_SOLD = "sold"
+    ACTION_RETURNED = "returned"
+    ACTION_DEFECTIVE = "defective"
+    ACTION_LOST = "lost"
+    ACTION_VOID_RETURN = "void-return"
+    ACTION_ADJUSTMENT_RETURN = "return-adjustment"
+    ACTION_ADJUSTMENT_SALE = "sale-adjustment"
+    ACTION_CONVERT_OUT = "convert-out"
+    ACTION_CONVERT_IN = "convert-in"
+    ACTION_SET = "set"
+
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="histories")
     procurement_id = models.IntegerField(blank=True, null=True)
     procurement_product_id = models.IntegerField(blank=True, null=True)

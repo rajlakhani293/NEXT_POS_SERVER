@@ -5,6 +5,7 @@ from apps.catalog.models import (
     Category,
     Product,
     ProductGallery,
+    ProductHistory,
     ProductUnitQuantity,
     ScaleRange,
     Tax,
@@ -15,7 +16,7 @@ from apps.catalog.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildSku, saveProductImage, validateTenantRelationId, validateUniqueFields
+from apps.common.helpers import buildSku, decimalValue, saveProductImage, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
 
 
@@ -599,6 +600,160 @@ class ProductService:
             tenant_config=True,
         )
         return successResponse("Product retrieved successfully.", data=data)
+
+
+class ProductStockService:
+    STOCK_REDUCE_ACTIONS = {
+        ProductHistory.ACTION_TRANSFER_OUT,
+        ProductHistory.ACTION_REMOVED,
+        ProductHistory.ACTION_SOLD,
+        ProductHistory.ACTION_DEFECTIVE,
+        ProductHistory.ACTION_LOST,
+        ProductHistory.ACTION_ADJUSTMENT_SALE,
+        ProductHistory.ACTION_DELETED,
+        ProductHistory.ACTION_CONVERT_OUT,
+    }
+    STOCK_INCREASE_ACTIONS = {
+        ProductHistory.ACTION_ADDED,
+        ProductHistory.ACTION_RETURNED,
+        ProductHistory.ACTION_TRANSFER_IN,
+        ProductHistory.ACTION_STOCKED,
+        ProductHistory.ACTION_VOID_RETURN,
+        ProductHistory.ACTION_TRANSFER_REJECTED,
+        ProductHistory.ACTION_TRANSFER_CANCELED,
+        ProductHistory.ACTION_ADJUSTMENT_RETURN,
+        ProductHistory.ACTION_CONVERT_IN,
+    }
+    MANUAL_ACTIONS = {
+        ProductHistory.ACTION_ADDED,
+        ProductHistory.ACTION_DELETED,
+        ProductHistory.ACTION_DEFECTIVE,
+        ProductHistory.ACTION_LOST,
+        ProductHistory.ACTION_SET,
+    }
+
+    @staticmethod
+    def stockEnabled(product):
+        return product.get("stock_management") != "disabled" and product.get("type") == "tangible"
+
+    @staticmethod
+    def resolveUnitQuantity(product_id, unit_id, request, required=True):
+        if not unit_id:
+            if required:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Unit is required for stock movement.")
+            return None
+        unit_quantity = ProductUnitQuantity.objects.select_for_update().filter(
+            product_id=product_id,
+            unit_id=unit_id,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            status__in=[0, 1],
+        ).first()
+        if unit_quantity is None and required:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")
+        return unit_quantity
+
+    @staticmethod
+    def recordStockHistory(action, data, request):
+        product = commonQuery.findOneRecord(
+            Product,
+            data.get("product_id"),
+            request=request,
+            tenant_config=True,
+        )
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        if not ProductStockService.stockEnabled(product):
+            return None
+
+        quantity = decimalValue(data.get("quantity"))
+        if quantity <= 0 and action != ProductHistory.ACTION_SET:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Quantity must be greater than 0.")
+
+        unit_id = data.get("unit_id")
+        unit_quantity = ProductStockService.resolveUnitQuantity(product["id"], unit_id, request)
+        before_quantity = decimalValue(unit_quantity.quantity)
+        history_action = action
+
+        if action == ProductHistory.ACTION_SET:
+            after_quantity = quantity
+            quantity_delta = after_quantity - before_quantity
+            history_quantity = abs(quantity_delta)
+            if quantity_delta > 0:
+                history_action = ProductHistory.ACTION_ADDED
+            elif quantity_delta < 0:
+                history_action = ProductHistory.ACTION_REMOVED
+            else:
+                history_quantity = 0
+        elif action in ProductStockService.STOCK_INCREASE_ACTIONS:
+            history_quantity = quantity
+            after_quantity = before_quantity + quantity
+        elif action in ProductStockService.STOCK_REDUCE_ACTIONS:
+            history_quantity = quantity
+            after_quantity = before_quantity - quantity
+            if after_quantity < 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Insufficient stock for {product.get('name')}.")
+        else:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported stock movement action.")
+
+        unit_price = decimalValue(data.get("unit_price"))
+        total_price = decimalValue(data.get("total_price"))
+        if not total_price and history_quantity:
+            total_price = history_quantity * unit_price
+
+        unit_quantity.quantity = float(after_quantity)
+        if data.get("cogs") is not None:
+            unit_quantity.cogs = float(decimalValue(data.get("cogs")))
+        unit_quantity.save(update_fields=["quantity", "cogs", "updated_at"] if data.get("cogs") is not None else ["quantity", "updated_at"])
+
+        return commonQuery.createRecord(
+            ProductHistory,
+            {
+                "product_id": product["id"],
+                "procurement_id": data.get("procurement_id"),
+                "procurement_product_id": data.get("procurement_product_id"),
+                "order_id": data.get("order_id"),
+                "order_product_id": data.get("order_product_id"),
+                "operation_type": history_action,
+                "unit_id": unit_quantity.unit_id,
+                "before_quantity": before_quantity,
+                "quantity": history_quantity,
+                "after_quantity": after_quantity,
+                "unit_price": unit_price,
+                "total_price": total_price,
+                "description": data.get("description") or "",
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+    @staticmethod
+    def applyManualAdjustment(data, request):
+        products = data.get("products") or []
+        if not products:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one product is required.")
+        histories = []
+        with transaction.atomic():
+            for item in products:
+                action = item.get("adjust_action")
+                if action not in ProductStockService.MANUAL_ACTIONS:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported stock adjustment action.")
+                adjust_unit = item.get("adjust_unit") or {}
+                histories.append(
+                    ProductStockService.recordStockHistory(
+                        action,
+                        {
+                            "product_id": item.get("id"),
+                            "procurement_product_id": item.get("procurement_product_id"),
+                            "unit_id": adjust_unit.get("unit_id"),
+                            "quantity": item.get("adjust_quantity"),
+                            "unit_price": adjust_unit.get("sale_price") or 0,
+                            "description": item.get("adjust_reason") or "",
+                        },
+                        request,
+                    )
+                )
+        return successResponse("Stock adjustment completed successfully.", data=histories)
 
 
 class ProductUnitQuantityService:

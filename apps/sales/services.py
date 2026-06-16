@@ -75,6 +75,23 @@ def parseDraftSnapshot(note):
 
 class SaleStockService:
     @staticmethod
+    def resolveUnitQuantity(product, item, request, required=False):
+        where = {"id": item.get("unit_quantity_id"), "product_id": product["id"]} if item.get("unit_quantity_id") else {"product_id": product["id"]}
+        unit_quantity = commonQuery.findOneRecord(
+            ProductUnitQuantity,
+            where,
+            request=request,
+            tenant_config=True,
+        )
+        if unit_quantity is None and required:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product selling unit not found.")
+        return unit_quantity
+
+    @staticmethod
+    def stockEnabled(product):
+        return product.get("stock_management") != "disabled" and product.get("type") == "tangible"
+
+    @staticmethod
     def applySaleItem(item, sale_order, request):
         product = commonQuery.findOneRecord(
             Product,
@@ -91,22 +108,14 @@ class SaleStockService:
 
         unit_quantity = None
         stock_qty = item_qty
-        unit_id = item.get("unit_id") or product.get("unit_id")
-        default_unit_price = product.get("selling_price")
-        default_purchase_price = product.get("purchase_price")
-        if item.get("unit_quantity_id"):
-            unit_quantity = commonQuery.findOneRecord(
-                ProductUnitQuantity,
-                {"id": item.get("unit_quantity_id"), "product_id": product["id"]},
-                request=request,
-                tenant_config=True,
-            )
-            if unit_quantity is None:
-                raise api_error(404, ErrorCodes.NOT_FOUND, "Product selling unit not found.")
+        unit_id = item.get("unit_id")
+        default_unit_price = Decimal("0")
+        default_purchase_price = Decimal("0")
+        unit_quantity = SaleStockService.resolveUnitQuantity(product, item, request, required=SaleStockService.stockEnabled(product))
+        if unit_quantity:
             unit_id = unit_quantity.get("unit_id") or unit_id
-            stock_qty = item_qty * quantity(unit_quantity.get("quantity") or 1)
             default_unit_price = unit_quantity.get("sale_price") or default_unit_price
-            default_purchase_price = unit_quantity.get("purchase_price") or default_purchase_price
+            default_purchase_price = unit_quantity.get("cogs") or default_purchase_price
 
         unit_price = money(item.get("unit_price") if item.get("unit_price") is not None else default_unit_price)
         discount_amount = money(item.get("discount_amount"))
@@ -119,6 +128,7 @@ class SaleStockService:
                 "sale_order_id": sale_order["id"],
                 "product_id": product["id"],
                 "unit_id": unit_id,
+                "unit_quantity_id": unit_quantity.get("id") if unit_quantity else None,
                 "quantity": item_qty,
                 "unit_price": unit_price,
                 "discount_amount": discount_amount,
@@ -130,12 +140,12 @@ class SaleStockService:
             tenant_config=True,
         )
 
-        if product.get("track_stock") and product.get("product_type") == "stock":
-            available_stock = quantity(product.get("current_stock"))
+        if SaleStockService.stockEnabled(product) and unit_quantity:
+            available_stock = quantity(unit_quantity.get("quantity"))
             if available_stock < stock_qty:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, f"Insufficient stock for {product.get('name')}.")
             new_balance = available_stock - stock_qty
-            Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") - stock_qty)
+            ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=new_balance)
             commonQuery.createRecord(
                 StockLedger,
                 {
@@ -710,25 +720,15 @@ class SaleDraftService:
             if item_qty <= 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Item quantity must be greater than 0.")
 
-            unit_price = money(
-                item.get("unit_price")
-                if item.get("unit_price") is not None
-                else product.get("selling_price")
-            )
-            unit_id = item.get("unit_id") or product.get("unit_id")
+            unit_price = money(item.get("unit_price") if item.get("unit_price") is not None else 0)
+            unit_id = item.get("unit_id")
             unit_quantity_id = item.get("unit_quantity_id")
-            if unit_quantity_id:
-                unit_quantity = commonQuery.findOneRecord(
-                    ProductUnitQuantity,
-                    {"id": unit_quantity_id, "product_id": product["id"]},
-                    request=request,
-                    tenant_config=True,
-                )
-                if unit_quantity is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Product selling unit not found.")
+            unit_quantity = SaleStockService.resolveUnitQuantity(product, item, request)
+            if unit_quantity:
                 unit_id = unit_quantity.get("unit_id") or unit_id
                 if item.get("unit_price") is None:
-                    unit_price = money(unit_quantity.get("sale_price") or product.get("selling_price"))
+                    unit_price = money(unit_quantity.get("sale_price") or 0)
+                unit_quantity_id = unit_quantity.get("id")
             discount_amount = money(item.get("discount_amount"))
             tax_amount = money(item.get("tax_amount"))
             line_total = (item_qty * unit_price) - discount_amount + tax_amount
@@ -926,6 +926,7 @@ class SaleVoidService:
                 "attributes": [
                     "id",
                     "product_id",
+                    "unit_quantity_id",
                     "quantity",
                     "cost_price",
                 ]
@@ -940,18 +941,21 @@ class SaleVoidService:
                 request=request,
                 tenant_config=True,
             )
-            if not product or not product.get("track_stock") or product.get("product_type") != "stock":
+            if not product or not SaleStockService.stockEnabled(product):
+                continue
+            unit_quantity = SaleStockService.resolveUnitQuantity(product, {"unit_quantity_id": item.get("unit_quantity_id")}, request)
+            if unit_quantity is None:
                 continue
             restock_qty = quantity(item.get("quantity"))
-            new_balance = quantity(product.get("current_stock")) + restock_qty
-            Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") + restock_qty)
+            new_balance = quantity(unit_quantity.get("quantity")) + restock_qty
+            ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=new_balance)
             commonQuery.createRecord(
                 StockLedger,
                 {
                     "product_id": product["id"],
                     "entry_type": "sale_return",
                     "quantity": restock_qty,
-                    "unit_cost": item.get("cost_price") or product.get("purchase_price") or 0,
+                    "unit_cost": item.get("cost_price") or unit_quantity.get("cogs") or 0,
                     "balance_after": new_balance,
                     "reference_type": "sale_void",
                     "reference_id": sale_order["id"],
@@ -1163,20 +1167,23 @@ class SaleRefundService:
             request=request,
             tenant_config=True,
         )
-        if not product or not product.get("track_stock") or product.get("product_type") != "stock":
+        if not product or not SaleStockService.stockEnabled(product):
             return
 
+        unit_quantity = SaleStockService.resolveUnitQuantity(product, {"unit_quantity_id": sale_item.get("unit_quantity_id")}, request)
+        if unit_quantity is None:
+            return
         refund_qty = prepared_item["quantity"]
-        current_stock = quantity(product.get("current_stock"))
+        current_stock = quantity(unit_quantity.get("quantity"))
         returned_balance = current_stock + refund_qty
-        Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") + refund_qty)
+        ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=returned_balance)
         commonQuery.createRecord(
             StockLedger,
             {
                 "product_id": product["id"],
                 "entry_type": "sale_return",
                 "quantity": refund_qty,
-                "unit_cost": sale_item.get("cost_price") or product.get("purchase_price") or 0,
+                "unit_cost": sale_item.get("cost_price") or unit_quantity.get("cogs") or 0,
                 "balance_after": returned_balance,
                 "reference_type": "return_order",
                 "reference_id": return_order["id"],
@@ -1188,14 +1195,14 @@ class SaleRefundService:
 
         if prepared_item["condition"] == "damaged":
             damaged_balance = returned_balance - refund_qty
-            Product.objects.filter(id=product["id"]).update(current_stock=F("current_stock") - refund_qty)
+            ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=damaged_balance)
             commonQuery.createRecord(
                 StockLedger,
                 {
                     "product_id": product["id"],
                     "entry_type": "adjustment_out",
                     "quantity": refund_qty * Decimal("-1"),
-                    "unit_cost": sale_item.get("cost_price") or product.get("purchase_price") or 0,
+                    "unit_cost": sale_item.get("cost_price") or unit_quantity.get("cogs") or 0,
                     "balance_after": damaged_balance,
                     "reference_type": "return_order",
                     "reference_id": return_order["id"],

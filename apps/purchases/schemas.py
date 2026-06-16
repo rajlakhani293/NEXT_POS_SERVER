@@ -27,6 +27,7 @@ class SupplierUpdateIn(Schema):
 
 class PurchaseItemIn(Schema):
     product_id: int
+    unit_quantity_id: Optional[int] = None
     ordered_quantity: Decimal
     received_quantity: Decimal = Decimal("0")
     cost_price: Decimal
@@ -77,6 +78,7 @@ class PurchasePaymentIn(Schema):
 
 class PurchaseItemUpdateIn(Schema):
     product_id: Optional[int] = None
+    unit_quantity_id: Optional[int] = None
     ordered_quantity: Optional[Decimal] = None
     cost_price: Optional[Decimal] = None
     tax_amount: Optional[Decimal] = None
@@ -85,6 +87,7 @@ class PurchaseItemUpdateIn(Schema):
 class PurchaseProductBulkUpdateItemIn(Schema):
     purchase_item_id: Optional[int] = None
     product_id: int
+    unit_quantity_id: Optional[int] = None
     ordered_quantity: Decimal
     cost_price: Decimal
     tax_amount: Decimal = Decimal("0")

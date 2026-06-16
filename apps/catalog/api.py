@@ -5,6 +5,7 @@ from apps.accounts.auth import auth_bearer
 from apps.catalog.schemas import (
     CategoryIn,
     CategoryUpdateIn,
+    ProductAdjustmentIn,
     ProductIn,
     ProductUnitQuantityIn,
     ProductUnitQuantityUpdateIn,
@@ -22,6 +23,7 @@ from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.catalog.services import (
     CategoryService,
     ProductService,
+    ProductStockService,
     ProductUnitQuantityService,
     TaxGroupService,
     TaxService,
@@ -282,6 +284,12 @@ def updateProductStatus(request, payload: StatusUpdateSchema):
 @permission_required("products_view")
 def searchProductUsingBarcode(request, reference: str):
     return ProductService.searchUsingBarcode(reference, request)
+
+
+@router.post("/products/adjustments", response=ApiResponse)
+@permission_required("inventory_adjust")
+def adjustProductStock(request, payload: ProductAdjustmentIn):
+    return ProductStockService.applyManualAdjustment(payload.dict(), request)
 
 
 @router.get("/products/{product_id}/units/quantities", response=ApiResponse)
