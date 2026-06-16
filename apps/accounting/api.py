@@ -1,17 +1,9 @@
 from typing import Optional
 from ninja import Router
 from apps.accounts.auth import auth_bearer
-from apps.accounting.schemas import (
-    AccountingSettingIn,
-    ManualTransactionIn,
-    TransactionAccountIn,
-    TransactionAccountUpdateIn,
-    TransactionRuleIn,
-    TransactionRuleUpdateIn,
-)
+from apps.accounting.schemas import ManualTransactionIn, TransactionAccountIn, TransactionAccountUpdateIn, TransactionRuleIn, TransactionRuleUpdateIn
 from apps.accounting.services import (
     AccountingService,
-    AccountingSettingService,
     TransactionAccountService,
     TransactionRuleService,
     TransactionService,
@@ -99,18 +91,6 @@ def deleteAccountingRules(request, payload: BulkIdsSchema):
 @permission_required("settings_update")
 def resetAccountingRules(request):
     return TransactionRuleService.reset(request)
-
-
-@router.get("/settings", response=ApiResponse)
-@permission_required("reports_view")
-def getAccountingSettings(request):
-    return AccountingSettingService.get(request)
-
-
-@router.put("/settings", response=ApiResponse)
-@permission_required("settings_update")
-def updateAccountingSettings(request, payload: AccountingSettingIn):
-    return AccountingSettingService.update(payload.dict(), request)
 
 
 @router.post("/transactions/", response=ApiResponse)

@@ -2,8 +2,6 @@
 from django.db import transaction
 from django.db.models import F
 from apps.accounting.models import (
-    AccountingSetting,
-    ActiveTransactionHistory,
     Transaction,
     TransactionAccount,
     TransactionHistory,
@@ -55,7 +53,7 @@ class ExpenseCategoryService:
             account = TransactionAccount.objects.filter(
                 company_id=company.id,
                 branch_id=branch.id,
-                code=item["account_code"],
+                account=item["account_code"],
             ).first()
             category, _created = ExpenseCategory.objects.get_or_create(
                 company_id=company.id,
@@ -238,22 +236,25 @@ class ExpenseEntryService:
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
         ).first()
-        setting = AccountingSetting.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).first()
         AccountingService.ensureForRequest(request)
-        category = category or ExpenseCategory.objects.filter(
-            id=expense.get("category_id"),
+        expense_cash_account = TransactionAccount.objects.filter(
+            account=ACCOUNT_CODES["expense_cash"],
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
+            status__in=[0, 1],
         ).first()
-        setting = setting or AccountingSetting.objects.get(
+        fallback_expense_account = TransactionAccount.objects.filter(
+            account=ACCOUNT_CODES["direct_expenses"],
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
+            status__in=[0, 1],
+        ).first()
+        expense_account_id = (
+            category.account_id
+            if category and category.account_id
+            else fallback_expense_account.id if fallback_expense_account else None
         )
-        expense_account_id = category.account_id if category and category.account_id else setting.expense_accounts.values_list("id", flat=True).first()
-        if not expense_account_id:
+        if not expense_account_id or not expense_cash_account:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Configure an expense account before recording expenses.")
         group_code = f"expense:{expense['id']}"
         common = {
@@ -271,7 +272,7 @@ class ExpenseEntryService:
         }
         AccountingService.record(account_id=expense_account_id, action_type="increase", **common)
         AccountingService.record(
-            account_id=setting.paid_expense_offset_account_id,
+            account_id=expense_cash_account.id,
             action_type="decrease",
             **common,
         )
@@ -300,20 +301,21 @@ class ExpenseEntryService:
             TransactionHistory.objects.filter(
                 company_id=request.user.company_id,
                 branch_id=request.user.branch_id,
-                source_type="expense",
-                source_id=expense["id"],
-            ).select_related("account", "transaction")
+                type="expense_paid",
+                transaction__group_id=expense["id"],
+            )
+            .filter(transaction__id__isnull=False)
+            .select_related("transaction_account", "transaction")
         )
         for history in histories:
-            reverse_action = "credit" if history.action_type == "debit" else "debit"
+            reverse_action = "credit" if history.operation == "debit" else "debit"
             AccountingService.updateBalances(
-                history.account_id,
-                history.amount,
+                history.transaction_account_id,
+                history.value,
                 reverse_action,
-                history.transaction.transaction_date,
+                history.trigger_date or history.transaction.scheduled_date or history.created_at,
                 request,
             )
-            ActiveTransactionHistory.objects.filter(transaction_history_id=history.id).delete()
             transaction_id = history.transaction_id
             history.delete()
             Transaction.objects.filter(id=transaction_id).delete()

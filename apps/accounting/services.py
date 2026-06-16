@@ -5,8 +5,6 @@ from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 
 from apps.accounting.models import (
-    AccountingSetting,
-    ActiveTransactionHistory,
     Transaction,
     TransactionAccount,
     TransactionActionRule,
@@ -17,31 +15,31 @@ from apps.accounting.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildCode, decimalValue as money
+from apps.common.helpers import decimalValue as money
 from apps.common.responses import successResponse
 
 
 ACCOUNT_BLUEPRINTS = [
-    ("fixed_assets", "Fixed Assets", "1001-assets-fixed-assets", "asset", None),
-    ("current_assets", "Current Assets", "1002-assets-current-assets", "asset", None),
-    ("inventory", "Inventory Account", "1003-assets-inventory-account", "asset", None),
-    ("current_liabilities", "Current Liabilities", "2001-liabilities-current-liabilities", "liability", None),
-    ("sales_revenue", "Sales Revenues", "4001-revenues-sales-revenues", "income", None),
-    ("direct_expenses", "Direct Expenses", "5001-expenses-direct-expenses", "expense", None),
-    ("expense_cash", "Expenses Cash", "1004-assets-expenses-cash", "asset", "current_assets"),
-    ("procurement_cash", "Procurement Cash", "1005-assets-procurement-cash", "asset", "current_assets"),
-    ("procurement_payable", "Procurement Payable", "2002-liabilities-procurement-payable", "liability", "current_liabilities"),
-    ("receivables", "Receivables", "1006-assets-receivables", "asset", "current_assets"),
-    ("sales_cash", "Sales", "1007-assets-sales", "asset", "current_assets"),
-    ("refunds", "Refunds", "4002-revenues-refunds", "income", "sales_revenue"),
-    ("sales_cogs", "Sales COGS", "5002-expenses-sales-cogs", "expense", "direct_expenses"),
-    ("operating_expenses", "Operating Expenses", "5003-expenses-operating-expenses", "expense", "direct_expenses"),
-    ("rent_expenses", "Rent Expenses", "5004-expenses-rent-expenses", "expense", "direct_expenses"),
-    ("other_expenses", "Other Expenses", "5005-expenses-other-expenses", "expense", "direct_expenses"),
-    ("salaries_wages", "Salaries And Wages", "5006-expenses-salaries-and-wages", "expense", "direct_expenses"),
+    ("fixed_assets", "Fixed Assets", "1001-assets-fixed-assets", "assets", None),
+    ("current_assets", "Current Assets", "1002-assets-current-assets", "assets", None),
+    ("inventory", "Inventory Account", "1003-assets-inventory-account", "assets", None),
+    ("current_liabilities", "Current Liabilities", "2001-liabilities-current-liabilities", "liabilities", None),
+    ("sales_revenue", "Sales Revenues", "4001-revenues-sales-revenues", "revenues", None),
+    ("direct_expenses", "Direct Expenses", "5001-expenses-direct-expenses", "expenses", None),
+    ("expense_cash", "Expenses Cash", "1004-assets-expenses-cash", "assets", "current_assets"),
+    ("procurement_cash", "Procurement Cash", "1005-assets-procurement-cash", "assets", "current_assets"),
+    ("procurement_payable", "Procurement Payable", "2002-liabilities-procurement-payable", "liabilities", "current_liabilities"),
+    ("receivables", "Receivables", "1006-assets-receivables", "assets", "current_assets"),
+    ("sales_cash", "Sales", "1007-assets-sales", "assets", "current_assets"),
+    ("refunds", "Refunds", "4002-revenues-refunds", "revenues", "sales_revenue"),
+    ("sales_cogs", "Sales COGS", "5002-expenses-sales-cogs", "expenses", "direct_expenses"),
+    ("operating_expenses", "Operating Expenses", "5003-expenses-operating-expenses", "expenses", "direct_expenses"),
+    ("rent_expenses", "Rent Expenses", "5004-expenses-rent-expenses", "expenses", "direct_expenses"),
+    ("other_expenses", "Other Expenses", "5005-expenses-other-expenses", "expenses", "direct_expenses"),
+    ("salaries_wages", "Salaries And Wages", "5006-expenses-salaries-and-wages", "expenses", "direct_expenses"),
 ]
 
-ACCOUNT_CODES = {key: code for key, _name, code, _type, _parent in ACCOUNT_BLUEPRINTS}
+ACCOUNT_CODES = {key: account for key, _name, account, _category, _parent in ACCOUNT_BLUEPRINTS}
 
 EVENT_OPTIONS = [
     ("procurement_paid", "Procurement Paid"),
@@ -53,8 +51,8 @@ EVENT_OPTIONS = [
     ("order_partially_paid", "Order Partially Paid"),
     ("order_partially_refunded", "Order Partially Refunded"),
     ("order_from_unpaid_to_paid", "Order From Unpaid To Paid"),
-    ("paid_order_voided", "Paid Order Voided"),
-    ("unpaid_order_voided", "Unpaid Order Voided"),
+    ("order_paid_voided", "Paid Order Voided"),
+    ("order_unpaid_voided", "Unpaid Order Voided"),
     ("order_cogs", "Order COGS"),
     ("product_damaged", "Product Damaged"),
     ("product_returned", "Product Returned"),
@@ -71,8 +69,8 @@ DEFAULT_RULES = [
     ("order_paid", "increase", "sales_cash", "decrease", "receivables"),
     ("order_refunded", "decrease", "sales_revenue", "decrease", "sales_cash"),
     ("order_cogs", "increase", "sales_cogs", "decrease", "inventory"),
-    ("paid_order_voided", "increase", "sales_cash", "decrease", "sales_cash"),
-    ("unpaid_order_voided", "decrease", "sales_revenue", "decrease", "receivables"),
+    ("order_paid_voided", "increase", "sales_cash", "decrease", "sales_cash"),
+    ("order_unpaid_voided", "decrease", "sales_revenue", "decrease", "receivables"),
 ]
 
 
@@ -93,21 +91,11 @@ def normalizeTransactionDate(value):
 
 
 class AccountingService:
-    SYSTEM_ACCOUNTS = {
-        "cash": {"name": "Cash", "account_type": "asset"},
-        "bank": {"name": "Bank", "account_type": "asset"},
-        "online": {"name": "Online Payment", "account_type": "asset"},
-        "card": {"name": "Card Payment", "account_type": "asset"},
-        "sales_income": {"name": "Sales Income", "account_type": "income"},
-        "purchase_payable": {"name": "Purchase Payable", "account_type": "liability"},
-        "expense": {"name": "Expenses", "account_type": "expense"},
-        "customer_credit": {"name": "Customer Credit", "account_type": "liability"},
-        "adjustment": {"name": "Stock / Cash Adjustment", "account_type": "expense"},
-    }
-
     SYSTEM_ACCOUNT_ALIASES = {
         "cash": "sales_cash",
+        "cash-payment": "sales_cash",
         "bank": "sales_cash",
+        "bank-payment": "sales_cash",
         "online": "sales_cash",
         "card": "sales_cash",
         "sales_income": "sales_revenue",
@@ -120,25 +108,35 @@ class AccountingService:
     @staticmethod
     def ensureDefaultAccounting(company, branch):
         accounts = {}
-        for key, name, code, account_type, parent_key in ACCOUNT_BLUEPRINTS:
-            account, _created = TransactionAccount.objects.get_or_create(
+        for key, name, account, category_identifier, parent_key in ACCOUNT_BLUEPRINTS:
+            transaction_account, _created = TransactionAccount.objects.get_or_create(
                 company_id=company.id,
                 branch_id=branch.id,
-                code=code,
+                account=account,
                 defaults={
                     "name": name,
-                    "account_type": account_type,
-                    "is_system": True,
-                    "is_locked": True,
+                    "category_identifier": category_identifier,
                     "description": "Default NexoPOS accounting account.",
                 },
             )
-            accounts[key] = account
+            accounts[key] = transaction_account
 
-        for key, _name, _code, _type, parent_key in ACCOUNT_BLUEPRINTS:
-            if parent_key and accounts[key].parent_id != accounts[parent_key].id:
-                accounts[key].parent = accounts[parent_key]
-                accounts[key].save(update_fields=["parent", "updated_at"])
+        for key, _name, account, category_identifier, parent_key in ACCOUNT_BLUEPRINTS:
+            update_fields = []
+            if accounts[key].name != dict((item[0], item[1]) for item in ACCOUNT_BLUEPRINTS)[key]:
+                accounts[key].name = dict((item[0], item[1]) for item in ACCOUNT_BLUEPRINTS)[key]
+                update_fields.append("name")
+            if accounts[key].account != account:
+                accounts[key].account = account
+                update_fields.append("account")
+            if accounts[key].category_identifier != category_identifier:
+                accounts[key].category_identifier = category_identifier
+                update_fields.append("category_identifier")
+            if parent_key and accounts[key].sub_category_id != accounts[parent_key].id:
+                accounts[key].sub_category = accounts[parent_key]
+                update_fields.append("sub_category")
+            if update_fields:
+                accounts[key].save(update_fields=[*update_fields, "updated_at"])
 
         if not TransactionActionRule.objects.filter(
             company_id=company.id,
@@ -150,42 +148,17 @@ class AccountingService:
                     TransactionActionRule(
                         company_id=company.id,
                         branch_id=branch.id,
-                        event_key=event_key,
+                        on=event_key,
                         action=action,
                         account=accounts[account_key],
-                        offset_action=offset_action,
+                        do=offset_action,
                         offset_account=accounts[offset_key],
-                        is_system=True,
-                        sort_order=index,
+                        locked=True,
                     )
-                    for index, (event_key, action, account_key, offset_action, offset_key) in enumerate(DEFAULT_RULES, 1)
+                    for event_key, action, account_key, offset_action, offset_key in DEFAULT_RULES
                 ]
             )
 
-        setting, setting_created = AccountingSetting.objects.get_or_create(
-            company_id=company.id,
-            branch_id=branch.id,
-            defaults={
-                "paid_expense_offset_account": accounts["expense_cash"],
-                "sales_revenue_account": accounts["sales_revenue"],
-                "order_cash_account": accounts["sales_cash"],
-                "receivable_account": accounts["receivables"],
-                "cogs_account": accounts["sales_cogs"],
-                "inventory_account": accounts["inventory"],
-                "procurement_cash_account": accounts["procurement_cash"],
-                "procurement_payable_account": accounts["procurement_payable"],
-            },
-        )
-        if setting_created:
-            setting.expense_accounts.set(
-                [
-                    accounts["direct_expenses"],
-                    accounts["operating_expenses"],
-                    accounts["rent_expenses"],
-                    accounts["other_expenses"],
-                    accounts["salaries_wages"],
-                ]
-            )
         return accounts
 
     @staticmethod
@@ -196,16 +169,16 @@ class AccountingService:
     def accountForPaymentType(payment_type):
         payment_accounts = {
             "cash": "cash",
-            "cash-payment": "cash",
+            "cash-payment": "cash-payment",
             "bank": "bank",
-            "bank-payment": "bank",
-            "online": "bank",
-            "card": "bank",
-            "account-payment": "customer_credit",
+            "bank-payment": "bank-payment",
+            "online": "online",
+            "card": "card",
+            "partial": "customer_credit",
         }
         if payment_type in payment_accounts:
             return payment_accounts[payment_type]
-        return "bank"
+        return "cash"
 
     @staticmethod
     def getOrCreateSystemAccount(code, request):
@@ -216,7 +189,7 @@ class AccountingService:
         account = TransactionAccount.objects.filter(
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
-            code=ACCOUNT_CODES[account_key],
+            account=ACCOUNT_CODES[account_key],
             status__in=[0, 1],
         ).values().first()
         if not account:
@@ -224,45 +197,61 @@ class AccountingService:
         return account
 
     @staticmethod
-    def updateBalances(account_id, amount, action_type, transaction_date, request):
+    def updateBalances(account_id, amount, operation, transaction_date, request):
         amount = money(amount)
-        account = TransactionAccount.objects.select_for_update().get(id=account_id)
-        balance_before = money(account.current_balance)
-        balance_after = balance_before + amount if action_type == "credit" else balance_before - amount
-        account.current_balance = balance_after
-        account.save(update_fields=["current_balance", "updated_at"])
-
         balance_date = transaction_date.date()
+        previous_day = (
+            TransactionBalanceDay.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                date__lt=balance_date,
+            )
+            .order_by("-date")
+            .first()
+        )
+        opening_balance = money(previous_day.closing_balance if previous_day else 0)
         day, _ = TransactionBalanceDay.objects.select_for_update().get_or_create(
-            company_id=account.company_id,
-            branch_id=account.branch_id,
-            account_id=account_id,
-            balance_date=balance_date,
-            defaults={"opening_balance": balance_before, "closing_balance": balance_before},
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            date=balance_date,
+            defaults={"opening_balance": opening_balance, "closing_balance": opening_balance},
         )
-        if action_type == "credit":
-            day.total_credit = F("total_credit") + amount
+        if operation == "credit":
+            day.income = F("income") + amount
         else:
-            day.total_debit = F("total_debit") + amount
-        day.closing_balance = balance_after
-        day.save(update_fields=["total_credit", "total_debit", "closing_balance", "updated_at"])
+            day.expense = F("expense") + amount
+        day.save(update_fields=["income", "expense", "updated_at"])
+        day.refresh_from_db(fields=["opening_balance", "income", "expense"])
+        day.closing_balance = money(day.opening_balance) + money(day.income) - money(day.expense)
+        day.save(update_fields=["closing_balance", "updated_at"])
 
+        month_date = balance_date.replace(day=1)
+        previous_month = (
+            TransactionBalanceMonth.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                date__lt=month_date,
+            )
+            .order_by("-date")
+            .first()
+        )
+        month_opening_balance = money(previous_month.closing_balance if previous_month else 0)
         month, _ = TransactionBalanceMonth.objects.select_for_update().get_or_create(
-            company_id=account.company_id,
-            branch_id=account.branch_id,
-            account_id=account_id,
-            year=balance_date.year,
-            month=balance_date.month,
-            defaults={"opening_balance": balance_before, "closing_balance": balance_before},
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            date=month_date,
+            defaults={"opening_balance": month_opening_balance, "closing_balance": month_opening_balance},
         )
-        if action_type == "credit":
-            month.total_credit = F("total_credit") + amount
+        if operation == "credit":
+            month.income = F("income") + amount
         else:
-            month.total_debit = F("total_debit") + amount
-        month.closing_balance = balance_after
-        month.save(update_fields=["total_credit", "total_debit", "closing_balance", "updated_at"])
+            month.expense = F("expense") + amount
+        month.save(update_fields=["income", "expense", "updated_at"])
+        month.refresh_from_db(fields=["opening_balance", "income", "expense"])
+        month.closing_balance = money(month.opening_balance) + money(month.income) - money(month.expense)
+        month.save(update_fields=["closing_balance", "updated_at"])
 
-        return balance_before, balance_after
+        return day.opening_balance, day.closing_balance
 
     @staticmethod
     def record(
@@ -270,9 +259,9 @@ class AccountingService:
         account_code=None,
         account_id=None,
         name,
-        transaction_type,
-        action_type,
-        amount,
+        transaction_type="",
+        action_type="increase",
+        amount=0,
         source_type="manual",
         source_id=None,
         transaction_date=None,
@@ -284,13 +273,20 @@ class AccountingService:
         is_recurring=False,
         recurring_rule="",
         next_run_at=None,
+        procurement_id=None,
+        order_refund_id=None,
+        order_refund_product_id=None,
+        order_id=None,
+        order_product_id=None,
+        register_history_id=None,
+        customer_account_history_id=None,
         request=None,
     ):
         amount = money(amount)
         if amount <= 0:
             return None
-        action_type = {"increase": "credit", "decrease": "debit"}.get(action_type, action_type)
-        if action_type not in ["credit", "debit"]:
+        operation = {"increase": "credit", "decrease": "debit"}.get(action_type, action_type)
+        if operation not in ["credit", "debit"]:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Action type must be increase or decrease.")
 
         with transaction.atomic():
@@ -307,51 +303,36 @@ class AccountingService:
                 {
                     "account_id": account["id"],
                     "name": name,
-                    "transaction_type": transaction_type,
-                    "source_type": source_type,
-                    "source_id": source_id,
-                    "event_key": event_key,
-                    "group_code": group_code,
                     "value": amount,
-                    "transaction_date": tx_date,
                     "description": description,
-                    "reference_number": reference_number,
-                    "is_recurring": is_recurring,
-                    "recurring_rule": recurring_rule,
-                    "next_run_at": normalizeTransactionDate(next_run_at) if next_run_at else None,
-                    "created_by_id": getattr(request, "user", None).id if request and getattr(request, "user", None) else None,
+                    "recurring": is_recurring,
+                    "type": Transaction.TYPE_RECURRING if is_recurring else Transaction.TYPE_DIRECT,
+                    "group_id": source_id,
+                    "occurrence": recurring_rule,
+                    "scheduled_date": normalizeTransactionDate(next_run_at) if next_run_at else tx_date,
                 },
                 request=request,
                 tenant_config=True,
             )
-            balance_before, balance_after = AccountingService.updateBalances(account["id"], amount, action_type, tx_date, request)
+            AccountingService.updateBalances(account["id"], amount, operation, tx_date, request)
             history = commonQuery.createRecord(
                 TransactionHistory,
                 {
                     "transaction_id": transaction_record["id"],
-                    "account_id": account["id"],
+                    "operation": operation,
+                    "transaction_account_id": account["id"],
                     "rule_id": rule_id,
-                    "action_type": action_type,
-                    "amount": amount,
-                    "balance_before": balance_before,
-                    "balance_after": balance_after,
-                    "source_type": source_type,
-                    "source_id": source_id,
-                    "note": description,
-                },
-                request=request,
-                tenant_config=True,
-            )
-            commonQuery.createRecord(
-                ActiveTransactionHistory,
-                {
-                    "transaction_history_id": history["id"],
-                    "transaction_id": transaction_record["id"],
-                    "account_id": account["id"],
-                    "action_type": action_type,
-                    "amount": amount,
-                    "source_type": source_type,
-                    "source_id": source_id,
+                    "procurement_id": source_id if source_type == "purchase" else procurement_id,
+                    "order_refund_id": source_id if source_type == "refund" else order_refund_id,
+                    "order_refund_product_id": order_refund_product_id,
+                    "order_id": source_id if source_type == "sale" else order_id,
+                    "order_product_id": order_product_id,
+                    "register_history_id": source_id if source_type == "cash_register" else register_history_id,
+                    "customer_account_history_id": source_id if source_type == "customer_credit" else customer_account_history_id,
+                    "name": name,
+                    "type": event_key or transaction_type or source_type,
+                    "value": amount,
+                    "trigger_date": tx_date,
                 },
                 request=request,
                 tenant_config=True,
@@ -379,9 +360,9 @@ class AccountingService:
         rules = TransactionActionRule.objects.filter(
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
-            event_key=event_key,
+            on=event_key,
             status=0,
-        ).order_by("sort_order", "id")
+        ).order_by("id")
         group_code = f"{event_key}:{source_type}:{source_id or 'manual'}:{timezone.now().timestamp()}"
         records = []
         with transaction.atomic():
@@ -410,7 +391,7 @@ class AccountingService:
                 records.append(
                     AccountingService.record(
                         account_id=rule.offset_account_id,
-                        action_type=rule.offset_action,
+                        action_type=rule.do,
                         **common,
                     )
                 )
@@ -425,8 +406,8 @@ class AccountingService:
                 {
                     "id": account.id,
                     "name": account.name,
-                    "code": account.code,
-                    "account_type": account.account_type,
+                    "account": account.account,
+                    "category_identifier": account.category_identifier,
                 }
                 for account in accounts.values()
             ],
@@ -436,7 +417,7 @@ class AccountingService:
 class TransactionAccountService:
     @staticmethod
     def create(data, request):
-        parent_id = data.get("parent_id")
+        parent_id = data.get("sub_category_id")
         if parent_id and not TransactionAccount.objects.filter(
             id=parent_id,
             company_id=request.user.company_id,
@@ -444,21 +425,26 @@ class TransactionAccountService:
             status__in=[0, 1],
         ).exists():
             raise api_error(404, ErrorCodes.NOT_FOUND, "Parent account not found.")
-        data["code"] = buildCode(TransactionAccount, data.get("name"), data.get("code"), request)
-        opening_balance = money(data.pop("opening_balance", 0))
+        if parent_id:
+            parent = TransactionAccount.objects.filter(
+                id=parent_id,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                status__in=[0, 1],
+            ).first()
+            if parent and parent.sub_category_id:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Three level of accounts is not allowed.")
+
+        if not data.get("category_identifier"):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Accounting category is required.")
+        if not data.get("account"):
+            siblings = TransactionAccount.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                category_identifier=data.get("category_identifier"),
+            ).count()
+            data["account"] = f"{str(siblings + 1).zfill(4)}-{data['category_identifier']}-{data['name'].lower().replace(' ', '-')}"
         account = commonQuery.createRecord(TransactionAccount, data, request=request, tenant_config=True)
-        if opening_balance > 0:
-            AccountingService.record(
-                account_id=account["id"],
-                name="Opening Balance",
-                transaction_type="adjustment",
-                action_type="credit",
-                amount=opening_balance,
-                source_type="manual",
-                source_id=account["id"],
-                description="Opening balance",
-                request=request,
-            )
         return successResponse("Transaction account created successfully.", data=account)
 
     @staticmethod
@@ -466,18 +452,20 @@ class TransactionAccountService:
         result = commonQuery.fetchPaginatedData(
             TransactionAccount,
             data,
-            [["name", True, True], ["code", True, True], ["account_type", True, True]],
+            [
+                ["name", True, True],
+                ["account", True, True],
+                ["category_identifier", True, True],
+            ],
             {
                 "attributes": [
                     "id",
                     "name",
-                    "code",
-                    "account_type",
-                    "parent_id",
-                    "parent__name",
-                    "current_balance",
-                    "is_system",
-                    "is_locked",
+                    "account",
+                    "category_identifier",
+                    "sub_category_id",
+                    "sub_category__name",
+                    "description",
                     "status",
                 ]
             },
@@ -492,8 +480,15 @@ class TransactionAccountService:
             TransactionAccount,
             {},
             {
-                "attributes": ["id", "name", "code", "account_type", "parent_id", "parent__name", "current_balance"],
-                "order": ["account_type", "name"],
+                "attributes": [
+                    "id",
+                    "name",
+                    "account",
+                    "category_identifier",
+                    "sub_category_id",
+                    "sub_category__name",
+                ],
+                "order": ["category_identifier", "name"],
             },
             request=request,
             tenant_config=True,
@@ -517,12 +512,6 @@ class TransactionAccountService:
         ).first()
         if account is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
-        if account.is_locked:
-            data.pop("code", None)
-            data.pop("account_type", None)
-            data.pop("parent_id", None)
-        if data.get("code"):
-            data["code"] = buildCode(TransactionAccount, data.get("name") or "Account", data.get("code"), request, exclude_id=account_id)
         updated = commonQuery.updateRecordById(TransactionAccount, account_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
@@ -530,14 +519,6 @@ class TransactionAccountService:
 
     @staticmethod
     def delete(data, request):
-        protected = TransactionAccount.objects.filter(
-            id__in=data.get("ids") or [],
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            is_locked=True,
-        ).exists()
-        if protected:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Default accounting accounts cannot be deleted.")
         count = commonQuery.softDeleteById(TransactionAccount, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
@@ -572,16 +553,15 @@ class TransactionRuleService:
         data = [
             {
                 "id": rule.id,
-                "event_key": rule.event_key,
-                "event_label": labels.get(rule.event_key, rule.event_key.replace("_", " ").title()),
+                "on": rule.on,
+                "event_label": labels.get(rule.on, rule.on.replace("_", " ").title()),
                 "action": rule.action,
                 "account_id": rule.account_id,
                 "account_name": rule.account.name,
-                "offset_action": rule.offset_action,
+                "do": rule.do,
                 "offset_account_id": rule.offset_account_id,
                 "offset_account_name": rule.offset_account.name,
-                "is_system": rule.is_system,
-                "is_locked": rule.is_locked,
+                "locked": rule.locked,
                 "status": rule.status,
             }
             for rule in rules
@@ -604,19 +584,20 @@ class TransactionRuleService:
 
     @staticmethod
     def create(data, request):
+        if "event_key" in data and "on" not in data:
+            data["on"] = data.pop("event_key")
+        if "offset_action" in data and "do" not in data:
+            data["do"] = data.pop("offset_action")
         TransactionRuleService.validateAccounts(data, request)
-        data["sort_order"] = (
-            TransactionActionRule.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            ).count()
-            + 1
-        )
         rule = commonQuery.createRecord(TransactionActionRule, data, request=request, tenant_config=True)
         return successResponse("Accounting rule created successfully.", data=rule)
 
     @staticmethod
     def update(rule_id, data, request):
+        if "event_key" in data and "on" not in data:
+            data["on"] = data.pop("event_key")
+        if "offset_action" in data and "do" not in data:
+            data["do"] = data.pop("offset_action")
         TransactionRuleService.validateAccounts(data, request)
         updated = commonQuery.updateRecordById(
             TransactionActionRule,
@@ -651,72 +632,6 @@ class TransactionRuleService:
         return TransactionRuleService.getAll(request)
 
 
-class AccountingSettingService:
-    FIELDS = [
-        "paid_expense_offset_account",
-        "sales_revenue_account",
-        "order_cash_account",
-        "receivable_account",
-        "cogs_account",
-        "inventory_account",
-        "procurement_cash_account",
-        "procurement_payable_account",
-    ]
-
-    @staticmethod
-    def getObject(request):
-        AccountingService.ensureForRequest(request)
-        return AccountingSetting.objects.prefetch_related("expense_accounts").get(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        )
-
-    @staticmethod
-    def serialize(setting):
-        data = {
-            "id": setting.id,
-            "expense_account_ids": list(setting.expense_accounts.values_list("id", flat=True)),
-            "expense_accounts": list(setting.expense_accounts.values("id", "name", "code")),
-        }
-        for field in AccountingSettingService.FIELDS:
-            account = getattr(setting, field)
-            data[f"{field}_id"] = account.id
-            data[field] = {"id": account.id, "name": account.name, "code": account.code}
-        return data
-
-    @staticmethod
-    def get(request):
-        return successResponse(
-            "Accounting configuration retrieved successfully.",
-            data=AccountingSettingService.serialize(AccountingSettingService.getObject(request)),
-        )
-
-    @staticmethod
-    def update(data, request):
-        expense_ids = list(data.pop("expense_account_ids", []))
-        account_ids = set(expense_ids)
-        account_ids.update(data.values())
-        found = set(
-            TransactionAccount.objects.filter(
-                id__in=account_ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status=0,
-            ).values_list("id", flat=True)
-        )
-        if found != account_ids:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "One or more transaction accounts were not found.")
-        setting = AccountingSettingService.getObject(request)
-        for field in AccountingSettingService.FIELDS:
-            setattr(setting, f"{field}_id", data[f"{field}_id"])
-        setting.save()
-        setting.expense_accounts.set(expense_ids)
-        return successResponse(
-            "Accounting configuration updated successfully.",
-            data=AccountingSettingService.serialize(setting),
-        )
-
-
 class TransactionService:
     @staticmethod
     def createManual(data, request):
@@ -742,21 +657,23 @@ class TransactionService:
         result = commonQuery.fetchPaginatedData(
             Transaction,
             data,
-            [["name", True, True], ["transaction_type", True, True], ["source_type", True, True], ["reference_number", True, True]],
+            [["name", True, True], ["type", True, True], ["description", True, True]],
             {
                 "attributes": [
                     "id",
                     "account_id",
                     "account__name",
                     "name",
-                    "transaction_type",
-                    "source_type",
-                    "source_id",
-                    "event_key",
-                    "group_code",
+                    "description",
+                    "media_id",
                     "value",
-                    "transaction_date",
-                    "reference_number",
+                    "recurring",
+                    "type",
+                    "active",
+                    "group_id",
+                    "occurrence",
+                    "occurrence_value",
+                    "scheduled_date",
                     "status",
                 ],
             },
@@ -770,21 +687,27 @@ class TransactionService:
         result = commonQuery.fetchPaginatedData(
             TransactionHistory,
             data,
-            [["action_type", True, True], ["source_type", True, True], ["note", True, True]],
+            [["operation", True, True], ["type", True, True], ["name", True, True]],
             {
                 "attributes": [
                     "id",
                     "transaction_id",
                     "transaction__name",
-                    "account_id",
-                    "account__name",
-                    "action_type",
-                    "amount",
-                    "balance_before",
-                    "balance_after",
-                    "source_type",
-                    "source_id",
-                    "note",
+                    "operation",
+                    "transaction_account_id",
+                    "transaction_account__name",
+                    "rule_id",
+                    "procurement_id",
+                    "order_refund_id",
+                    "order_refund_product_id",
+                    "order_id",
+                    "order_product_id",
+                    "register_history_id",
+                    "customer_account_history_id",
+                    "name",
+                    "type",
+                    "value",
+                    "trigger_date",
                     "status",
                 ],
             },

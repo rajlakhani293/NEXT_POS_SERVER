@@ -1,29 +1,28 @@
 from decimal import Decimal
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 
 from ninja import Schema
 from apps.common.schemas import ActiveStatus
 
 
-AccountType = Literal["asset", "liability", "income", "expense", "equity"]
+AccountCategory = Literal["assets", "liabilities", "revenues", "expenses"]
 RuleAction = Literal["increase", "decrease"]
 TransactionType = Literal["income", "expense", "transfer", "adjustment"]
 
 
 class TransactionAccountIn(Schema):
     name: str
-    code: Optional[str] = None
-    account_type: AccountType
-    parent_id: Optional[int] = None
+    account: Optional[str] = None
+    category_identifier: Optional[AccountCategory] = None
+    sub_category_id: Optional[int] = None
     description: str = ""
-    opening_balance: Decimal = Decimal("0")
 
 
 class TransactionAccountUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
-    account_type: Optional[AccountType] = None
-    parent_id: Optional[int] = None
+    account: Optional[str] = None
+    category_identifier: Optional[AccountCategory] = None
+    sub_category_id: Optional[int] = None
     description: Optional[str] = None
     status: Optional[ActiveStatus] = None
 
@@ -43,29 +42,17 @@ class ManualTransactionIn(Schema):
 
 
 class TransactionRuleIn(Schema):
-    event_key: str
+    on: str
     action: RuleAction
     account_id: int
-    offset_action: RuleAction
+    do: RuleAction
     offset_account_id: int
 
 
 class TransactionRuleUpdateIn(Schema):
-    event_key: Optional[str] = None
+    on: Optional[str] = None
     action: Optional[RuleAction] = None
     account_id: Optional[int] = None
-    offset_action: Optional[RuleAction] = None
+    do: Optional[RuleAction] = None
     offset_account_id: Optional[int] = None
     status: Optional[ActiveStatus] = None
-
-
-class AccountingSettingIn(Schema):
-    expense_account_ids: List[int]
-    paid_expense_offset_account_id: int
-    sales_revenue_account_id: int
-    order_cash_account_id: int
-    receivable_account_id: int
-    cogs_account_id: int
-    inventory_account_id: int
-    procurement_cash_account_id: int
-    procurement_payable_account_id: int

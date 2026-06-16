@@ -3,8 +3,6 @@ from ninja import File, Form, Router
 from ninja.files import UploadedFile
 from apps.accounts.auth import auth_bearer
 from apps.catalog.schemas import (
-    BrandIn,
-    BrandUpdateIn,
     CategoryIn,
     CategoryUpdateIn,
     ProductIn,
@@ -22,7 +20,6 @@ from apps.catalog.schemas import (
 )
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.catalog.services import (
-    BrandService,
     CategoryService,
     ProductService,
     ProductUnitQuantityService,
@@ -78,51 +75,6 @@ def getCategoryById(request, category_id: int):
 @permission_required("products_update")
 def updateCategory(request, category_id: int, payload: CategoryUpdateIn):
     return CategoryService.update(payload.dict(exclude_none=True), request, category_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
-
-@router.post("/brands/", response=ApiResponse)
-@permission_required("products_create")
-def createBrand(request, payload: BrandIn):
-    return BrandService.create(payload.dict(), request)
-
-
-@router.post("/brands/get-transactions", response=ApiResponse)
-@permission_required("products_view")
-def getAllBrands(request, payload: Optional[dict] = None):
-    return BrandService.getAll(payload, request)
-
-
-@router.get("/brands/dropdown-list", response=ApiResponse)
-@permission_required("products_view")
-def getBrandDropdown(request):
-    return BrandService.dropdownList(request)
-
-
-@router.delete("/brands/delete", response=ApiResponse)
-@permission_required("products_delete")
-def deleteBrands(request, payload: BulkIdsSchema):
-    return BrandService.delete(payload.dict(), request)
-
-
-@router.patch("/brands/status", response=ApiResponse)
-@permission_required("products_update")
-def updateBrandStatus(request, payload: StatusUpdateSchema):
-    return BrandService.updateStatus(payload.dict(), request)
-
-
-@router.get("/brands/{brand_id}", response=ApiResponse)
-@permission_required("products_view")
-def getBrandById(request, brand_id: int):
-    return BrandService.getById(brand_id, request)
-
-
-@router.put("/brands/{brand_id}", response=ApiResponse)
-@permission_required("products_update")
-def updateBrand(request, brand_id: int, payload: BrandUpdateIn):
-    return BrandService.update(payload.dict(exclude_none=True), request, brand_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
 
 @router.post("/unit-groups/", response=ApiResponse)
 @permission_required("products_create")

@@ -1923,7 +1923,7 @@ class SaleService:
                 tenant_config=True,
             )
             AccountingService.reflectEvent(
-                "unpaid_order_voided",
+                "order_unpaid_voided",
                 sale_order.get("total"),
                 name=f"Voided order {sale_order['code']}",
                 transaction_type="adjustment",
