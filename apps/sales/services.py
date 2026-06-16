@@ -7,7 +7,8 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.accounting.services import AccountingService
-from apps.catalog.models import Product, ProductUnitQuantity
+from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
+from apps.catalog.services import ProductStockService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -25,7 +26,6 @@ from apps.customers.models import (
     CustomerGroup,
     CustomerReward,
 )
-from apps.inventory.models import StockLedger
 from apps.payments.models import RefundPayment, SalePayment
 from apps.payments.services import PaymentTypeService
 from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
@@ -107,7 +107,6 @@ class SaleStockService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Item quantity must be greater than 0.")
 
         unit_quantity = None
-        stock_qty = item_qty
         unit_id = item.get("unit_id")
         default_unit_price = Decimal("0")
         default_purchase_price = Decimal("0")
@@ -141,25 +140,19 @@ class SaleStockService:
         )
 
         if SaleStockService.stockEnabled(product) and unit_quantity:
-            available_stock = quantity(unit_quantity.get("quantity"))
-            if available_stock < stock_qty:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Insufficient stock for {product.get('name')}.")
-            new_balance = available_stock - stock_qty
-            ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=new_balance)
-            commonQuery.createRecord(
-                StockLedger,
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_SOLD,
                 {
                     "product_id": product["id"],
-                    "entry_type": "sale",
-                    "quantity": stock_qty * Decimal("-1"),
-                    "unit_cost": default_purchase_price or 0,
-                    "balance_after": new_balance,
-                    "reference_type": "sale_order",
-                    "reference_id": sale_order["id"],
-                    "note": f"Sale {sale_order['code']}",
+                    "order_id": sale_order["id"],
+                    "order_product_id": sale_item["id"],
+                    "unit_id": unit_quantity.get("unit_id"),
+                    "quantity": item_qty,
+                    "unit_price": unit_price,
+                    "total_price": line_total,
+                    "description": f"Sale {sale_order['code']}",
                 },
-                request=request,
-                tenant_config=True,
+                request,
             )
 
         return sale_item, line_total, item_qty
@@ -947,22 +940,18 @@ class SaleVoidService:
             if unit_quantity is None:
                 continue
             restock_qty = quantity(item.get("quantity"))
-            new_balance = quantity(unit_quantity.get("quantity")) + restock_qty
-            ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=new_balance)
-            commonQuery.createRecord(
-                StockLedger,
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_VOID_RETURN,
                 {
                     "product_id": product["id"],
-                    "entry_type": "sale_return",
+                    "order_id": sale_order["id"],
+                    "order_product_id": item["id"],
+                    "unit_id": unit_quantity.get("unit_id"),
                     "quantity": restock_qty,
-                    "unit_cost": item.get("cost_price") or unit_quantity.get("cogs") or 0,
-                    "balance_after": new_balance,
-                    "reference_type": "sale_void",
-                    "reference_id": sale_order["id"],
-                    "note": f"Void sale {sale_order['code']}",
+                    "unit_price": item.get("cost_price") or unit_quantity.get("cogs") or 0,
+                    "description": f"Void sale {sale_order['code']}",
                 },
-                request=request,
-                tenant_config=True,
+                request,
             )
             commonQuery.updateRecordById(
                 SaleItem,
@@ -1174,42 +1163,33 @@ class SaleRefundService:
         if unit_quantity is None:
             return
         refund_qty = prepared_item["quantity"]
-        current_stock = quantity(unit_quantity.get("quantity"))
-        returned_balance = current_stock + refund_qty
-        ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=returned_balance)
-        commonQuery.createRecord(
-            StockLedger,
+        ProductStockService.recordStockHistory(
+            ProductHistory.ACTION_RETURNED,
             {
                 "product_id": product["id"],
-                "entry_type": "sale_return",
+                "order_id": return_order.get("sale_order_id"),
+                "order_product_id": sale_item["id"],
+                "unit_id": unit_quantity.get("unit_id"),
                 "quantity": refund_qty,
-                "unit_cost": sale_item.get("cost_price") or unit_quantity.get("cogs") or 0,
-                "balance_after": returned_balance,
-                "reference_type": "return_order",
-                "reference_id": return_order["id"],
-                "note": f"Sale return {return_order['id']}",
+                "unit_price": sale_item.get("cost_price") or unit_quantity.get("cogs") or 0,
+                "description": f"Sale return {return_order['id']}",
             },
-            request=request,
-            tenant_config=True,
+            request,
         )
 
         if prepared_item["condition"] == "damaged":
-            damaged_balance = returned_balance - refund_qty
-            ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=damaged_balance)
-            commonQuery.createRecord(
-                StockLedger,
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_DEFECTIVE,
                 {
                     "product_id": product["id"],
-                    "entry_type": "adjustment_out",
-                    "quantity": refund_qty * Decimal("-1"),
-                    "unit_cost": sale_item.get("cost_price") or unit_quantity.get("cogs") or 0,
-                    "balance_after": damaged_balance,
-                    "reference_type": "return_order",
-                    "reference_id": return_order["id"],
-                    "note": f"Damaged return {return_order['id']}",
+                    "order_id": return_order.get("sale_order_id"),
+                    "order_product_id": sale_item["id"],
+                    "unit_id": unit_quantity.get("unit_id"),
+                    "quantity": refund_qty,
+                    "unit_price": sale_item.get("cost_price") or unit_quantity.get("cogs") or 0,
+                    "description": f"Damaged return {return_order['id']}",
                 },
-                request=request,
-                tenant_config=True,
+                request,
             )
 
     @staticmethod

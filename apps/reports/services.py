@@ -10,14 +10,13 @@ from django.db.models.functions import TruncDate
 from apps.common.commonQuery import commonQuery
 from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
+from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
 from apps.customers.models import Customer, CustomerAccountHistory
 from apps.expenses.models import ExpenseEntry
-from apps.inventory.models import StockLedger
 from apps.payments.models import SalePayment
 from apps.purchases.models import PurchaseOrder, Supplier
 from apps.registers.models import CashierShift
 from apps.reports.models import DashboardDay, DashboardMonth
-from apps.catalog.models import Product, ProductUnitQuantity
 from apps.sales.models import SaleItem, SaleOrder
 
 
@@ -249,20 +248,21 @@ class ReportService:
     @staticmethod
     def stockLedger(data, request):
         result = commonQuery.fetchPaginatedData(
-            StockLedger,
+            ProductHistory,
             data,
-            [["entry_type", True, True], ["reference_type", True, True], ["note", True, True]],
+            [["operation_type", True, True], ["description", True, True]],
             {
                 "attributes": [
                     "id",
                     "product_id",
                     "product__name",
-                    "entry_type",
+                    "operation_type",
                     "quantity",
-                    "unit_cost",
-                    "balance_after",
-                    "reference_type",
-                    "reference_id",
+                    "unit_price",
+                    "after_quantity",
+                    "order_id",
+                    "procurement_id",
+                    "description",
                     "created_at",
                     "status",
                 ],
@@ -270,6 +270,12 @@ class ReportService:
             request=request,
             tenant_config=True,
         )
+        for item in result["items"]:
+            item["entry_type"] = item.pop("operation_type", None)
+            item["unit_cost"] = item.pop("unit_price", None)
+            item["balance_after"] = item.pop("after_quantity", None)
+            item["reference_type"] = "sale_order" if item.get("order_id") else "purchase_order" if item.get("procurement_id") else "product_history"
+            item["reference_id"] = item.get("order_id") or item.get("procurement_id")
         return successResponse("Stock ledger report retrieved successfully.", data=result)
 
     @staticmethod

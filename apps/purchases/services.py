@@ -9,7 +9,8 @@ from django.utils import timezone
 from django.core.cache import cache
 
 from apps.accounting.services import AccountingService
-from apps.catalog.models import Product, ProductUnitQuantity
+from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
+from apps.catalog.services import ProductStockService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -21,7 +22,6 @@ from apps.common.helpers import (
     validateTenantRelationIds,
 )
 from apps.common.responses import successResponse
-from apps.inventory.models import StockLedger
 from apps.notifications.services import NotificationService
 from apps.payments.services import PaymentTypeService
 from apps.purchases.models import PurchaseItem, PurchaseOrder, PurchasePayment, Supplier
@@ -93,12 +93,11 @@ class SupplierService:
 
 class PurchaseOrderService:
     @staticmethod
-    def resolveProductUnitQuantity(product_id, unit_quantity_id, request, required=False):
+    def resolveProductUnitQuantity(product_id, request, required=False):
         validateTenantRelationId(Product, product_id, request=request, label="Product")
-        where = {"product_id": product_id, "id": unit_quantity_id} if unit_quantity_id else {"product_id": product_id}
         unit_quantity = commonQuery.findOneRecord(
             ProductUnitQuantity,
-            where,
+            {"product_id": product_id},
             request=request,
             tenant_config=True,
         )
@@ -125,8 +124,6 @@ class PurchaseOrderService:
                     "id",
                     "product_id",
                     "product__name",
-                    "unit_quantity_id",
-                    "unit_quantity__unit__name",
                     "ordered_quantity",
                     "received_quantity",
                     "cost_price",
@@ -231,12 +228,11 @@ class PurchaseOrderService:
             if ordered_quantity <= 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Ordered quantity must be greater than 0.")
             product_id = item.get("product_id")
-            unit_quantity_id = item.get("unit_quantity_id")
             line_tax = money(item.get("tax_amount"))
             line_total = (ordered_quantity * cost_price) + line_tax
             subtotal += ordered_quantity * cost_price
             tax_amount += line_tax
-            prepared.append({**item, "product_id": product_id, "unit_quantity_id": unit_quantity_id, "total": line_total})
+            prepared.append({**item, "product_id": product_id, "total": line_total})
         return prepared, subtotal, tax_amount
 
     @staticmethod
@@ -271,8 +267,6 @@ class PurchaseOrderService:
                 label="Product",
             )
             for item in items:
-                unit_quantity = PurchaseOrderService.resolveProductUnitQuantity(item["product_id"], item.get("unit_quantity_id"), request)
-                item["unit_quantity_id"] = unit_quantity["id"] if unit_quantity else None
                 created_items.append(commonQuery.createRecord(PurchaseItem, {**item, "purchase_order_id": order["id"]}, request=request, tenant_config=True))
             Supplier.objects.filter(id=supplier["id"]).update(payable_amount=F("payable_amount") + total)
             AccountingService.reflectEvent(
@@ -377,34 +371,26 @@ class PurchaseOrderService:
                 new_received = qty(item.get("received_quantity")) + receive_qty
                 if new_received > qty(item.get("ordered_quantity")):
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Received quantity cannot exceed ordered quantity.")
-                unit_quantity = PurchaseOrderService.resolveProductUnitQuantity(
-                    item["product_id"],
-                    item.get("unit_quantity_id"),
-                    request,
-                    required=True,
-                )
-                current_qty = qty(unit_quantity.get("quantity"))
-                new_balance = current_qty + receive_qty
-                ProductUnitQuantity.objects.filter(id=unit_quantity["id"]).update(quantity=new_balance, cogs=item.get("cost_price") or 0)
+                unit_quantity = PurchaseOrderService.resolveProductUnitQuantity(item["product_id"], request, required=True)
                 PurchaseItem.objects.filter(id=item["id"]).update(received_quantity=new_received)
-                commonQuery.createRecord(
-                    StockLedger,
+                ProductStockService.recordStockHistory(
+                    ProductHistory.ACTION_STOCKED,
                     {
                         "product_id": item["product_id"],
-                        "entry_type": "purchase",
+                        "procurement_id": order_id,
+                        "procurement_product_id": item["id"],
                         "quantity": receive_qty,
-                        "unit_cost": item.get("cost_price") or 0,
-                        "balance_after": new_balance,
-                        "reference_type": "purchase_order",
-                        "reference_id": order_id,
-                        "note": data.get("note") or f"Purchase receive {order['code']}",
+                        "unit_id": unit_quantity.get("unit_id"),
+                        "unit_price": item.get("cost_price") or 0,
+                        "cogs": item.get("cost_price") or 0,
+                        "description": data.get("note") or f"Purchase receive {order['code']}",
                     },
-                    request=request,
-                    tenant_config=True,
+                    request,
                 )
+                latest_unit_quantity = commonQuery.findOneRecord(ProductUnitQuantity, unit_quantity["id"], request=request, tenant_config=True)
                 received_now += receive_qty
                 try:
-                    if unit_quantity.get("stock_alert_enabled") and new_balance <= qty(unit_quantity.get("low_quantity")):
+                    if latest_unit_quantity and latest_unit_quantity.get("stock_alert_enabled") and qty(latest_unit_quantity.get("quantity")) <= qty(latest_unit_quantity.get("low_quantity")):
                         product_after = Product.objects.filter(id=item["product_id"]).values("name").first()
                         NotificationService.push(
                             title="Low stock alert",
@@ -603,10 +589,6 @@ class PurchaseOrderService:
         update_data = dict(data or {})
         if update_data.get("product_id"):
             validateTenantRelationId(Product, update_data["product_id"], request=request, label="Product")
-        if update_data.get("product_id") or update_data.get("unit_quantity_id"):
-            product_id = update_data.get("product_id") or item["product_id"]
-            unit_quantity = PurchaseOrderService.resolveProductUnitQuantity(product_id, update_data.get("unit_quantity_id"), request)
-            update_data["unit_quantity_id"] = unit_quantity["id"] if unit_quantity else None
         if update_data.get("ordered_quantity") is not None and qty(update_data.get("ordered_quantity")) < qty(item.get("received_quantity")):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Ordered quantity cannot be less than received quantity.")
         if "ordered_quantity" in update_data and "cost_price" in update_data:

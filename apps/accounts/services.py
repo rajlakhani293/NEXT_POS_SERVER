@@ -388,8 +388,6 @@ class AccountsService:
             "purchases.PurchasePayment",
             "purchases.PurchaseItem",
             "purchases.PurchaseOrder",
-            "inventory.StockLedger",
-            "inventory.StockAdjustment",
             "registers.CashRegisterEntry",
             "expenses.ExpenseEntry",
             "registers.CashierShift",

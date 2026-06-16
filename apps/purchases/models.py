@@ -48,7 +48,6 @@ class PurchaseOrder(TenantAwareModel):
 class PurchaseItem(TenantAwareModel):
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="purchase_items")
-    unit_quantity = models.ForeignKey("catalog.ProductUnitQuantity", on_delete=models.SET_NULL, null=True, blank=True, related_name="purchase_items")
     ordered_quantity = models.DecimalField(max_digits=12, decimal_places=3)
     received_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     cost_price = models.DecimalField(max_digits=12, decimal_places=2)
