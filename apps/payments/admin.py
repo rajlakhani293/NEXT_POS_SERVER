@@ -1,21 +1,17 @@
 # type: ignore
 from django.contrib import admin
 from apps.common.admin import TenantModelAdmin
-from apps.payments.models import PaymentType, RefundPayment, SalePayment
+from apps.payments.models import PaymentType
 
 
 @admin.register(PaymentType)
 class PaymentTypeAdmin(TenantModelAdmin):
-    list_display = ("label", "identifier", "branch", "is_system", "sort_order", "status")
-    list_filter = ("is_system", "status")
+    list_display = ("label", "identifier", "branch", "readonly", "sort_order", "status")
+    list_filter = ("readonly", "status")
     search_fields = ("label", "identifier")
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = list(super().get_readonly_fields(request, obj))
-        if obj and obj.is_system and "identifier" not in readonly_fields:
+        if obj and obj.readonly and "identifier" not in readonly_fields:
             readonly_fields.append("identifier")
         return readonly_fields
-
-
-admin.site.register(SalePayment, TenantModelAdmin)
-admin.site.register(RefundPayment, TenantModelAdmin)

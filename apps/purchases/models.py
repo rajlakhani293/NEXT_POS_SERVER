@@ -62,15 +62,3 @@ class PurchaseItem(TenantAwareModel):
 
     class Meta:
         db_table = "procurements_products"
-
-
-class PurchasePayment(TenantAwareModel):
-    purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="payments")
-    payment_type = models.CharField(max_length=80, default="cash-payment")
-    amount = models.DecimalField(max_digits=12, decimal_places=2)
-    paid_at = models.DateTimeField()
-    reference_number = models.CharField(max_length=120, blank=True)
-    note = models.TextField(blank=True)
-
-    class Meta:
-        db_table = "purchase_payments"

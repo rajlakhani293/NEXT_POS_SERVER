@@ -10,58 +10,10 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('sales', '0001_initial'),
-        ('registers', '0001_initial'),
         ('organizations', '0001_initial'),
     ]
 
     operations = [
-        migrations.CreateModel(
-            name='SalePayment',
-            fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
-                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
-                ('deleted_at', models.DateTimeField(blank=True, null=True)),
-                ('payment_type', models.CharField(default='cash-payment', max_length=80)),
-                ('amount', models.DecimalField(decimal_places=2, max_digits=12)),
-                ('paid_at', models.DateTimeField()),
-                ('reference_number', models.CharField(blank=True, max_length=120)),
-                ('note', models.TextField(blank=True)),
-                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('sale_order', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='payments', to='sales.saleorder')),
-                ('shift', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_payments', to='registers.cashiershift')),
-            ],
-            options={
-                'abstract': False,
-            },
-        ),
-        migrations.CreateModel(
-            name='RefundPayment',
-            fields=[
-                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                ('created_at', models.DateTimeField(auto_now_add=True)),
-                ('updated_at', models.DateTimeField(auto_now=True)),
-                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
-                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
-                ('deleted_at', models.DateTimeField(blank=True, null=True)),
-                ('payment_type', models.CharField(default='cash-payment', max_length=80)),
-                ('amount', models.DecimalField(decimal_places=2, max_digits=12)),
-                ('refunded_at', models.DateTimeField()),
-                ('reference_number', models.CharField(blank=True, max_length=120)),
-                ('note', models.TextField(blank=True)),
-                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
-                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('return_order', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='refund_payments', to='sales.returnorder')),
-                ('shift', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='refund_payments', to='registers.cashiershift')),
-            ],
-            options={
-                'abstract': False,
-            },
-        ),
         migrations.CreateModel(
             name='PaymentType',
             fields=[
@@ -74,12 +26,13 @@ class Migration(migrations.Migration):
                 ('label', models.CharField(max_length=120)),
                 ('identifier', models.CharField(max_length=80)),
                 ('description', models.TextField(blank=True)),
-                ('is_system', models.BooleanField(default=False)),
+                ('readonly', models.BooleanField(default=False)),
                 ('sort_order', models.PositiveIntegerField(default=0)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
             ],
             options={
+                'db_table': 'payments_types',
                 'ordering': ['sort_order', 'label'],
                 'unique_together': {('branch', 'identifier'), ('branch', 'label')},
             },

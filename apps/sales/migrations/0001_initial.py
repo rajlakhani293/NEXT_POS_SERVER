@@ -56,6 +56,7 @@ class Migration(migrations.Migration):
                 ('shift', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_orders', to='registers.cashiershift')),
             ],
             options={
+                'db_table': 'orders',
                 'ordering': ['-id'],
                 'unique_together': {('branch', 'code')},
             },
@@ -83,7 +84,116 @@ class Migration(migrations.Migration):
                 ('unit', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='catalog.unit')),
             ],
             options={
-                'abstract': False,
+                'db_table': 'orders_products',
+            },
+        ),
+        migrations.CreateModel(
+            name='OrderStorage',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
+                ('deleted_at', models.DateTimeField(blank=True, null=True)),
+                ('quantity', models.IntegerField(blank=True, null=True)),
+                ('session_identifier', models.CharField(max_length=255)),
+                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
+                ('product', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='order_storage_entries', to='catalog.product')),
+                ('unit', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='order_storage_entries', to='catalog.unit')),
+                ('unit_quantity', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='order_storage_entries', to='catalog.productunitquantity')),
+            ],
+            options={
+                'db_table': 'orders_storage',
+            },
+        ),
+        migrations.CreateModel(
+            name='OrderAddress',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
+                ('deleted_at', models.DateTimeField(blank=True, null=True)),
+                ('type', models.CharField(choices=[('billing', 'Billing'), ('shipping', 'Shipping')], max_length=20)),
+                ('first_name', models.CharField(blank=True, max_length=120, null=True)),
+                ('last_name', models.CharField(blank=True, max_length=120, null=True)),
+                ('phone', models.CharField(blank=True, max_length=30, null=True)),
+                ('address_1', models.CharField(blank=True, max_length=255, null=True)),
+                ('email', models.CharField(blank=True, max_length=255, null=True)),
+                ('address_2', models.CharField(blank=True, max_length=255, null=True)),
+                ('country', models.CharField(blank=True, max_length=120, null=True)),
+                ('city', models.CharField(blank=True, max_length=120, null=True)),
+                ('pobox', models.CharField(blank=True, max_length=50, null=True)),
+                ('company_name', models.CharField(blank=True, db_column='company', max_length=255, null=True)),
+                ('author', models.ForeignKey(blank=True, db_column='author_id', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='order_addresses', to=settings.AUTH_USER_MODEL)),
+                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='order_addresses', to='sales.saleorder')),
+            ],
+            options={
+                'db_table': 'orders_addresses',
+            },
+        ),
+        migrations.CreateModel(
+            name='OrderTax',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
+                ('deleted_at', models.DateTimeField(blank=True, null=True)),
+                ('rate', models.DecimalField(decimal_places=5, default=0, max_digits=12)),
+                ('tax_name', models.CharField(blank=True, max_length=120, null=True)),
+                ('tax_value', models.DecimalField(decimal_places=5, default=0, max_digits=14)),
+                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='taxes', to='sales.saleorder')),
+                ('tax', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='order_taxes', to='catalog.tax')),
+            ],
+            options={
+                'db_table': 'orders_taxes',
+            },
+        ),
+        migrations.CreateModel(
+            name='OrderSetting',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
+                ('deleted_at', models.DateTimeField(blank=True, null=True)),
+                ('key', models.CharField(max_length=120)),
+                ('value', models.TextField(blank=True)),
+                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='settings', to='sales.saleorder')),
+            ],
+            options={
+                'db_table': 'orders_settings',
+            },
+        ),
+        migrations.CreateModel(
+            name='OrderPayment',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
+                ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
+                ('deleted_at', models.DateTimeField(blank=True, null=True)),
+                ('identifier', models.CharField(default='cash-payment', max_length=80)),
+                ('value', models.DecimalField(decimal_places=2, max_digits=12)),
+                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='payments', to='sales.saleorder')),
+            ],
+            options={
+                'db_table': 'orders_payments',
             },
         ),
         migrations.CreateModel(
@@ -100,6 +210,7 @@ class Migration(migrations.Migration):
                 ('subtotal', models.DecimalField(decimal_places=2, default=0, max_digits=14)),
                 ('tax_amount', models.DecimalField(decimal_places=2, default=0, max_digits=12)),
                 ('total', models.DecimalField(decimal_places=2, default=0, max_digits=14)),
+                ('payment_method', models.CharField(blank=True, max_length=80)),
                 ('note', models.TextField(blank=True)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('cashier', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='processed_returns', to=settings.AUTH_USER_MODEL)),
@@ -108,7 +219,7 @@ class Migration(migrations.Migration):
                 ('sale_order', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='returns', to='sales.saleorder')),
             ],
             options={
-                'abstract': False,
+                'db_table': 'orders_refunds',
             },
         ),
         migrations.CreateModel(
@@ -130,7 +241,7 @@ class Migration(migrations.Migration):
                 ('sale_item', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='return_items', to='sales.saleitem')),
             ],
             options={
-                'abstract': False,
+                'db_table': 'orders_products_refunds',
             },
         ),
         migrations.CreateModel(
@@ -151,7 +262,7 @@ class Migration(migrations.Migration):
                 ('sale_order', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='installment_plan', to='sales.saleorder')),
             ],
             options={
-                'abstract': False,
+                'db_table': 'orders_instalment_plans',
             },
         ),
         migrations.CreateModel(
@@ -172,7 +283,7 @@ class Migration(migrations.Migration):
                 ('plan', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='lines', to='sales.installmentplan')),
             ],
             options={
-                'abstract': False,
+                'db_table': 'orders_instalments',
             },
         ),
         migrations.CreateModel(
@@ -191,7 +302,7 @@ class Migration(migrations.Migration):
                 ('return_order', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='exchange_links', to='sales.returnorder')),
             ],
             options={
-                'abstract': False,
+                'db_table': 'orders_exchange_links',
             },
         ),
         migrations.CreateModel(
@@ -214,6 +325,7 @@ class Migration(migrations.Migration):
                 ('customer', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='cart_drafts', to='customers.customer')),
             ],
             options={
+                'db_table': 'cart_drafts',
                 'unique_together': {('branch', 'code')},
             },
         ),

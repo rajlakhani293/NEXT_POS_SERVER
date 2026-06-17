@@ -6,6 +6,11 @@ from apps.sales.models import (
     ExchangeOrderLink,
     InstallmentLine,
     InstallmentPlan,
+    OrderAddress,
+    OrderPayment,
+    OrderSetting,
+    OrderStorage,
+    OrderTax,
     ReturnItem,
     ReturnOrder,
     SaleItem,
@@ -16,6 +21,11 @@ from apps.sales.models import (
 admin.site.register(CartDraft, TenantModelAdmin)
 admin.site.register(SaleOrder, TenantModelAdmin)
 admin.site.register(SaleItem, TenantModelAdmin)
+admin.site.register(OrderPayment, TenantModelAdmin)
+admin.site.register(OrderStorage, TenantModelAdmin)
+admin.site.register(OrderAddress, TenantModelAdmin)
+admin.site.register(OrderTax, TenantModelAdmin)
+admin.site.register(OrderSetting, TenantModelAdmin)
 admin.site.register(InstallmentPlan, TenantModelAdmin)
 admin.site.register(InstallmentLine, TenantModelAdmin)
 admin.site.register(ReturnOrder, TenantModelAdmin)

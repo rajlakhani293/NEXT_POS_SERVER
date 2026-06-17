@@ -25,6 +25,7 @@ class CartDraft(TenantAwareModel):
     note = models.TextField(blank=True)
 
     class Meta:
+        db_table = "cart_drafts"
         unique_together = [("branch", "code")]
 
 
@@ -69,8 +70,70 @@ class SaleOrder(TenantAwareModel):
     note = models.TextField(blank=True)
 
     class Meta:
+        db_table = "orders"
         unique_together = [("branch", "code")]
         ordering = ["-id"]
+
+
+class OrderPayment(TenantAwareModel):
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="payments", db_column="order_id")
+    identifier = models.CharField(max_length=80, default="cash-payment")
+    value = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = "orders_payments"
+
+
+class OrderStorage(TenantAwareModel):
+    product = models.ForeignKey("catalog.Product", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_storage_entries")
+    unit_quantity = models.ForeignKey("catalog.ProductUnitQuantity", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_storage_entries")
+    unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_storage_entries")
+    quantity = models.IntegerField(null=True, blank=True)
+    session_identifier = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = "orders_storage"
+
+
+class OrderAddress(TenantAwareModel):
+    ADDRESS_TYPES = [("billing", "Billing"), ("shipping", "Shipping")]
+
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="order_addresses", db_column="order_id")
+    type = models.CharField(max_length=20, choices=ADDRESS_TYPES)
+    first_name = models.CharField(max_length=120, blank=True, null=True)
+    last_name = models.CharField(max_length=120, blank=True, null=True)
+    phone = models.CharField(max_length=30, blank=True, null=True)
+    address_1 = models.CharField(max_length=255, blank=True, null=True)
+    email = models.CharField(max_length=255, blank=True, null=True)
+    address_2 = models.CharField(max_length=255, blank=True, null=True)
+    country = models.CharField(max_length=120, blank=True, null=True)
+    city = models.CharField(max_length=120, blank=True, null=True)
+    pobox = models.CharField(max_length=50, blank=True, null=True)
+    company_name = models.CharField(max_length=255, blank=True, null=True, db_column="company")
+    author = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_addresses", db_column="author_id")
+
+    class Meta:
+        db_table = "orders_addresses"
+
+
+class OrderTax(TenantAwareModel):
+    tax = models.ForeignKey("catalog.Tax", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_taxes")
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="taxes", db_column="order_id")
+    rate = models.DecimalField(max_digits=12, decimal_places=5, default=0)
+    tax_name = models.CharField(max_length=120, blank=True, null=True)
+    tax_value = models.DecimalField(max_digits=14, decimal_places=5, default=0)
+
+    class Meta:
+        db_table = "orders_taxes"
+
+
+class OrderSetting(TenantAwareModel):
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="settings", db_column="order_id")
+    key = models.CharField(max_length=120)
+    value = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "orders_settings"
 
 
 class SaleItem(TenantAwareModel):
@@ -86,6 +149,9 @@ class SaleItem(TenantAwareModel):
     cost_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     item_status = models.CharField(max_length=20, default="sold")
 
+    class Meta:
+        db_table = "orders_products"
+
 
 class InstallmentPlan(TenantAwareModel):
     sale_order = models.OneToOneField(SaleOrder, on_delete=models.CASCADE, related_name="installment_plan")
@@ -94,6 +160,9 @@ class InstallmentPlan(TenantAwareModel):
     minimum_first_payment = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     final_payment_date = models.DateField(blank=True, null=True)
 
+    class Meta:
+        db_table = "orders_instalment_plans"
+
 
 class InstallmentLine(TenantAwareModel):
     plan = models.ForeignKey(InstallmentPlan, on_delete=models.CASCADE, related_name="lines")
@@ -101,6 +170,9 @@ class InstallmentLine(TenantAwareModel):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     paid_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     installment_status = models.CharField(max_length=20, choices=[("pending", "Pending"), ("paid", "Paid"), ("partial", "Partial")], default="pending")
+
+    class Meta:
+        db_table = "orders_instalments"
 
 
 class ReturnOrder(TenantAwareModel):
@@ -115,7 +187,11 @@ class ReturnOrder(TenantAwareModel):
     subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    payment_method = models.CharField(max_length=80, blank=True)
     note = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "orders_refunds"
 
 
 class ReturnItem(TenantAwareModel):
@@ -126,8 +202,14 @@ class ReturnItem(TenantAwareModel):
     total = models.DecimalField(max_digits=14, decimal_places=2)
     condition = models.CharField(max_length=20, default="good")
 
+    class Meta:
+        db_table = "orders_products_refunds"
+
 
 class ExchangeOrderLink(TenantAwareModel):
     return_order = models.ForeignKey(ReturnOrder, on_delete=models.CASCADE, related_name="exchange_links")
     new_sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="exchange_links")
     difference_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        db_table = "orders_exchange_links"

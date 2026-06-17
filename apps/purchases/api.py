@@ -11,10 +11,9 @@ from apps.purchases.schemas import (
     PurchaseItemUpdateIn,
     PurchaseOrderIn,
     PurchaseOrderUpdateIn,
-    PurchasePaymentIn,
-    PurchasePaymentStatusIn,
     PurchaseProductsBulkUpdateIn,
     PurchaseReceiveIn,
+    PurchaseStatusIn,
     SupplierIn,
     SupplierUpdateIn,
 )
@@ -116,7 +115,7 @@ def updatePurchaseOrder(request, order_id: int, payload: PurchaseOrderUpdateIn):
 
 @router.put("/orders/{order_id}/change-payment-status", response=ApiResponse)
 @permission_required("purchases_update")
-def changePurchasePaymentStatus(request, order_id: int, payload: PurchasePaymentStatusIn):
+def changePurchaseStatus(request, order_id: int, payload: PurchaseStatusIn):
     return PurchaseOrderService.changePaymentStatus(order_id, payload.dict(exclude_none=True), request)
 
 
@@ -148,12 +147,6 @@ def deletePurchaseOrderProduct(request, order_id: int, purchase_item_id: int):
 @permission_required("purchases_receive")
 def receivePurchaseOrder(request, order_id: int, payload: PurchaseReceiveIn):
     return PurchaseOrderService.receive(order_id, payload.dict(), request)
-
-
-@router.post("/orders/{order_id}/pay", response=ApiResponse)
-@permission_required("purchases_pay")
-def payPurchaseOrder(request, order_id: int, payload: PurchasePaymentIn):
-    return PurchaseOrderService.pay(order_id, payload.dict(), request)
 
 
 @router.get("/orders/{order_id}/set-as-paid", response=ApiResponse)

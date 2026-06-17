@@ -35,6 +35,7 @@ class Migration(migrations.Migration):
                 ('parent', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='children', to='catalog.category')),
             ],
             options={
+                'db_table': 'products_categories',
                 'ordering': ['position', 'name'],
             },
         ),
@@ -71,6 +72,7 @@ class Migration(migrations.Migration):
                 ('parent', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, related_name='variations', to='catalog.product')),
             ],
             options={
+                'db_table': 'products',
                 'ordering': ['position', 'name'],
             },
         ),
@@ -89,6 +91,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
             ],
             options={
+                'db_table': 'units_groups',
                 'ordering': ['name'],
             },
         ),
@@ -112,6 +115,7 @@ class Migration(migrations.Migration):
                 ('group', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='units', to='catalog.unitgroup')),
             ],
             options={
+                'db_table': 'units',
                 'ordering': ['name'],
                 'unique_together': {('branch', 'identifier')},
             },
@@ -131,6 +135,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
             ],
             options={
+                'db_table': 'taxes_groups',
                 'ordering': ['name'],
             },
         ),
@@ -151,6 +156,7 @@ class Migration(migrations.Migration):
                 ('tax_group', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='taxes', to='catalog.taxgroup')),
             ],
             options={
+                'db_table': 'taxes',
                 'ordering': ['name'],
             },
         ),
@@ -172,6 +178,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
             ],
             options={
+                'db_table': 'scale_ranges',
                 'ordering': ['name'],
             },
         ),
@@ -217,6 +224,7 @@ class Migration(migrations.Migration):
                 ('unit', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='product_quantities', to='catalog.unit')),
             ],
             options={
+                'db_table': 'products_unit_quantities',
                 'ordering': ['id'],
                 'unique_together': {('product', 'unit')},
             },
@@ -240,6 +248,7 @@ class Migration(migrations.Migration):
                 ('unit_quantity', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='taxes', to='catalog.productunitquantity')),
             ],
             options={
+                'db_table': 'products_taxes',
                 'ordering': ['name'],
             },
         ),
@@ -263,6 +272,7 @@ class Migration(migrations.Migration):
                 ('unit_quantity', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='subitems', to='catalog.productunitquantity')),
             ],
             options={
+                'db_table': 'products_subitems',
                 'ordering': ['id'],
             },
         ),
@@ -288,6 +298,7 @@ class Migration(migrations.Migration):
                 ('unit', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='combined_product_histories', to='catalog.unit')),
             ],
             options={
+                'db_table': 'products_histories_combined',
                 'ordering': ['-date', 'name'],
             },
         ),
@@ -317,6 +328,7 @@ class Migration(migrations.Migration):
                 ('unit', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='product_histories', to='catalog.unit')),
             ],
             options={
+                'db_table': 'products_histories',
                 'ordering': ['-created_at'],
             },
         ),
@@ -339,6 +351,7 @@ class Migration(migrations.Migration):
                 ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='gallery', to='catalog.product')),
             ],
             options={
+                'db_table': 'products_galleries',
                 'ordering': ['order', 'id'],
             },
         ),
@@ -373,6 +386,7 @@ class Migration(migrations.Migration):
                 ('product', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='metas', to='catalog.product')),
             ],
             options={
+                'db_table': 'products_metas',
                 'ordering': ['key'],
                 'unique_together': {('product', 'key')},
             },

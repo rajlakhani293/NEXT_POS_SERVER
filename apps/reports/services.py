@@ -13,11 +13,10 @@ from apps.common.responses import successResponse
 from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
 from apps.customers.models import Customer, CustomerAccountHistory
 from apps.expenses.models import ExpenseEntry
-from apps.payments.models import SalePayment
 from apps.purchases.models import PurchaseOrder, Supplier
 from apps.registers.models import CashierShift
 from apps.reports.models import DashboardDay, DashboardMonth
-from apps.sales.models import SaleItem, SaleOrder
+from apps.sales.models import OrderPayment, SaleItem, SaleOrder
 
 
 def tenantFilter(request):
@@ -412,23 +411,20 @@ class ReportService:
     @staticmethod
     def paymentTypesReport(data, request):
         result = commonQuery.fetchPaginatedData(
-            SalePayment,
+            OrderPayment,
             data,
-            [["payment_type", True, True], ["reference_number", True, True], ["sale_order__code", True, True]],
+            [["identifier", True, True], ["sale_order__code", True, True]],
             {
                 "attributes": [
                     "id",
                     "sale_order_id",
                     "sale_order__code",
-                    "payment_type",
-                    "shift_id",
-                    "amount",
-                    "paid_at",
-                    "reference_number",
-                    "note",
+                    "identifier",
+                    "value",
+                    "created_at",
                     "status",
                 ],
-                "sumField": ["amount"],
+                "sumField": ["value"],
             },
             request=request,
             tenant_config=True,

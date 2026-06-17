@@ -14,7 +14,7 @@ class SaleItemIn(Schema):
     tax_amount: Decimal = Decimal("0")
 
 
-class SalePaymentIn(Schema):
+class OrderPaymentIn(Schema):
     payment_type: str
     amount: Decimal
     reference_number: str = ""
@@ -36,7 +36,7 @@ class SaleCreateIn(Schema):
     note: str = ""
     coupon_codes: List[str] = Field(default_factory=list)
     items: List[SaleItemIn]
-    payments: List[SalePaymentIn] = Field(default_factory=list)
+    payments: List[OrderPaymentIn] = Field(default_factory=list)
 
 
 class SaleListIn(Schema):
@@ -56,7 +56,7 @@ class SaleHoldIn(Schema):
     coupon_codes: List[str] = Field(default_factory=list)
     note: str = ""
     items: List[SaleItemIn]
-    payments: List[SalePaymentIn] = Field(default_factory=list)
+    payments: List[OrderPaymentIn] = Field(default_factory=list)
 
 
 class SaleVoidIn(Schema):
@@ -66,7 +66,7 @@ class SaleVoidIn(Schema):
 class SaleCollectDueIn(Schema):
     shift_id: Optional[int] = None
     note: str = ""
-    payments: List[SalePaymentIn]
+    payments: List[OrderPaymentIn]
 
 
 class SaleStatusUpdateIn(Schema):

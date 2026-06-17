@@ -26,16 +26,15 @@ from apps.customers.models import (
     CustomerGroup,
     CustomerReward,
 )
-from apps.payments.models import RefundPayment, SalePayment
 from apps.payments.services import PaymentTypeService
 from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
 from apps.registers.models import CashierShift, CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
-    CartDraft,
     ExchangeOrderLink,
     InstallmentLine,
     InstallmentPlan,
+    OrderPayment,
     ReturnItem,
     ReturnOrder,
     SaleItem,
@@ -229,7 +228,7 @@ class SaleValidationService:
 
 class SaleRegisterService:
     @staticmethod
-    def recordCashSalePayment(sale_order, sale_payment, shift, amount, request):
+    def recordCashOrderPayment(sale_order, order_payment, shift, amount, request):
         balance_before = money(shift.get("expected_cash"))
         balance_after = balance_before + amount
         CashierShift.objects.filter(id=shift["id"]).update(expected_cash=F("expected_cash") + amount)
@@ -246,7 +245,7 @@ class SaleRegisterService:
                 "balance_before": balance_before,
                 "balance_after": balance_after,
                 "reference_type": "sale_payment",
-                "reference_id": sale_payment["id"],
+                "reference_id": order_payment["id"],
                 "note": f"Sale payment for {sale_order['code']}",
             },
             request=request,
@@ -532,7 +531,7 @@ class SaleCouponService:
         }
 
 
-class SalePaymentService:
+class OrderPaymentService:
     @staticmethod
     def applyPayments(sale_order, payments, shift, customer, settings, request):
         paid_amount = Decimal("0")
@@ -554,16 +553,12 @@ class SalePaymentService:
                 if not customer:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required for account payment.")
 
-            sale_payment = commonQuery.createRecord(
-                SalePayment,
+            order_payment = commonQuery.createRecord(
+                OrderPayment,
                 {
                     "sale_order_id": sale_order["id"],
-                    "payment_type": payment_type,
-                    "shift_id": shift["id"] if shift else None,
-                    "amount": amount,
-                    "paid_at": timezone.now(),
-                    "reference_number": payment.get("reference_number") or "",
-                    "note": payment.get("note") or "",
+                    "identifier": payment_type,
+                    "value": amount,
                 },
                 request=request,
                 tenant_config=True,
@@ -572,7 +567,7 @@ class SalePaymentService:
 
             if payment_type == "cash-payment" and shift:
                 cash_paid_amount += amount
-                SaleRegisterService.recordCashSalePayment(sale_order, sale_payment, shift, amount, request)
+                SaleRegisterService.recordCashOrderPayment(sale_order, order_payment, shift, amount, request)
             elif payment_type == "account-payment":
                 SaleCustomerAccountService.applyAccountPayment(customer, sale_order, amount, payment.get("note"), request)
 
@@ -604,16 +599,12 @@ class SalePaymentService:
                 if not customer:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required for account payment.")
 
-            sale_payment = commonQuery.createRecord(
-                SalePayment,
+            order_payment = commonQuery.createRecord(
+                OrderPayment,
                 {
                     "sale_order_id": sale_order["id"],
-                    "payment_type": payment_type,
-                    "shift_id": shift["id"] if shift else None,
-                    "amount": amount,
-                    "paid_at": timezone.now(),
-                    "reference_number": payment.get("reference_number") or "",
-                    "note": payment.get("note") or payment.get("reference_number") or "",
+                    "identifier": payment_type,
+                    "value": amount,
                 },
                 request=request,
                 tenant_config=True,
@@ -622,7 +613,7 @@ class SalePaymentService:
 
             if payment_type == "cash-payment" and shift:
                 cash_paid_amount += amount
-                SaleRegisterService.recordCashSalePayment(sale_order, sale_payment, shift, amount, request)
+                SaleRegisterService.recordCashOrderPayment(sale_order, order_payment, shift, amount, request)
             elif payment_type == "account-payment":
                 SaleCustomerAccountService.applyAccountPayment(customer, sale_order, amount, payment.get("note"), request)
 
@@ -758,6 +749,7 @@ class SaleDraftService:
         total_quantity = sum((quantity(item.get("quantity")) for item in items), Decimal("0"))
         return {
             **draft,
+            "draft_status": "held" if draft.get("payment_status") == "hold" else draft.get("payment_status"),
             "customer": customer,
             "coupon_codes": snapshot.get("coupon_codes") or [],
             "payments": snapshot.get("payments") or [],
@@ -1122,7 +1114,7 @@ class SaleReturnValidationService:
 
 class SaleRefundService:
     @staticmethod
-    def updateSalePaymentStatus(sale_order_id, request):
+    def updateOrderPaymentStatus(sale_order_id, request):
         sale_order = commonQuery.findOneRecord(SaleOrder, sale_order_id, request=request, tenant_config=True)
         if sale_order is None:
             return None
@@ -1257,17 +1249,10 @@ class SaleRefundService:
 
         payment_type = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
         shift = getCurrentShift(request, data.get("shift_id"), required=bool(settings.enable_cash_registers and payment_type == "cash-payment"))
-        refund_payment = commonQuery.createRecord(
-            RefundPayment,
-            {
-                "return_order_id": return_order["id"],
-                "payment_type": payment_type,
-                "shift_id": shift["id"] if shift else None,
-                "amount": total,
-                "refunded_at": timezone.now(),
-                "reference_number": data.get("reference_number") or "",
-                "note": data.get("note") or "",
-            },
+        return_order = commonQuery.updateRecordById(
+            ReturnOrder,
+            return_order["id"],
+            {"payment_method": payment_type},
             request=request,
             tenant_config=True,
         )
@@ -1290,8 +1275,8 @@ class SaleRefundService:
                     "amount": total,
                     "balance_before": balance_before,
                     "balance_after": balance_after,
-                    "reference_type": "refund_payment",
-                    "reference_id": refund_payment["id"],
+                    "reference_type": "return_order",
+                    "reference_id": return_order["id"],
                     "note": data.get("note") or f"Refund for sale {sale_order['code']}",
                 },
                 request=request,
@@ -1304,7 +1289,7 @@ class SaleRefundService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required for account refund.")
             SaleRefundService.creditCustomerAccount(customer, sale_order, total, data.get("note"), request)
 
-        return {"refund_payment": refund_payment, "difference_amount": Decimal("0")}
+        return {"refund_payment": None, "difference_amount": Decimal("0")}
 
 
 class SaleService:
@@ -1406,17 +1391,14 @@ class SaleService:
             item["refundable_quantity"] = max(sold_qty - refunded_qty, Decimal("0"))
 
         payments = commonQuery.findAllRecords(
-            SalePayment,
+            OrderPayment,
             {"sale_order_id": sale_order_id},
             {
                 "attributes": [
                     "id",
-                    "payment_type",
-                    "shift_id",
-                    "amount",
-                    "paid_at",
-                    "reference_number",
-                    "note",
+                    "identifier",
+                    "value",
+                    "created_at",
                 ],
                 "order": ["id"],
             },
@@ -1457,6 +1439,7 @@ class SaleService:
                     "subtotal",
                     "tax_amount",
                     "total",
+                    "payment_method",
                     "note",
                     "created_at",
                 ],
@@ -1484,27 +1467,9 @@ class SaleService:
                 request=request,
                 tenant_config=True,
             )
-            refund["payments"] = commonQuery.findAllRecords(
-                RefundPayment,
-                {"return_order_id": refund["id"]},
-                {
-                    "attributes": [
-                        "id",
-                        "payment_type",
-                        "shift_id",
-                        "amount",
-                        "refunded_at",
-                        "reference_number",
-                        "note",
-                    ],
-                    "order": ["id"],
-                },
-                request=request,
-                tenant_config=True,
-            )
 
         totals = {
-            "paid_amount": sum((money(payment.get("amount")) for payment in payments), Decimal("0")),
+            "paid_amount": sum((money(payment.get("value")) for payment in payments), Decimal("0")),
             "refunded_amount": sum((money(refund.get("total")) for refund in refunds), Decimal("0")),
         }
 
@@ -1586,12 +1551,13 @@ class SaleService:
         customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
         prepared = SaleDraftService.buildDraftItems(data.get("items") or [], request)
         draft = commonQuery.createRecord(
-            CartDraft,
+            SaleOrder,
             {
                 "customer_id": customer["id"] if customer else None,
                 "cashier_id": request.user.id,
-                "code": buildCode(CartDraft, "hold-cart", data.get("code"), request),
-                "draft_status": "held",
+                "code": buildCode(SaleOrder, "hold-cart", data.get("code"), request),
+                "order_type": data.get("order_type") or "takeaway",
+                "payment_status": "hold",
                 "subtotal": prepared["subtotal"],
                 "total": prepared["subtotal"],
                 "note": json.dumps(
@@ -1617,10 +1583,10 @@ class SaleService:
     def listHeldCarts(data, request):
         filters = dict(data or {})
         filter_data = dict(filters.get("filter") or {})
-        filter_data["draft_status"] = "held"
+        filter_data["payment_status"] = "hold"
         filters["filter"] = filter_data
         result = commonQuery.fetchPaginatedData(
-            CartDraft,
+            SaleOrder,
             filters,
             [["code", True, True], ["customer__name", True, False], ["cashier__full_name", True, False]],
             {
@@ -1631,7 +1597,7 @@ class SaleService:
                     "customer__name",
                     "cashier_id",
                     "cashier__full_name",
-                    "draft_status",
+                    "payment_status",
                     "subtotal",
                     "total",
                     "note",
@@ -1648,12 +1614,12 @@ class SaleService:
     @staticmethod
     def getHeldCart(draft_id, request):
         draft = commonQuery.findOneRecord(
-            CartDraft,
+            SaleOrder,
             draft_id,
             request=request,
             tenant_config=True,
         )
-        if draft is None or draft.get("draft_status") != "held":
+        if draft is None or draft.get("payment_status") != "hold":
             raise api_error(404, ErrorCodes.NOT_FOUND, "Held cart not found.")
         return successResponse(
             "Held cart retrieved successfully.",
@@ -1663,7 +1629,7 @@ class SaleService:
     @staticmethod
     def deleteHeldCart(draft_id, request):
         draft = commonQuery.findOneRecord(
-            CartDraft,
+            SaleOrder,
             draft_id,
             request=request,
             tenant_config=True,
@@ -1671,7 +1637,7 @@ class SaleService:
         if draft is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Held cart not found.")
         commonQuery.updateRecordById(
-            CartDraft,
+            SaleOrder,
             draft_id,
             {"status": 2, "deleted_at": timezone.now()},
             request=request,
@@ -1742,7 +1708,7 @@ class SaleService:
                 request,
             )
             total -= coupon_result["discount_amount"]
-            payment_summary = SalePaymentService.applyPayments(
+            payment_summary = OrderPaymentService.applyPayments(
                 sale_order,
                 data.get("payments") or [],
                 shift,
@@ -1836,16 +1802,16 @@ class SaleService:
 
             if data.get("draft_id"):
                 draft = commonQuery.findOneRecord(
-                    CartDraft,
+                    SaleOrder,
                     data["draft_id"],
                     request=request,
                     tenant_config=True,
                 )
-                if draft:
+                if draft and draft.get("payment_status") == "hold":
                     commonQuery.updateRecordById(
-                        CartDraft,
+                        SaleOrder,
                         draft["id"],
-                        {"draft_status": "converted"},
+                        {"status": 2, "deleted_at": timezone.now()},
                         request=request,
                         tenant_config=True,
                     )
@@ -1872,13 +1838,13 @@ class SaleService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Refunded sale cannot be voided.")
 
             payments = commonQuery.findAllRecords(
-                SalePayment,
+                OrderPayment,
                 {"sale_order_id": sale_order_id},
-                {"attributes": ["id", "amount"]},
+                {"attributes": ["id", "value"]},
                 request=request,
                 tenant_config=True,
             )
-            paid_amount = sum((money(payment.get("amount")) for payment in payments), Decimal("0"))
+            paid_amount = sum((money(payment.get("value")) for payment in payments), Decimal("0"))
             if paid_amount > 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid sale cannot be voided. Use refund flow instead.")
 
@@ -1943,7 +1909,7 @@ class SaleService:
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
-            payment_summary = SalePaymentService.collectDuePayments(
+            payment_summary = OrderPaymentService.collectDuePayments(
                 sale_order,
                 data.get("payments") or [],
                 shift,
@@ -2222,7 +2188,7 @@ class SaleService:
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
-            SalePaymentService.collectDuePayments(
+            OrderPaymentService.collectDuePayments(
                 sale_order,
                 [
                     {
@@ -2367,7 +2333,7 @@ class SaleService:
                 settings,
                 request,
             )
-            updated_sale = SaleRefundService.updateSalePaymentStatus(sale_order["id"], request)
+            updated_sale = SaleRefundService.updateOrderPaymentStatus(sale_order["id"], request)
             AccountingService.reflectEvent(
                 "order_refunded",
                 prepared["total"],
@@ -2431,22 +2397,6 @@ class SaleService:
                         "unit_price",
                         "total",
                         "condition",
-                    ],
-                },
-                request=request,
-                tenant_config=True,
-            )
-            refund["payments"] = commonQuery.findAllRecords(
-                RefundPayment,
-                {"return_order_id": refund["id"]},
-                {
-                    "attributes": [
-                        "id",
-                        "payment_type",
-                        "amount",
-                        "refunded_at",
-                        "reference_number",
-                        "note",
                     ],
                 },
                 request=request,

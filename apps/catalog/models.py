@@ -11,6 +11,7 @@ class ScaleRange(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "scale_ranges"
         ordering = ["name"]
 
     def __str__(self):
@@ -29,6 +30,7 @@ class Category(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "products_categories"
         ordering = ["position", "name"]
 
     def __str__(self):
@@ -40,6 +42,7 @@ class UnitGroup(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "units_groups"
         ordering = ["name"]
 
     def __str__(self):
@@ -56,6 +59,7 @@ class Unit(TenantAwareModel):
     base_unit = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "units"
         ordering = ["name"]
         unique_together = [("branch", "identifier")]
 
@@ -68,6 +72,7 @@ class TaxGroup(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "taxes_groups"
         ordering = ["name"]
 
     def __str__(self):
@@ -81,6 +86,7 @@ class Tax(TenantAwareModel):
     tax_group = models.ForeignKey(TaxGroup, on_delete=models.CASCADE, related_name="taxes")
 
     class Meta:
+        db_table = "taxes"
         ordering = ["name"]
 
     def __str__(self):
@@ -130,6 +136,7 @@ class Product(TenantAwareModel):
     pinned = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "products"
         ordering = ["position", "name"]
         unique_together = [("branch", "sku"), ("branch", "barcode")]
 
@@ -146,6 +153,7 @@ class ProductGallery(TenantAwareModel):
     featured = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "products_galleries"
         ordering = ["order", "id"]
 
     def __str__(self):
@@ -184,6 +192,7 @@ class ProductUnitQuantity(TenantAwareModel):
     cogs = models.FloatField(default=0)
 
     class Meta:
+        db_table = "products_unit_quantities"
         ordering = ["id"]
         unique_together = [("product", "unit")]
 
@@ -200,6 +209,7 @@ class ProductTax(TenantAwareModel):
     value = models.FloatField(default=0)
 
     class Meta:
+        db_table = "products_taxes"
         ordering = ["name"]
 
     def __str__(self):
@@ -241,6 +251,7 @@ class ProductHistory(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "products_histories"
         ordering = ["-created_at"]
 
     def __str__(self):
@@ -259,6 +270,7 @@ class ProductHistoryCombined(TenantAwareModel):
     final_quantity = models.FloatField(default=0)
 
     class Meta:
+        db_table = "products_histories_combined"
         ordering = ["-date", "name"]
 
     def __str__(self):
@@ -275,6 +287,7 @@ class ProductSubItem(TenantAwareModel):
     total_price = models.FloatField(default=0)
 
     class Meta:
+        db_table = "products_subitems"
         ordering = ["id"]
 
     def __str__(self):
@@ -287,6 +300,7 @@ class ProductMeta(TenantAwareModel):
     value = models.TextField(blank=True)
 
     class Meta:
+        db_table = "products_metas"
         ordering = ["key"]
         unique_together = [("product", "key")]
 

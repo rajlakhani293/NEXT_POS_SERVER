@@ -21,8 +21,7 @@ from apps.common.helpers import (
 )
 from apps.common.responses import successResponse
 from apps.notifications.services import NotificationService
-from apps.payments.services import PaymentTypeService
-from apps.purchases.models import PurchaseItem, PurchaseOrder, PurchasePayment, Supplier
+from apps.purchases.models import PurchaseItem, PurchaseOrder, Supplier
 
 
 class SupplierService:
@@ -241,24 +240,18 @@ class PurchaseOrderService:
             request=request,
             tenant_config=True,
         )
-        payments = commonQuery.findAllRecords(
-            PurchasePayment,
-            {"purchase_order_id": order_id},
-            {"attributes": ["id", "payment_type", "amount", "paid_at", "reference_number", "note"], "order": ["-paid_at", "-id"]},
-            request=request,
-            tenant_config=True,
-        )
         if provider:
             provider["name"] = SupplierService.displayName(provider)
+        is_paid = order.get("payment_status") == "paid"
+        total_value = money(order.get("value"))
         order["provider"] = provider
         order["supplier"] = provider
         order["products"] = products
         order["items"] = products
-        order["payments"] = payments
-        order["due_amount"] = max(money(order.get("value")) - sum((money(payment.get("amount")) for payment in payments), Decimal("0")), Decimal("0"))
+        order["due_amount"] = Decimal("0") if is_paid else total_value
         order["code"] = order.get("name")
         order["total"] = order.get("value")
-        order["paid_amount"] = max(money(order.get("value")) - order["due_amount"], Decimal("0"))
+        order["paid_amount"] = total_value if is_paid else Decimal("0")
         order["workflow_status"] = order.get("delivery_status")
         return order
 
@@ -490,47 +483,6 @@ class PurchaseOrderService:
             return successResponse("Procurement received successfully.", data={**updated, "received_quantity": received_now})
 
     @staticmethod
-    def pay(order_id, data, request):
-        amount = money(data.get("amount"))
-        if amount <= 0:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment amount must be greater than 0.")
-        data["payment_type"] = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
-        with transaction.atomic():
-            procurement = commonQuery.findOneRecord(PurchaseOrder, order_id, request=request, tenant_config=True)
-            if procurement is None:
-                raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
-            payment = commonQuery.createRecord(
-                PurchasePayment,
-                {
-                    "purchase_order_id": order_id,
-                    "amount": amount,
-                    "paid_at": data.get("paid_at") or timezone.now(),
-                    "payment_type": data.get("payment_type") or "cash-payment",
-                    "reference_number": data.get("reference_number") or "",
-                    "note": data.get("note") or "",
-                },
-                request=request,
-                tenant_config=True,
-            )
-            paid_total = sum((money(row.amount) for row in PurchasePayment.objects.filter(purchase_order_id=order_id, status__in=[0, 1])), Decimal("0"))
-            payment_status = "paid" if paid_total >= money(procurement.get("value")) else "unpaid"
-            commonQuery.updateRecordById(PurchaseOrder, order_id, {"payment_status": payment_status}, request=request, tenant_config=True)
-            Supplier.objects.filter(id=procurement["provider_id"]).update(amount_due=F("amount_due") - float(amount), amount_paid=F("amount_paid") + float(amount))
-            AccountingService.reflectEvent(
-                "procurement_from_unpaid_to_paid",
-                amount,
-                name=f"Procurement payment {procurement['name']}",
-                transaction_type="expense",
-                source_type="purchase",
-                source_id=order_id,
-                transaction_date=data.get("paid_at") or timezone.now(),
-                description=data.get("note") or "Procurement payment",
-                reference_number=data.get("reference_number") or "",
-                request=request,
-            )
-            return successResponse("Procurement payment recorded successfully.", data=payment)
-
-    @staticmethod
     def getOrderProducts(order_id, request):
         procurement = PurchaseOrderService.orderDetail(order_id, request)
         return successResponse("Procurement products retrieved successfully.", data=procurement.get("products") or [])
@@ -572,12 +524,15 @@ class PurchaseOrderService:
 
     @staticmethod
     def setAsPaid(order_id, request):
-        procurement = PurchaseOrderService.orderDetail(order_id, request)
-        due_amount = money(procurement.get("due_amount"))
-        if due_amount <= 0:
-            return successResponse("Procurement is already paid.", data=procurement)
-        PurchaseOrderService.pay(order_id, {"amount": due_amount, "paid_at": timezone.now(), "payment_type": "cash-payment", "reference_number": "", "note": "Set as paid from procurement action."}, request)
-        return successResponse("Procurement marked as paid successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+        return PurchaseOrderService.changePaymentStatus(
+            order_id,
+            {
+                "payment_status": "paid",
+                "reference_number": "",
+                "note": "Set as paid from procurement action.",
+            },
+            request,
+        )
 
     @staticmethod
     def changePaymentStatus(order_id, data, request):
@@ -589,9 +544,30 @@ class PurchaseOrderService:
         current_paid = money(procurement.get("paid_amount"))
         diff = target_paid - current_paid
         with transaction.atomic():
-            commonQuery.updateRecordById(PurchaseOrder, order_id, {"payment_status": payment_status}, request=request, tenant_config=True)
             if diff > 0:
-                PurchaseOrderService.pay(order_id, {"amount": diff, "payment_type": data.get("payment_type"), "reference_number": data.get("reference_number"), "note": data.get("note")}, request)
+                Supplier.objects.filter(id=procurement["provider_id"]).update(
+                    amount_due=F("amount_due") - float(diff),
+                    amount_paid=F("amount_paid") + float(diff),
+                )
+                AccountingService.reflectEvent(
+                    "procurement_from_unpaid_to_paid",
+                    diff,
+                    name=f"Procurement payment {procurement['name']}",
+                    transaction_type="expense",
+                    source_type="purchase",
+                    source_id=order_id,
+                    transaction_date=timezone.now(),
+                    description=data.get("note") or "Procurement payment",
+                    reference_number=data.get("reference_number") or "",
+                    request=request,
+                )
+            elif diff < 0:
+                reverse_amount = abs(diff)
+                Supplier.objects.filter(id=procurement["provider_id"]).update(
+                    amount_due=F("amount_due") + float(reverse_amount),
+                    amount_paid=F("amount_paid") - float(reverse_amount),
+                )
+            commonQuery.updateRecordById(PurchaseOrder, order_id, {"payment_status": payment_status}, request=request, tenant_config=True)
         return successResponse("Payment status updated successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
 
     @staticmethod

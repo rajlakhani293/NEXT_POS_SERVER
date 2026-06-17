@@ -375,17 +375,15 @@ class AccountsService:
 
         ordered_labels = [
             "sales.ExchangeOrderLink",
-            "payments.RefundPayment",
             "sales.ReturnItem",
             "sales.ReturnOrder",
-            "payments.SalePayment",
+            "sales.OrderPayment",
             "promotions.AppliedCoupon",
             "sales.InstallmentLine",
             "sales.InstallmentPlan",
             "sales.SaleItem",
             "sales.SaleOrder",
             "sales.CartDraft",
-            "purchases.PurchasePayment",
             "purchases.PurchaseItem",
             "purchases.PurchaseOrder",
             "registers.CashRegisterEntry",

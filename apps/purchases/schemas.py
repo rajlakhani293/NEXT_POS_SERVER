@@ -81,14 +81,6 @@ class PurchaseReceiveIn(Schema):
     note: str = ""
 
 
-class PurchasePaymentIn(Schema):
-    amount: Decimal
-    paid_at: Optional[str] = None
-    payment_type: str = "cash-payment"
-    reference_number: str = ""
-    note: str = ""
-
-
 class PurchaseItemUpdateIn(Schema):
     product_id: Optional[int] = None
     unit_id: Optional[int] = None
@@ -115,9 +107,7 @@ class PurchaseProductsBulkUpdateIn(Schema):
     products: List[PurchaseProductBulkUpdateItemIn] = Field(default_factory=list)
 
 
-class PurchasePaymentStatusIn(Schema):
+class PurchaseStatusIn(Schema):
     payment_status: str
-    amount: Optional[Decimal] = None
-    payment_type: str = "cash-payment"
     reference_number: str = ""
     note: str = ""

@@ -2,7 +2,6 @@
 
 from django.db import migrations, models
 import django.db.models.deletion
-import uuid
 
 
 class Migration(migrations.Migration):
@@ -68,28 +67,6 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "providers",
                 "ordering": ["first_name"],
-            },
-        ),
-        migrations.CreateModel(
-            name="PurchasePayment",
-            fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("created_at", models.DateTimeField(auto_now_add=True)),
-                ("updated_at", models.DateTimeField(auto_now=True)),
-                ("uuid", models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
-                ("status", models.IntegerField(choices=[(0, "Active"), (1, "Deactive"), (2, "Delete")], default=0, help_text="0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.")),
-                ("deleted_at", models.DateTimeField(blank=True, null=True)),
-                ("payment_type", models.CharField(default="cash-payment", max_length=80)),
-                ("amount", models.DecimalField(decimal_places=2, max_digits=12)),
-                ("paid_at", models.DateTimeField()),
-                ("reference_number", models.CharField(blank=True, max_length=120)),
-                ("note", models.TextField(blank=True)),
-                ("branch", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.branch")),
-                ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.company")),
-                ("purchase_order", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="payments", to="purchases.purchaseorder")),
-            ],
-            options={
-                "db_table": "purchase_payments",
             },
         ),
         migrations.AddField(

@@ -1,13 +1,12 @@
 # type: ignore
 from django.db import transaction
 from django.utils.text import slugify
-
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance, validateUniqueFields
 from apps.common.responses import successResponse
-from apps.payments.models import DEFAULT_PAYMENT_TYPES, LEGACY_PAYMENT_TYPE_ALIASES, PaymentType, paymentTypeValues
+from apps.payments.models import DEFAULT_PAYMENT_TYPES, PaymentType, paymentTypeValues
 
 
 class PaymentTypeService:
@@ -26,15 +25,15 @@ class PaymentTypeService:
                 defaults={
                     "label": item["label"],
                     "description": item["description"],
-                    "is_system": True,
+                    "readonly": True,
                     "sort_order": item["sort_order"],
                     "status": 0,
                 },
             )
             update_fields = []
-            if not payment_type.is_system:
-                payment_type.is_system = True
-                update_fields.append("is_system")
+            if not payment_type.readonly:
+                payment_type.readonly = True
+                update_fields.append("readonly")
             if payment_type.sort_order != item["sort_order"] and created:
                 payment_type.sort_order = item["sort_order"]
                 update_fields.append("sort_order")
@@ -42,19 +41,13 @@ class PaymentTypeService:
                 payment_type.save(update_fields=update_fields)
             seeded.append(serializeModelInstance(payment_type))
 
-        PaymentType.objects.filter(
-            company_id=company.id,
-            branch_id=branch.id,
-            identifier__in=LEGACY_PAYMENT_TYPE_ALIASES.keys(),
-            is_system=True,
-        ).update(status=2)
         return seeded
 
     @staticmethod
     def resolvePaymentType(identifier, request, required=True):
         normalized = PaymentTypeService.normalizeIdentifier(
-            LEGACY_PAYMENT_TYPE_ALIASES.get(identifier, identifier) or "",
-            LEGACY_PAYMENT_TYPE_ALIASES.get(identifier, identifier) or "",
+            identifier or "",
+            identifier or "",
         )
         if not normalized:
             if required:
@@ -95,7 +88,7 @@ class PaymentTypeService:
             data,
             field_config,
             {
-                "attributes": ["id", "label", "identifier", "description", "is_system", "sort_order", "status"],
+                "attributes": ["id", "label", "identifier", "description", "readonly", "sort_order", "status"],
                 "order": ["sort_order", "label"],
             },
             request=request,
@@ -126,7 +119,7 @@ class PaymentTypeService:
             {
                 **data,
                 "identifier": identifier,
-                "is_system": False,
+                "readonly": False,
                 "sort_order": max(int(data.get("sort_order") or 0), 0),
             },
             request=request,
@@ -158,7 +151,7 @@ class PaymentTypeService:
             if payment_type is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Payment type not found.")
 
-            if payment_type.is_system:
+            if payment_type.readonly:
                 identifier = payment_type.identifier
                 validateUniqueFields(
                     PaymentType,
@@ -199,7 +192,7 @@ class PaymentTypeService:
                 {
                     **data,
                     "identifier": identifier,
-                    "is_system": payment_type.is_system,
+                    "readonly": payment_type.readonly,
                     "sort_order": max(int(data.get("sort_order") or 0), 0),
                 },
                 request=request,
@@ -217,7 +210,7 @@ class PaymentTypeService:
             id__in=ids,
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
-            is_system=True,
+            readonly=True,
         ).exists():
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Default payment types cannot be deleted.")
         count = commonQuery.softDeleteById(
@@ -239,7 +232,7 @@ class PaymentTypeService:
             id__in=ids,
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
-            is_system=True,
+            readonly=True,
         ).exists():
             raise api_error(
                 400,
