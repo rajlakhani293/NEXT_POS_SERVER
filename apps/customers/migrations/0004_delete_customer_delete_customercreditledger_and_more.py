@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         ('organizations', '0001_initial'),
         ('accounts', '0006_user_account_amount_user_birth_date_and_more'),
         ('promotions', '0002_alter_appliedcoupon_customer_coupon_and_more'),
-        ('sales', '0002_alter_cartdraft_customer_alter_returnorder_customer_and_more'),
+        ('sales', '0001_initial'),
         ('customers', '0003_customercoupon_customerreward_remove_customer_branch_and_more'),
     ]
 

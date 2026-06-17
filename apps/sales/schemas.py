@@ -74,20 +74,20 @@ class SaleStatusUpdateIn(Schema):
     note: str = ""
 
 
-class InstallmentLineCreateIn(Schema):
+class OrderInstalmentCreateIn(Schema):
     due_date: str
     amount: Decimal
 
 
-class InstallmentPlanCreateIn(Schema):
+class OrderInstalmentsCreateIn(Schema):
     total_installments: int = 0
     total_amount: Decimal = Decimal("0")
     minimum_first_payment: Decimal = Decimal("0")
     final_payment_date: Optional[str] = None
-    lines: List[InstallmentLineCreateIn] = Field(default_factory=list)
+    lines: List[OrderInstalmentCreateIn] = Field(default_factory=list)
 
 
-class InstallmentLineUpdateIn(Schema):
+class OrderInstalmentUpdateIn(Schema):
     due_date: Optional[str] = None
     amount: Optional[Decimal] = None
 

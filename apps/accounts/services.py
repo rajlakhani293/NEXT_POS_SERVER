@@ -374,16 +374,13 @@ class AccountsService:
         blocked_labels = {}
 
         ordered_labels = [
-            "sales.ExchangeOrderLink",
             "sales.ReturnItem",
             "sales.ReturnOrder",
             "sales.OrderPayment",
             "promotions.AppliedCoupon",
-            "sales.InstallmentLine",
-            "sales.InstallmentPlan",
+            "sales.OrderInstalment",
             "sales.SaleItem",
             "sales.SaleOrder",
-            "sales.CartDraft",
             "purchases.PurchaseItem",
             "purchases.PurchaseOrder",
             "registers.CashRegisterEntry",

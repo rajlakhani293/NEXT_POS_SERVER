@@ -4,9 +4,9 @@ from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
 from apps.sales.schemas import (
-    InstallmentLineUpdateIn,
     InstallmentPayIn,
-    InstallmentPlanCreateIn,
+    OrderInstalmentUpdateIn,
+    OrderInstalmentsCreateIn,
     SaleCollectDueIn,
     SaleCreateIn,
     SaleHoldIn,
@@ -107,7 +107,7 @@ def getSaleInstallments(request, sale_order_id: int):
 
 @router.post("/{sale_order_id}/instalments", response=ApiResponse)
 @permission_required("sales_update")
-def createSaleInstallments(request, sale_order_id: int, payload: InstallmentPlanCreateIn):
+def createSaleInstallments(request, sale_order_id: int, payload: OrderInstalmentsCreateIn):
     return SaleService.createInstallments(sale_order_id, payload.dict(), request)
 
 
@@ -117,7 +117,7 @@ def updateSaleInstallment(
     request,
     sale_order_id: int,
     installment_id: int,
-    payload: InstallmentLineUpdateIn,
+    payload: OrderInstalmentUpdateIn,
 ):
     return SaleService.updateInstallment(sale_order_id, installment_id, payload.dict(exclude_none=True), request)
 

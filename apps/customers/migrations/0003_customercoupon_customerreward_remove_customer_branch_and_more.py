@@ -9,7 +9,7 @@ import uuid
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('sales', '0002_alter_cartdraft_customer_alter_returnorder_customer_and_more'),
+        ('sales', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ('customers', '0002_initial'),
     ]
