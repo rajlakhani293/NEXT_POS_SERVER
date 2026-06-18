@@ -16,6 +16,7 @@ from apps.catalog.models import (
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
+from apps.common.domainActions import DomainActionService
 from apps.common.helpers import buildSku, decimalValue, saveProductImage, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.common.tenantDefaults import DEFAULT_SCALE_RANGES
@@ -478,6 +479,7 @@ class ProductService:
                     request=request,
                     tenant_config=True,
                 )
+            DomainActionService.afterProductCreated(product, request)
             product = ProductService.attachDisplayData(dict(product), request)
             return successResponse("Product created successfully.", data=product)
 
@@ -521,6 +523,7 @@ class ProductService:
                     request=request,
                     tenant_config=True,
                 )
+            DomainActionService.afterProductUpdated(product, updated, request)
             updated = ProductService.attachDisplayData(dict(updated), request)
             return successResponse("Product updated successfully.", data=updated)
 

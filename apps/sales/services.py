@@ -20,7 +20,7 @@ from apps.common.helpers import (
     jsonsafe,
 )
 from apps.common.responses import successResponse
-from apps.common.tenantDefaults import ensureOrderSettings
+from apps.common.domainActions import DomainActionService
 from apps.customers.models import (
     Customer,
     CustomerAccountHistory,
@@ -1533,7 +1533,6 @@ class SaleService:
                 request=request,
                 tenant_config=True,
             )
-            ensureOrderSettings(Order.objects.get(id=sale_order["id"]), request)
 
             subtotal = Decimal("0")
             total_quantity = Decimal("0")
@@ -1664,6 +1663,8 @@ class SaleService:
                         request=request,
                         tenant_config=True,
                     )
+
+            DomainActionService.afterSaleCreated(sale_order, request)
 
             return successResponse(
                 "Sale created successfully.",
