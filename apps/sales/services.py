@@ -449,6 +449,7 @@ class SaleCouponService:
                     "coupon_id": coupon["id"],
                     "customer_coupon_id": issued_coupon["id"] if issued_coupon else None,
                     "code": code,
+                    "name": coupon.get("name") or code,
                     "type": coupon["type"],
                     "discount_value": coupon["discount_value"],
                     "discount_amount": discount_amount,
@@ -1187,8 +1188,8 @@ class SaleService:
                     "payment_status",
                     "subtotal",
                     "discount_amount",
-                    "coupon_discount_amount",
-                    "shipping_amount",
+                    "total_coupons",
+                    "shipping",
                     "tax_amount",
                     "total",
                     "tendered_amount",
@@ -1381,8 +1382,8 @@ class SaleService:
             "register_id": sale_data.get("register_id"),
             "subtotal": sale_data.get("subtotal"),
             "discount_amount": sale_data.get("discount_amount"),
-            "coupon_discount_amount": sale_data.get("coupon_discount_amount"),
-            "shipping_amount": sale_data.get("shipping_amount"),
+            "total_coupons": sale_data.get("total_coupons"),
+            "shipping": sale_data.get("shipping"),
             "tax_amount": sale_data.get("tax_amount"),
             "total": sale_data.get("total"),
             "tendered_amount": sale_data.get("tendered_amount"),
@@ -1520,8 +1521,8 @@ class SaleService:
                     "payment_status": "unpaid",
                     "discount_amount": data.get("discount_amount") or 0,
                     "discount_percentage": data.get("discount_percentage") or 0,
-                    "coupon_discount_amount": data.get("coupon_discount_amount") or 0,
-                    "shipping_amount": data.get("shipping_amount") or 0,
+                    "total_coupons": data.get("total_coupons") or 0,
+                    "shipping": data.get("shipping") or 0,
                     "tax_amount": data.get("tax_amount") or 0,
                     "tendered_amount": data.get("tendered_amount") or 0,
                     "note": data.get("note") or "",
@@ -1544,7 +1545,7 @@ class SaleService:
             total = (
                 subtotal
                 - money(data.get("discount_amount"))
-                + money(data.get("shipping_amount"))
+                + money(data.get("shipping"))
             )
             coupon_result = SaleCouponService.applyCoupons(
                 sale_order,
@@ -1589,7 +1590,7 @@ class SaleService:
                     "total": total,
                     "tendered_amount": paid_amount,
                     "change_amount": change_amount,
-                    "coupon_discount_amount": coupon_result["discount_amount"],
+                    "total_coupons": coupon_result["discount_amount"],
                     "payment_status": payment_status,
                     "final_payment_date": timezone.now() if due_amount == 0 else None,
                 },

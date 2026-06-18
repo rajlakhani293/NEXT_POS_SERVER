@@ -28,8 +28,8 @@ class SaleCreateIn(Schema):
     order_type: str = "takeaway"
     discount_amount: Decimal = Decimal("0")
     discount_percentage: Decimal = Decimal("0")
-    coupon_discount_amount: Decimal = Decimal("0")
-    shipping_amount: Decimal = Decimal("0")
+    total_coupons: Decimal = Decimal("0")
+    shipping: Decimal = Decimal("0")
     tax_amount: Decimal = Decimal("0")
     tendered_amount: Decimal = Decimal("0")
     note: str = ""

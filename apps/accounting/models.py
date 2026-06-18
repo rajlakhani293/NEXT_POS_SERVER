@@ -64,7 +64,9 @@ class TransactionHistory(TenantAwareModel):
 
     transaction = models.ForeignKey(Transaction, on_delete=models.CASCADE, null=True, blank=True, related_name="histories")
     operation = models.CharField(max_length=10, choices=OPERATION_TYPES, default=OPERATION_DEBIT)
-    transaction_account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, related_name="histories")
+    is_reflection = models.BooleanField(default=False)
+    reflection_source_id = models.PositiveBigIntegerField(blank=True, null=True)
+    transaction_account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, null=True, blank=True, related_name="histories")
     rule = models.ForeignKey(
         "TransactionActionRule",
         on_delete=models.SET_NULL,
@@ -74,17 +76,20 @@ class TransactionHistory(TenantAwareModel):
     )
     procurement_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_refund_id = models.PositiveBigIntegerField(blank=True, null=True)
+    order_payment_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_refund_product_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_product_id = models.PositiveBigIntegerField(blank=True, null=True)
     register_history_id = models.PositiveBigIntegerField(blank=True, null=True)
     customer_account_history_id = models.PositiveBigIntegerField(blank=True, null=True)
-    name = models.CharField(max_length=180, blank=True)
+    name = models.CharField(max_length=180)
     type = models.CharField(max_length=80, blank=True)
-    value = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    transaction_status = models.CharField(max_length=30, default=STATUS_PENDING_TEXT, db_column="transaction_status")
+    value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     trigger_date = models.DateTimeField(blank=True, null=True)
 
     class Meta:
+        db_table = "transactions_histories"
         ordering = ["-created_at", "-id"]
 
     def __str__(self):

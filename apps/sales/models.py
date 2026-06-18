@@ -1,7 +1,10 @@
 # type: ignore
 from django.db import models
 from apps.common.models import TenantAwareModel
-
+from apps.catalog.models import TaxGroup, Product, Unit, ProductUnitQuantity, Category
+from apps.accounts.models import User
+from apps.registers.models import Register
+from apps.purchases.models import ProcurementsProduct
 
 class Order(TenantAwareModel):
     PAYMENT_STATUSES = [
@@ -21,38 +24,37 @@ class Order(TenantAwareModel):
     description = models.TextField(blank=True, null=True)
     code = models.CharField(max_length=50)
     title = models.CharField(max_length=255, blank=True, null=True)
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPES, default="takeaway", db_column="type")
     payment_status = models.CharField(max_length=30, choices=PAYMENT_STATUSES, default="unpaid")
     process_status = models.CharField(max_length=30, blank=True)
     delivery_status = models.CharField(max_length=30, blank=True)
-    order_type = models.CharField(max_length=20, choices=ORDER_TYPES, default="takeaway", db_column="type")
     discount_type = models.CharField(max_length=30, blank=True, null=True)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="discount")
     support_instalments = models.BooleanField(default=False)
     discount_percentage = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-    shipping_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="shipping")
+    shipping = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     shipping_rate = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     shipping_type = models.CharField(max_length=30, blank=True, null=True)
     total_without_tax = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     total_with_tax = models.DecimalField(max_digits=14, decimal_places=5, default=0)
-    coupon_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="total_coupons")
+    total_coupons = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_cogs = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="tax_value")
     products_tax_value = models.DecimalField(max_digits=14, decimal_places=5, default=0)
-    tax_group = models.ForeignKey("catalog.TaxGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
+    tax_group = models.ForeignKey(TaxGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     tax_type = models.CharField(max_length=30, blank=True, null=True)
     tendered_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, db_column="tendered")
     change_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, db_column="change")
     final_payment_date = models.DateTimeField(blank=True, null=True)
     total_instalments = models.PositiveIntegerField(default=0)
-    customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_sale_orders")
+    customer = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_sale_orders")
     note = models.TextField(blank=True)
     note_visibility = models.CharField(max_length=30, blank=True, null=True)
-    register = models.ForeignKey("registers.Register", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
-
+    register = models.ForeignKey(Register, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     voidance_reason = models.TextField(blank=True, null=True)
-    driver = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="delivered_sale_orders", db_column="driver_id")
+    driver = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="delivered_sale_orders", db_column="driver_id")
     class Meta:
         db_table = "orders"
         unique_together = [("branch", "code")]
@@ -66,6 +68,24 @@ class OrderPayment(TenantAwareModel):
 
     class Meta:
         db_table = "orders_payments"
+
+
+class OrderCount(TenantAwareModel):
+    count = models.IntegerField()
+    date = models.DateTimeField()
+
+    class Meta:
+        db_table = "orders_count"
+        ordering = ["-date", "-id"]
+
+
+class OrderMeta(TenantAwareModel):
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="metas", db_column="order_id")
+    key = models.CharField(max_length=255)
+    value = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = "orders_metas"
 
 
 class OrderStorage(TenantAwareModel):
@@ -124,13 +144,13 @@ class OrdersProduct(TenantAwareModel):
     unit_name = models.CharField(max_length=255, blank=True, null=True)
     mode = models.CharField(max_length=30, blank=True, null=True)
     product_type = models.CharField(max_length=30, blank=True, null=True)
-    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="sale_items")
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="sale_items")
     sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items", db_column="order_id")
-    unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
-    unit_quantity = models.ForeignKey("catalog.ProductUnitQuantity", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items", db_column="unit_quantity_id")
-    product_category = models.ForeignKey("catalog.Category", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
-    procurement_product = models.ForeignKey("purchases.ProcurementsProduct", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
-    tax_group = models.ForeignKey("catalog.TaxGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
+    unit_quantity = models.ForeignKey(ProductUnitQuantity, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items", db_column="unit_quantity_id")
+    product_category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
+    procurement_product = models.ForeignKey(ProcurementsProduct, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
+    tax_group = models.ForeignKey(TaxGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     tax_type = models.CharField(max_length=30, blank=True, null=True)
     return_observations = models.TextField(blank=True, null=True)
     return_condition = models.CharField(max_length=255, blank=True, null=True)
@@ -178,11 +198,11 @@ class OrdersRefund(TenantAwareModel):
 
 
 class OrdersProductsRefund(TenantAwareModel):
-    return_order = models.ForeignKey(OrdersRefund, on_delete=models.CASCADE, related_name="items", db_column="order_refund_id")
     sale_order = models.ForeignKey(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items", db_column="order_id")
+    return_order = models.ForeignKey(OrdersRefund, on_delete=models.CASCADE, related_name="items", db_column="order_refund_id")
     sale_item = models.ForeignKey(OrdersProduct, on_delete=models.PROTECT, related_name="return_items", db_column="order_product_id")
-    product = models.ForeignKey("catalog.Product", on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
-    unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
+    product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
     unit_price = models.DecimalField(max_digits=18, decimal_places=5)
     tax_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="tax_value")
     quantity = models.DecimalField(max_digits=18, decimal_places=5)

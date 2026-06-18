@@ -12,9 +12,9 @@ class Coupon(TenantAwareModel):
     code = models.CharField(max_length=120)
     type = models.CharField(max_length=30, choices=DISCOUNT_TYPES)
     discount_value = models.DecimalField(max_digits=12, decimal_places=2)
+    valid_until = models.DateTimeField(blank=True, null=True)
     minimum_cart_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     maximum_cart_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    valid_until = models.DateTimeField(blank=True, null=True)
     valid_hours_start = models.TimeField(blank=True, null=True)
     valid_hours_end = models.TimeField(blank=True, null=True)
     limit_usage = models.PositiveIntegerField(default=0)
@@ -66,13 +66,14 @@ class OrdersCoupon(TenantAwareModel):
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_orders")
     customer_coupon_id = models.PositiveIntegerField(null=True, blank=True)
     code = models.CharField(max_length=150)
-    name = models.CharField(max_length=150, blank=True, default="")
+    name = models.CharField(max_length=150)
     type = models.CharField(max_length=30)
-    discount_value = models.DecimalField(max_digits=12, decimal_places=2)
+    discount_value = models.DecimalField(max_digits=18, decimal_places=5)
     minimum_cart_value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     maximum_cart_value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     limit_usage = models.PositiveIntegerField(default=0)
-    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="value")
+    discount_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="value")
     counted = models.BooleanField(default=False)
+
     class Meta:
         db_table = "orders_coupons"
