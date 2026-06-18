@@ -29,20 +29,57 @@ OPTION_KEY_MAP = {
     "allow_decimal_quantities": "allow_decimal_quantities",
     "quick_product_enabled": "quick_product",
     "show_quantity": "show_quantity",
-    "currency_precision": "ns_currency_precision",
+    "currency_precision": "currency_precision",
     "hide_empty_categories": "hide_empty_categories",
-    "unit_price_editable": "unit_price_ediable",
+    "unit_price_editable": "unit_price_editable",
     "order_types": "order_types",
     "default_change_payment_type": "registers_default_change_payment_type",
 }
 
 
-EXTRA_OPTION_DEFAULTS = {
-    "ns_registration_enabled": "no",
-    "ns_store_name": "NexoPOS",
-    "ns_store_language": "en",
-    "ns_scale_barcode_product_length": 4,
+STATIC_OPTION_DEFAULTS = {
+    "registration_enabled": "no",
+    "store_name": "NexoPOS",
+    "store_language": "en",
+    "allow_decimal_quantities": "yes",
+    "quick_product": "yes",
+    "show_quantity": "yes",
+    "currency_precision": 2,
+    "hide_empty_categories": "yes",
+    "unit_price_editable": "yes",
+    "order_types": ["takeaway", "delivery"],
+    "scale_barcode_product_length": 4,
+    "orders_code_type": "sequential",
+    "orders_allow_unpaid": "no",
+    "orders_allow_partial": "no",
+    "orders_strict_instalments": "no",
+    "orders_quotation_expiration": "never",
+    "customers_rewards_enabled": "no",
+    "customers_credit_enabled": "no",
+    "registers_enabled": "no",
+    "pos_preferred_price": "sale_price",
+    "pos_vat": "disabled",
+    "scale_barcode_enabled": "no",
+    "scale_barcode_prefix": "2",
 }
+
+
+DYNAMIC_OPTION_DEFAULTS = [
+    "registers_default_change_payment_type",
+    "accounting_default_paid_expense_offset_account",
+]
+
+
+DEFAULT_ORDER_SETTINGS = [
+    ("pos_preferred_price", "sale_price"),
+    ("pos_vat", "disabled"),
+    ("order_type", "takeaway"),
+    ("discount_type", ""),
+    ("discount_value", "0"),
+    ("tax_type", ""),
+    ("tax_group", ""),
+    ("note_visibility", "hidden"),
+]
 
 
 DEFAULT_PAYMENT_TYPES = [
@@ -208,6 +245,7 @@ def ensureOptionValue(company, branch, key, value, user=None):
 
 def defaultOptionRows(company, branch):
     from apps.payments.models import PaymentType
+    from apps.accounting.models import TransactionAccount
 
     payment_type = PaymentType.objects.filter(
         company_id=company.id,
@@ -215,16 +253,16 @@ def defaultOptionRows(company, branch):
         identifier="cash-payment",
         status=0,
     ).first()
+    expense_cash = TransactionAccount.objects.filter(
+        company_id=company.id,
+        branch_id=branch.id,
+        account="1004-assets-expenses-cash",
+        status=0,
+    ).first()
     return {
-        **EXTRA_OPTION_DEFAULTS,
-        "allow_decimal_quantities": "yes",
-        "quick_product": "yes",
-        "show_quantity": "yes",
-        "ns_currency_precision": 2,
-        "hide_empty_categories": "yes",
-        "unit_price_ediable": "yes",
-        "order_types": ["takeaway", "delivery"],
+        **STATIC_OPTION_DEFAULTS,
         "registers_default_change_payment_type": payment_type.id if payment_type else 1,
+        "accounting_default_paid_expense_offset_account": expense_cash.id if expense_cash else "",
     }
 
 
@@ -232,6 +270,26 @@ def ensureDefaultOptions(company, branch, user=None):
     for key, value in defaultOptionRows(company, branch).items():
         ensureOptionValue(company, branch, key, value, user=user)
     return Option.objects.filter(company=company, branch=branch)
+
+
+def ensureOrderSettings(sale_order, request):
+    from apps.sales.models import OrderSetting
+
+    sale_order.settings.all().delete()
+    settings = []
+    for key, value in DEFAULT_ORDER_SETTINGS:
+        settings.append(
+            OrderSetting(
+                user=request.user,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                sale_order=sale_order,
+                key=key,
+                value=value,
+            )
+        )
+    OrderSetting.objects.bulk_create(settings)
+    return settings
 
 
 def buildBusinessSettingsFromOptions(options):

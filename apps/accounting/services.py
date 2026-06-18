@@ -113,7 +113,7 @@ class AccountingService:
         ensureOptionValue(
             company,
             branch,
-            "ns_accounting_default_paid_expense_offset_account",
+            "accounting_default_paid_expense_offset_account",
             accounts["expense_cash"].id,
         )
 
