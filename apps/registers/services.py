@@ -9,21 +9,6 @@ from apps.registers.models import Register
 
 class RegisterService:
     @staticmethod
-    def ensureDefaultRegister(company, branch):
-        register, _created = Register.objects.get_or_create(
-            company_id=company.id,
-            branch_id=branch.id,
-            code="main-register",
-            defaults={
-                "name": "Main Register",
-                "location": "Main Branch",
-                "description": "Default cash register.",
-                "balance": 0,
-            },
-        )
-        return register
-
-    @staticmethod
     def getDefaultRegister(request):
         register = commonQuery.findOneRecord(
             Register,

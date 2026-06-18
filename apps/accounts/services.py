@@ -274,7 +274,7 @@ class AccountsService:
                 ),
                 is_head_office=True,
             )
-            TenantBootstrapService.ensureTenantDefaults(company, branch)
+            TenantBootstrapService.ensureDefaults(company, branch)
             role = Role.objects.filter(
                 company=company,
                 branch=branch,

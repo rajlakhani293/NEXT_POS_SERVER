@@ -110,7 +110,7 @@ class OrganizationsService:
             )
             company = Company.objects.get(id=user.company_id)
             branch = Branch.objects.get(id=branch_data["id"])
-            TenantBootstrapService.ensureBranchDefaults(company, branch)
+            TenantBootstrapService.ensureDefaults(company, branch)
             return branch_data
 
     @staticmethod
