@@ -1,5 +1,6 @@
 # type: ignore
 import json
+from types import SimpleNamespace
 from decimal import Decimal
 
 from django.db import transaction
@@ -38,11 +39,12 @@ from apps.sales.models import (
     OrdersProduct,
     Order,
 )
-from apps.settingsapi.services import BusinessSettingService
+from apps.settingsapi.services import OptionSettingService
 
 
-def getBusinessSettings(user):
-    return BusinessSettingService.ensureSettings(user)
+def getOptionSettings(user):
+    option = OptionSettingService.ensureSettings(user)
+    return SimpleNamespace(**OptionSettingService.optionValue(option))
 
 
 def saleDueAmount(sale_order):
@@ -1502,7 +1504,7 @@ class SaleService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one sale item is required.")
 
         with transaction.atomic():
-            settings = getBusinessSettings(request.user)
+            settings = getOptionSettings(request.user)
             shift = getCurrentRegisterContext(
                 request,
                 required=bool(settings.enable_cash_registers),
@@ -1747,7 +1749,7 @@ class SaleService:
             if not data.get("payments"):
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one payment is required.")
 
-            settings = getBusinessSettings(request.user)
+            settings = getOptionSettings(request.user)
             shift = getCurrentRegisterContext(
                 request,
                 required=bool(settings.enable_cash_registers),
@@ -1975,7 +1977,7 @@ class SaleService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installment payment must match the installment amount.")
 
         with transaction.atomic():
-            settings = getBusinessSettings(request.user)
+            settings = getOptionSettings(request.user)
             shift = getCurrentRegisterContext(
                 request,
                 required=bool(settings.enable_cash_registers),
@@ -2066,7 +2068,7 @@ class SaleService:
 
         with transaction.atomic():
             sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
-            settings = getBusinessSettings(request.user)
+            settings = getOptionSettings(request.user)
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request) if sale_order.get("customer_id") else None
             prepared = SaleReturnValidationService.validateItems(sale_order, data.get("items") or [], request)
 

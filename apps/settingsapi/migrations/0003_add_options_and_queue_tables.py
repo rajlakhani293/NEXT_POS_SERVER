@@ -8,6 +8,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+        ("organizations", "0001_initial"),
         ("settingsapi", "0002_businesssetting_allow_decimal_quantities_and_more"),
     ]
 
@@ -16,11 +17,16 @@ class Migration(migrations.Migration):
             name="FailedJob",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("status", models.IntegerField(default=0, help_text="0: Active, 1: Inactive, 2: Deleted.")),
+                ("deleted_at", models.DateTimeField(blank=True, null=True)),
                 ("connection", models.TextField()),
                 ("queue", models.TextField()),
                 ("payload", models.TextField()),
                 ("exception", models.TextField()),
                 ("failed_at", models.DateTimeField(auto_now_add=True)),
+                ("branch", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="failed_jobs", to="organizations.branch")),
+                ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="failed_jobs", to="organizations.company")),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="failed_jobs", to=settings.AUTH_USER_MODEL)),
             ],
             options={
                 "db_table": "failed_jobs",
@@ -30,12 +36,17 @@ class Migration(migrations.Migration):
             name="Job",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                ("status", models.IntegerField(default=0, help_text="0: Active, 1: Inactive, 2: Deleted.")),
+                ("deleted_at", models.DateTimeField(blank=True, null=True)),
                 ("queue", models.CharField(db_index=True, max_length=255)),
                 ("payload", models.TextField()),
                 ("attempts", models.PositiveSmallIntegerField()),
                 ("reserved_at", models.PositiveIntegerField(blank=True, null=True)),
                 ("available_at", models.PositiveIntegerField()),
                 ("created_at", models.PositiveIntegerField()),
+                ("branch", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="jobs", to="organizations.branch")),
+                ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="jobs", to="organizations.company")),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="jobs", to=settings.AUTH_USER_MODEL)),
             ],
             options={
                 "db_table": "jobs",
@@ -54,7 +65,9 @@ class Migration(migrations.Migration):
                 ("value", models.TextField(blank=True, null=True)),
                 ("expire_on", models.DateTimeField(blank=True, null=True)),
                 ("array", models.BooleanField(default=False)),
-                ("user", models.ForeignKey(blank=True, db_column="user_id", null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="options", to=settings.AUTH_USER_MODEL)),
+                ("branch", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.branch")),
+                ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.company")),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="owned_%(app_label)s_%(class)ss", to=settings.AUTH_USER_MODEL)),
             ],
             options={
                 "db_table": "options",

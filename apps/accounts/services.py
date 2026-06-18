@@ -19,7 +19,7 @@ from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance, validateUniqueFields
 from apps.common.tenantBootstrap import TenantBootstrapService
 from apps.organizations.models import Branch, Company
-from apps.settingsapi.services import BusinessSettingService
+from apps.settingsapi.services import OptionSettingService
 
 
 def normalizeRoleNamespace(value):
@@ -184,7 +184,7 @@ class AccountsService:
             "company": serializeModelInstance(company),
             "branch": serializeModelInstance(branch),
             "branch_list": branch_list,
-            "business_settings": BusinessSettingService.buildSessionSettings(user),
+            "business_settings": OptionSettingService.buildSessionSettings(user),
         }
 
     @staticmethod
@@ -428,7 +428,7 @@ class AccountsService:
             "accounting.TransactionAccount",
             "payments.PaymentType",
             "registers.Register",
-            "settingsapi.BusinessSetting",
+            "settingsapi.Option",
             "reports.DashboardDay",
             "reports.DashboardWeek",
             "reports.DashboardMonth",

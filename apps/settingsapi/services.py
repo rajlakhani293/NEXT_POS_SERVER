@@ -1,8 +1,10 @@
 # type: ignore
+import json
+
 from apps.common.responses import successResponse
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.settingsapi.models import BusinessSetting
+from apps.settingsapi.models import Option
 
 
 ORDER_TYPE_OPTIONS = [
@@ -27,7 +29,9 @@ BUSINESS_SETTING_FIELDS = [
 ]
 
 
-class BusinessSettingService:
+class OptionSettingService:
+    OPTION_KEY = "business_settings"
+
     @staticmethod
     def defaultValues():
         return {
@@ -47,19 +51,44 @@ class BusinessSettingService:
 
     @staticmethod
     def ensureCompanySettings(company):
-        settings, _created = BusinessSetting.objects.get_or_create(
-            company_id=company.id,
-            defaults=BusinessSettingService.defaultValues(),
-        )
-        return settings
+        for branch in company.branches.all():
+            OptionSettingService.ensureOption(company=company, branch=branch)
+        return OptionSettingService.defaultValues()
 
     @staticmethod
     def ensureSettings(user):
-        settings, _created = BusinessSetting.objects.get_or_create(
-            company_id=user.company_id,
-            defaults=BusinessSettingService.defaultValues(),
+        return OptionSettingService.ensureOption(
+            company=user.company,
+            branch=user.branch,
+            user=user,
         )
-        return settings
+
+    @staticmethod
+    def ensureOption(company, branch, user=None):
+        option, created = Option.objects.get_or_create(
+            company=company,
+            branch=branch,
+            key=OptionSettingService.OPTION_KEY,
+            defaults={
+                "user": user,
+                "value": json.dumps(OptionSettingService.defaultValues()),
+                "array": True,
+            },
+        )
+        if user and option.user_id is None:
+            option.user = user
+            option.save(update_fields=["user"])
+        if created:
+            return option
+        return option
+
+    @staticmethod
+    def optionValue(option):
+        try:
+            data = json.loads(option.value or "{}")
+        except (TypeError, json.JSONDecodeError):
+            data = {}
+        return {**OptionSettingService.defaultValues(), **data}
 
     @staticmethod
     def normalizeOrderTypes(order_types):
@@ -76,7 +105,7 @@ class BusinessSettingService:
 
     @staticmethod
     def get(user):
-        data = BusinessSettingService.buildSessionSettings(user)
+        data = OptionSettingService.buildSessionSettings(user)
         return successResponse(
             "Business settings retrieved successfully.",
             data=data,
@@ -84,8 +113,11 @@ class BusinessSettingService:
 
     @staticmethod
     def buildSessionSettings(user):
-        settings = BusinessSettingService.ensureSettings(user)
-        setting_data = {field: getattr(settings, field) for field in BUSINESS_SETTING_FIELDS}
+        settings = OptionSettingService.ensureSettings(user)
+        setting_data = {
+            field: OptionSettingService.optionValue(settings).get(field)
+            for field in BUSINESS_SETTING_FIELDS
+        }
         if not setting_data["order_types"]:
             setting_data["order_types"] = ["takeaway", "delivery"]
         setting_data["order_types"] = [
@@ -103,7 +135,8 @@ class BusinessSettingService:
 
     @staticmethod
     def update(user, data):
-        settings = BusinessSettingService.ensureSettings(user)
+        settings = OptionSettingService.ensureSettings(user)
+        setting_data = OptionSettingService.optionValue(settings)
         for field in BUSINESS_SETTING_FIELDS:
             if field == "order_types":
                 continue
@@ -111,11 +144,13 @@ class BusinessSettingService:
                 precision = int(data.get(field, 2))
                 if precision < 0 or precision > 6:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Currency precision must be between 0 and 6.")
-                setattr(settings, field, precision)
+                setting_data[field] = precision
             elif field == "default_change_payment_type":
-                setattr(settings, field, data.get(field) or "cash-payment")
+                setting_data[field] = data.get(field) or "cash-payment"
             else:
-                setattr(settings, field, bool(data.get(field)))
-        settings.order_types = BusinessSettingService.normalizeOrderTypes(data.get("order_types"))
-        settings.save()
-        return BusinessSettingService.get(user)
+                setting_data[field] = bool(data.get(field))
+        setting_data["order_types"] = OptionSettingService.normalizeOrderTypes(data.get("order_types"))
+        settings.value = json.dumps(setting_data)
+        settings.array = True
+        settings.save(update_fields=["value", "array", "updated_at"])
+        return OptionSettingService.get(user)

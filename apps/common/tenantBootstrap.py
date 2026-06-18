@@ -5,9 +5,9 @@ class TenantBootstrapService:
     @staticmethod
     def ensureCompanyDefaults(company):
         from apps.accounts.services import AccountsService
-        from apps.settingsapi.services import BusinessSettingService
+        from apps.settingsapi.services import OptionSettingService
 
-        BusinessSettingService.ensureCompanySettings(company)
+        OptionSettingService.ensureCompanySettings(company)
 
     @staticmethod
     def ensureBranchDefaults(company, branch):

@@ -3,7 +3,7 @@ from typing import List
 from ninja import Schema
 
 
-class BusinessSettingIn(Schema):
+class OptionSettingIn(Schema):
     allow_partial_orders: bool = False
     enable_customer_rewards: bool = False
     enable_credit_account: bool = False
