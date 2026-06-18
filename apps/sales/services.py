@@ -1737,6 +1737,7 @@ class SaleService:
                 reference_number=sale_order["code"],
                 request=request,
             )
+            DomainActionService.afterSaleVoided(sale_order, request)
             return successResponse("Sale voided successfully.", data=updated)
 
     @staticmethod
@@ -2143,6 +2144,7 @@ class SaleService:
                 reference_number=sale_order["code"],
                 request=request,
             )
+            DomainActionService.afterSaleRefunded(sale_order, return_order, request)
 
             return successResponse(
                 "Sale return processed successfully.",

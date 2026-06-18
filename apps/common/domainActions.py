@@ -1,4 +1,6 @@
 # type: ignore
+from decimal import Decimal
+
 from django.db.models import Count, F
 
 
@@ -11,6 +13,10 @@ def _tenantFilters(request):
 
 
 class DomainActionService:
+    @staticmethod
+    def _money(value):
+        return Decimal(str(value or 0))
+
     @staticmethod
     def refreshCategoryProductCount(category_id, request):
         if not category_id:
@@ -64,3 +70,35 @@ class DomainActionService:
         ensureOrderSettings(order, request)
         ReportService.refreshDashboardSnapshot({}, request)
         return order
+
+    @staticmethod
+    def afterSaleVoided(sale_order, request):
+        from apps.accounts.models import User
+        from apps.reports.services import ReportService
+
+        cashier_id = sale_order.get("user_id") or request.user.id
+        cashier = User.objects.filter(id=cashier_id).first()
+        if cashier:
+            cashier.total_sales = max(DomainActionService._money(cashier.total_sales) - DomainActionService._money(sale_order.get("total")), Decimal("0"))
+            cashier.total_sales_count = max(int(cashier.total_sales_count or 0) - 1, 0)
+            cashier.save(update_fields=["total_sales", "total_sales_count"])
+        ReportService.refreshDashboardSnapshot({}, request)
+
+    @staticmethod
+    def afterSaleRefunded(sale_order, return_order, request):
+        from apps.accounts.models import User
+        from apps.customers.models import Customer
+        from apps.reports.services import ReportService
+
+        refund_total = DomainActionService._money(return_order.get("total"))
+        cashier_id = sale_order.get("user_id") or request.user.id
+        cashier = User.objects.filter(id=cashier_id).first()
+        if cashier:
+            cashier.total_sales = max(DomainActionService._money(cashier.total_sales) - refund_total, Decimal("0"))
+            cashier.save(update_fields=["total_sales"])
+        if sale_order.get("customer_id"):
+            customer = Customer.objects.filter(id=sale_order["customer_id"]).first()
+            if customer:
+                customer.total_sales = max(DomainActionService._money(customer.total_sales) - refund_total, Decimal("0"))
+                customer.save(update_fields=["total_sales"])
+        ReportService.refreshDashboardSnapshot({}, request)
