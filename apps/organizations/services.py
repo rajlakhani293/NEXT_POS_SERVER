@@ -6,7 +6,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import saveCompanyLogo, serializeModelInstance, validateUniqueFields
 from apps.common.commonQuery import commonQuery
-from apps.common.tenantBootstrap import TenantBootstrapService
+from apps.common.tenantDefaults import TenantDefaultsService
 from apps.organizations.models import Branch, Company
 
 
@@ -110,7 +110,7 @@ class OrganizationsService:
             )
             company = Company.objects.get(id=user.company_id)
             branch = Branch.objects.get(id=branch_data["id"])
-            TenantBootstrapService.ensureDefaults(company, branch)
+            TenantDefaultsService.ensureBranchDefaults(company, branch)
             return branch_data
 
     @staticmethod

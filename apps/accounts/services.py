@@ -17,7 +17,7 @@ from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance, validateUniqueFields
-from apps.common.tenantBootstrap import TenantBootstrapService
+from apps.common.tenantDefaults import TenantDefaultsService
 from apps.organizations.models import Branch, Company
 from apps.settingsapi.services import OptionSettingService
 
@@ -274,7 +274,7 @@ class AccountsService:
                 ),
                 is_head_office=True,
             )
-            TenantBootstrapService.ensureDefaults(company, branch)
+            TenantDefaultsService.ensureBranchDefaults(company, branch)
             role = Role.objects.filter(
                 company=company,
                 branch=branch,
