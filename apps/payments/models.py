@@ -1,33 +1,13 @@
 # type: ignore
 from django.db import models
 from apps.common.models import TenantAwareModel
+from apps.common.tenantDefaults import DEFAULT_PAYMENT_TYPES
 
 
 PAYMENT_TYPES = [
     ("cash-payment", "Cash"),
     ("bank-payment", "Bank Payment"),
     ("account-payment", "Customer Account"),
-]
-
-DEFAULT_PAYMENT_TYPES = [
-    {
-        "identifier": "cash-payment",
-        "label": "Cash",
-        "description": "Default cash payment method.",
-        "sort_order": 0,
-    },
-    {
-        "identifier": "bank-payment",
-        "label": "Bank Payment",
-        "description": "Default bank payment method.",
-        "sort_order": 1,
-    },
-    {
-        "identifier": "account-payment",
-        "label": "Customer Account",
-        "description": "Default customer account payment method.",
-        "sort_order": 2,
-    },
 ]
 
 def paymentTypeOptions():

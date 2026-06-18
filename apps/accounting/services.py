@@ -17,61 +17,10 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import decimalValue as money
 from apps.common.responses import successResponse
+from apps.common.tenantDefaults import ACCOUNT_BLUEPRINTS, DEFAULT_ACCOUNT_RULES, EVENT_OPTIONS
 
-
-ACCOUNT_BLUEPRINTS = [
-    ("fixed_assets", "Fixed Assets", "1001-assets-fixed-assets", "assets", None),
-    ("current_assets", "Current Assets", "1002-assets-current-assets", "assets", None),
-    ("inventory", "Inventory Account", "1003-assets-inventory-account", "assets", None),
-    ("current_liabilities", "Current Liabilities", "2001-liabilities-current-liabilities", "liabilities", None),
-    ("sales_revenue", "Sales Revenues", "4001-revenues-sales-revenues", "revenues", None),
-    ("direct_expenses", "Direct Expenses", "5001-expenses-direct-expenses", "expenses", None),
-    ("expense_cash", "Expenses Cash", "1004-assets-expenses-cash", "assets", "current_assets"),
-    ("procurement_cash", "Procurement Cash", "1005-assets-procurement-cash", "assets", "current_assets"),
-    ("procurement_payable", "Procurement Payable", "2002-liabilities-procurement-payable", "liabilities", "current_liabilities"),
-    ("receivables", "Receivables", "1006-assets-receivables", "assets", "current_assets"),
-    ("sales_cash", "Sales", "1007-assets-sales", "assets", "current_assets"),
-    ("refunds", "Refunds", "4002-revenues-refunds", "revenues", "sales_revenue"),
-    ("sales_cogs", "Sales COGS", "5002-expenses-sales-cogs", "expenses", "direct_expenses"),
-    ("operating_expenses", "Operating Expenses", "5003-expenses-operating-expenses", "expenses", "direct_expenses"),
-    ("rent_expenses", "Rent Expenses", "5004-expenses-rent-expenses", "expenses", "direct_expenses"),
-    ("other_expenses", "Other Expenses", "5005-expenses-other-expenses", "expenses", "direct_expenses"),
-    ("salaries_wages", "Salaries And Wages", "5006-expenses-salaries-and-wages", "expenses", "direct_expenses"),
-]
 
 ACCOUNT_CODES = {key: account for key, _name, account, _category, _parent in ACCOUNT_BLUEPRINTS}
-
-EVENT_OPTIONS = [
-    ("procurement_paid", "Procurement Paid"),
-    ("procurement_unpaid", "Procurement Unpaid"),
-    ("procurement_from_unpaid_to_paid", "Paid Procurement From Unpaid"),
-    ("order_paid", "Order Paid"),
-    ("order_unpaid", "Order Unpaid"),
-    ("order_refunded", "Order Refund"),
-    ("order_partially_paid", "Order Partially Paid"),
-    ("order_partially_refunded", "Order Partially Refunded"),
-    ("order_from_unpaid_to_paid", "Order From Unpaid To Paid"),
-    ("order_paid_voided", "Paid Order Voided"),
-    ("order_unpaid_voided", "Unpaid Order Voided"),
-    ("order_cogs", "Order COGS"),
-    ("product_damaged", "Product Damaged"),
-    ("product_returned", "Product Returned"),
-]
-
-DEFAULT_RULES = [
-    ("procurement_unpaid", "increase", "inventory", "increase", "procurement_payable"),
-    ("procurement_paid", "increase", "inventory", "decrease", "procurement_cash"),
-    ("procurement_paid", "increase", "expense_cash", "decrease", "procurement_cash"),
-    ("procurement_from_unpaid_to_paid", "decrease", "procurement_payable", "decrease", "procurement_cash"),
-    ("order_unpaid", "increase", "receivables", "increase", "sales_revenue"),
-    ("order_unpaid", "increase", "expense_cash", "decrease", "inventory"),
-    ("order_from_unpaid_to_paid", "decrease", "sales_cash", "increase", "receivables"),
-    ("order_paid", "increase", "sales_cash", "decrease", "receivables"),
-    ("order_refunded", "decrease", "sales_revenue", "decrease", "sales_cash"),
-    ("order_cogs", "increase", "sales_cogs", "decrease", "inventory"),
-    ("order_paid_voided", "increase", "sales_cash", "decrease", "sales_cash"),
-    ("order_unpaid_voided", "decrease", "sales_revenue", "decrease", "receivables"),
-]
 
 
 def normalizeTransactionDate(value):
@@ -155,13 +104,13 @@ class AccountingService:
                         offset_account=accounts[offset_key],
                         locked=True,
                     )
-                    for event_key, action, account_key, offset_action, offset_key in DEFAULT_RULES
+                    for event_key, action, account_key, offset_action, offset_key in DEFAULT_ACCOUNT_RULES
                 ]
             )
 
-        from apps.settingsapi.services import OptionSettingService
+        from apps.common.tenantDefaults import ensureOptionValue
 
-        OptionSettingService.ensureOptionValue(
+        ensureOptionValue(
             company,
             branch,
             "ns_accounting_default_paid_expense_offset_account",

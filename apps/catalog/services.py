@@ -18,21 +18,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildSku, decimalValue, saveProductImage, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
-
-
-DEFAULT_SCALE_RANGES = [
-    ("Test Range", 1, 99, 1, "Range for testing and development purposes"),
-    ("Fruits & Vegetables", 100, 999, 100, "Fresh produce that requires weighing"),
-    ("Meat & Poultry", 1000, 1999, 1000, "Fresh meat and poultry products"),
-    ("Seafood", 2000, 2999, 2000, "Fresh fish and seafood products"),
-    ("Bakery", 3000, 3999, 3000, "Bakery items sold by weight"),
-    ("Deli & Cheese", 4000, 4999, 4000, "Deli meats and cheese products"),
-    ("Bulk Foods", 5000, 5999, 5000, "Bulk food items like nuts, grains, and spices"),
-    ("Prepared Foods", 6000, 6999, 6000, "Ready-to-eat prepared foods"),
-    ("Organic Products", 7000, 7999, 7000, "Certified organic products"),
-    ("Specialty Items", 8000, 8999, 8000, "Specialty and gourmet products"),
-    ("General Weighable", 9000, 9999, 9000, "General category for weighable products"),
-]
+from apps.common.tenantDefaults import DEFAULT_SCALE_RANGES
 
 
 def _emptyToNone(data, fields):
