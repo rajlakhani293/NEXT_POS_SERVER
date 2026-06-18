@@ -10,7 +10,6 @@ from apps.accounts.api import router as accounts_router
 from apps.accounting.api import router as accounting_router
 from apps.catalog.api import router as catalog_router
 from apps.customers.api import router as customers_router
-from apps.inventory.api import router as inventory_router
 from apps.mediahub.api import router as media_router
 from apps.notifications.api import router as notifications_router
 from apps.organizations.api import router as organizations_router
@@ -32,7 +31,6 @@ api.add_router("/accounting/", accounting_router)
 api.add_router("/organizations/", organizations_router)
 api.add_router("/customers/", customers_router)
 api.add_router("/catalog/", catalog_router)
-api.add_router("/inventory/", inventory_router)
 api.add_router("/media/", media_router)
 api.add_router("/notifications/", notifications_router)
 api.add_router("/purchases/", purchases_router)

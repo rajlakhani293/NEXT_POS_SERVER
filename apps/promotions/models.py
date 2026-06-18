@@ -62,11 +62,11 @@ class CouponCustomerGroup(TenantAwareModel):
 
 
 class OrdersCoupon(TenantAwareModel):
-    sale_order = models.ForeignKey("sales.Order", on_delete=models.CASCADE, related_name="applied_coupons", db_column="order_id")
-    coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_orders")
-    customer_coupon_id = models.PositiveIntegerField(null=True, blank=True)
-    code = models.CharField(max_length=150)
     name = models.CharField(max_length=150)
+    code = models.CharField(max_length=150)
+    customer_coupon_id = models.PositiveIntegerField(null=True, blank=True)
+    coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_orders")
+    sale_order = models.ForeignKey("sales.Order", on_delete=models.CASCADE, related_name="applied_coupons", db_column="order_id")
     type = models.CharField(max_length=30)
     discount_value = models.DecimalField(max_digits=18, decimal_places=5)
     minimum_cart_value = models.DecimalField(max_digits=18, decimal_places=5, default=0)

@@ -73,7 +73,6 @@ INSTALLED_APPS = [
     'apps.accounting',
     'apps.customers',
     'apps.catalog',
-    'apps.inventory',
     'apps.mediahub',
     'apps.notifications',
     'apps.purchases',
