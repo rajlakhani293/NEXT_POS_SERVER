@@ -10,7 +10,6 @@ from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.promotions.models import Coupon
 from apps.rewards.models import (
-    RewardRedemption,
     RewardRule,
     RewardSystem,
 )
@@ -235,18 +234,6 @@ def issueEligibleRewardCoupons(customer_id, reward_system, balance, request, not
             request=request,
             tenant_config=True,
         )
-        commonQuery.createRecord(
-            RewardRedemption,
-            {
-                "customer_id": customer_id,
-                "reward_system_id": reward_system["id"],
-                "customer_coupon_id": customer_coupon["id"],
-                "points_redeemed": target,
-                "note": note or "Reward coupon issued automatically.",
-            },
-            request=request,
-            tenant_config=True,
-        )
         CustomerReward.objects.filter(id=balance["id"]).update(
             points=F("points") - target,
         )
@@ -399,20 +386,19 @@ class CustomerRewardService:
     @staticmethod
     def getRedemptions(data, request):
         result = commonQuery.fetchPaginatedData(
-            RewardRedemption,
+            CustomerCoupon,
             data,
-            [["customer__name", True, True], ["reward_system__name", True, True], ["note", True, True]],
+            [["customer__full_name", True, True], ["name", True, True], ["code", True, True]],
             {
                 "attributes": [
                     "id",
                     "customer_id",
-                    "customer__name",
-                    "reward_system_id",
-                    "reward_system__name",
-                    "customer_coupon_id",
-                    "customer_coupon__code",
-                    "points_redeemed",
-                    "note",
+                    "customer__full_name",
+                    "coupon_id",
+                    "coupon__name",
+                    "code",
+                    "usage",
+                    "limit_usage",
                     "created_at",
                     "status",
                 ],
@@ -582,18 +568,6 @@ class CustomerRewardService:
             CustomerReward.objects.filter(id=balance["id"]).update(
                 points=F("points") - points,
             )
-            redemption = commonQuery.createRecord(
-                RewardRedemption,
-                {
-                    "customer_id": data["customer_id"],
-                    "reward_system_id": data["reward_system_id"],
-                    "customer_coupon_id": customer_coupon["id"],
-                    "points_redeemed": points,
-                    "note": data.get("note") or "",
-                },
-                request=request,
-                tenant_config=True,
-            )
             updated_balance = commonQuery.findOneRecord(
                 CustomerReward,
                 balance["id"],
@@ -603,7 +577,6 @@ class CustomerRewardService:
             return successResponse(
                 "Reward points redeemed successfully.",
                 data={
-                    "redemption": redemption,
                     "balance": updated_balance,
                     "issued_coupon": customer_coupon,
                 },

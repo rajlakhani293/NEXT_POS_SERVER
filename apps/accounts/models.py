@@ -2,24 +2,21 @@
 from django.contrib.auth.models import AbstractUser, Permission
 from django.db import models
 from django.utils import timezone
-from apps.common.models import BaseModel, SoftDeleteModel
+from apps.common.models import BaseModel, SoftDeleteModel, TenantAwareModel
 
 
-class Role(BaseModel):
-    company = models.ForeignKey(
-        "organizations.Company",
-        on_delete=models.CASCADE,
-        related_name="roles",
-    )
+class Role(TenantAwareModel):
     name = models.CharField(max_length=150)
-    code = models.SlugField(max_length=150)
-    description = models.TextField(blank=True)
-    is_cashier = models.BooleanField(default=False)
-    is_store_manager = models.BooleanField(default=False)
-    permissions = models.ManyToManyField(Permission, blank=True, related_name="roles")
+    namespace = models.CharField(max_length=150)
+    description = models.TextField(blank=True, null=True)
+    reward_system_id = models.PositiveBigIntegerField(blank=True, null=True)
+    minimal_credit_payment = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    locked = models.BooleanField(default=True)
+    permissions = models.ManyToManyField(Permission, blank=True, related_name="roles", db_table="role_permission")
 
     class Meta:
-        unique_together = [("company", "code")]
+        db_table = "roles"
+        unique_together = [("branch", "name"), ("branch", "namespace")]
         ordering = ["name"]
 
     def __str__(self):
@@ -93,9 +90,26 @@ class UserRoleRelation(BaseModel):
         on_delete=models.CASCADE,
         related_name="user_relations",
     )
+    company = models.ForeignKey(
+        "organizations.Company",
+        on_delete=models.CASCADE,
+        related_name="user_role_relations",
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.CASCADE,
+        related_name="user_role_relations",
+    )
+    status = models.IntegerField(
+        choices=SoftDeleteModel.STATUS_CHOICES,
+        default=SoftDeleteModel.STATUS_ACTIVE,
+        help_text="0: Active, 1: Inactive, 2: Deleted.",
+    )
+    deleted_at = models.DateTimeField(blank=True, null=True)
 
     class Meta:
-        unique_together = [("user", "role")]
+        db_table = "users_roles_relations"
+        unique_together = [("branch", "user", "role")]
         ordering = ["user_id", "role_id"]
 
     def __str__(self):

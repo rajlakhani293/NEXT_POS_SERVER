@@ -25,7 +25,6 @@ class SaleCreateIn(Schema):
     draft_id: Optional[int] = None
     customer_id: Optional[int] = None
     register_id: Optional[int] = None
-    shift_id: Optional[int] = None
     order_type: str = "takeaway"
     discount_amount: Decimal = Decimal("0")
     discount_percentage: Decimal = Decimal("0")
@@ -64,7 +63,6 @@ class SaleVoidIn(Schema):
 
 
 class SaleCollectDueIn(Schema):
-    shift_id: Optional[int] = None
     note: str = ""
     payments: List[OrderPaymentIn]
 
@@ -95,7 +93,6 @@ class OrderInstalmentUpdateIn(Schema):
 class InstallmentPayIn(Schema):
     amount: Decimal
     payment_type: str = "cash-payment"
-    shift_id: Optional[int] = None
     reference_number: str = ""
     note: str = ""
 
@@ -111,7 +108,6 @@ class SaleReturnItemIn(Schema):
 class SaleReturnCreateIn(Schema):
     return_type: str = "refund"
     payment_type: Optional[str] = None
-    shift_id: Optional[int] = None
     exchange_sale_id: Optional[int] = None
     reference_number: str = ""
     note: str = ""

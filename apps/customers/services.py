@@ -48,13 +48,17 @@ def buildUniqueCustomerUsername(data):
 
 def getOrCreateCustomerRole(request):
     company_id = getattr(request.user, "company_id", None)
-    role = Role.objects.filter(company_id=company_id, code=CUSTOMER_ROLE_CODE).first()
+    branch_id = getattr(request.user, "branch_id", None)
+    role = Role.objects.filter(company_id=company_id, branch_id=branch_id, namespace=CUSTOMER_ROLE_CODE).first()
     if role:
         return role
     return Role.objects.create(
         company_id=company_id,
+        branch_id=branch_id,
+        user_id=getattr(request.user, "id", None),
         name="Store Customer",
-        code=CUSTOMER_ROLE_CODE,
+        namespace=CUSTOMER_ROLE_CODE,
+        locked=True,
         description="Customer account used for POS orders, rewards, coupons, and account history.",
     )
 
@@ -63,7 +67,11 @@ def assignCustomerRole(user, role):
     relation, _created = UserRoleRelation.objects.get_or_create(
         user_id=user.id,
         role_id=role.id,
-        defaults={"status": 0},
+        defaults={
+            "company_id": user.company_id,
+            "branch_id": user.branch_id,
+            "status": 0,
+        },
     )
     if relation.status != 0:
         relation.status = 0

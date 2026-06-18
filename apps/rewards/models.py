@@ -5,12 +5,12 @@ from apps.common.models import TenantAwareModel
 
 class RewardSystem(TenantAwareModel):
     name = models.CharField(max_length=150)
+    target = models.PositiveIntegerField(default=0)
     coupon = models.ForeignKey(
         "promotions.Coupon",
         on_delete=models.PROTECT,
         related_name="reward_systems",
     )
-    target = models.PositiveIntegerField(default=0)
     description = models.TextField(blank=True)
 
     class Meta:
@@ -27,17 +27,3 @@ class RewardRule(TenantAwareModel):
     class Meta:
         db_table = "rewards_system_rules"
         ordering = ["from_amount"]
-
-
-class RewardRedemption(TenantAwareModel):
-    customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="reward_redemptions")
-    reward_system = models.ForeignKey(RewardSystem, on_delete=models.PROTECT, related_name="redemptions")
-    customer_coupon = models.ForeignKey(
-        "customers.CustomerCoupon",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="reward_redemptions",
-    )
-    points_redeemed = models.PositiveIntegerField(default=0)
-    note = models.TextField(blank=True)

@@ -72,6 +72,13 @@ class CompanyAwareModel(BaseModel):
 
 
 class TenantAwareModel(BaseModel):
+    user = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="owned_%(app_label)s_%(class)ss",
+    )
     company = models.ForeignKey(
         "organizations.Company",
         on_delete=models.CASCADE,

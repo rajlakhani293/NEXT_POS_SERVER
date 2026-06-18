@@ -4,35 +4,36 @@ from apps.common.models import TenantAwareModel
 
 
 class DashboardDay(TenantAwareModel):
-    dashboard_date = models.DateField()
-    total_sales = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_purchases = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_expenses = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_customer_due = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_supplier_payable = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    order_count = models.PositiveIntegerField(default=0)
-    purchase_count = models.PositiveIntegerField(default=0)
-    expense_count = models.PositiveIntegerField(default=0)
-    summary = models.JSONField(default=dict, blank=True)
+    range_starts = models.DateTimeField()
+    range_ends = models.DateTimeField()
+    day_of_year = models.PositiveIntegerField()
+    day_expenses = models.DecimalField(max_digits=18, decimal_places=5, default=0)
 
     class Meta:
-        unique_together = [("branch", "dashboard_date")]
-        ordering = ["-dashboard_date"]
+        db_table = "dashboard_days"
+        unique_together = [("branch", "range_starts", "range_ends")]
+        ordering = ["-range_starts"]
+
+
+class DashboardWeek(TenantAwareModel):
+    range_starts = models.DateTimeField()
+    range_ends = models.DateTimeField()
+    week_of_year = models.PositiveIntegerField()
+    week_expenses = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+
+    class Meta:
+        db_table = "dashboard_weeks"
+        unique_together = [("branch", "range_starts", "range_ends")]
+        ordering = ["-range_starts"]
 
 
 class DashboardMonth(TenantAwareModel):
-    year = models.PositiveIntegerField()
-    month = models.PositiveIntegerField()
-    total_sales = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_purchases = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_expenses = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_customer_due = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_supplier_payable = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    order_count = models.PositiveIntegerField(default=0)
-    purchase_count = models.PositiveIntegerField(default=0)
-    expense_count = models.PositiveIntegerField(default=0)
-    summary = models.JSONField(default=dict, blank=True)
+    range_starts = models.DateTimeField()
+    range_ends = models.DateTimeField()
+    month_of_year = models.PositiveIntegerField()
+    total_expenses = models.DecimalField(max_digits=18, decimal_places=5, default=0)
 
     class Meta:
-        unique_together = [("branch", "year", "month")]
-        ordering = ["-year", "-month"]
+        db_table = "dashboard_months"
+        unique_together = [("branch", "range_starts", "range_ends")]
+        ordering = ["-range_starts"]

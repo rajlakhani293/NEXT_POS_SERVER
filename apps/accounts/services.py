@@ -22,6 +22,10 @@ from apps.organizations.models import Branch, Company
 from apps.settingsapi.services import BusinessSettingService
 
 
+def normalizeRoleNamespace(value):
+    return (value or "").strip().lower().replace(" ", "-")
+
+
 class AccountsService:
     @staticmethod
     def buildPermissionDefinitions():
@@ -57,7 +61,7 @@ class AccountsService:
         return permission_map
 
     @staticmethod
-    def seedDefaultRoles(company: Company):
+    def seedDefaultRoles(company: Company, branch: Branch):
         permission_map = AccountsService.ensurePermissions()
         all_permissions = list(permission_map.values())
         seeded_roles = []
@@ -65,19 +69,19 @@ class AccountsService:
         for role_blueprint in ROLE_CATALOG:
             role, _created = Role.objects.get_or_create(
                 company_id=company.id,
-                code=role_blueprint["code"],
+                branch_id=branch.id,
+                namespace=role_blueprint["namespace"],
                 defaults={
+                    "user_id": None,
                     "name": role_blueprint["name"],
                     "description": role_blueprint["description"],
-                    "is_cashier": role_blueprint["flags"]["is_cashier"],
-                    "is_store_manager": role_blueprint["flags"]["is_store_manager"],
+                    "locked": True,
                 },
             )
             role.name = role_blueprint["name"]
             role.description = role_blueprint["description"]
-            role.is_cashier = role_blueprint["flags"]["is_cashier"]
-            role.is_store_manager = role_blueprint["flags"]["is_store_manager"]
-            role.save(update_fields=["name", "description", "is_cashier", "is_store_manager"])
+            role.locked = True
+            role.save(update_fields=["name", "description", "locked"])
 
             permissions = all_permissions if "*" in role_blueprint["permissions"] else [
                 permission_map[codename]
@@ -89,7 +93,7 @@ class AccountsService:
                 {
                     **serializeModelInstance(role),
                     "permissions": [perm.codename for perm in permissions],
-                    "flags": role_blueprint["flags"],
+                    "flags": role_blueprint.get("flags", {}),
                 }
             )
 
@@ -108,7 +112,11 @@ class AccountsService:
             relation, _created = UserRoleRelation.objects.get_or_create(
                 user_id=user.id,
                 role_id=role.id,
-                defaults={"status": 0},
+                defaults={
+                    "company_id": user.company_id,
+                    "branch_id": user.branch_id,
+                    "status": 0,
+                },
             )
             if relation.status != 0:
                 relation.status = 0
@@ -117,8 +125,9 @@ class AccountsService:
 
         primary_role = role_list[0] if role_list else None
         user.role = primary_role
-        user.is_cashier = any(role.is_cashier for role in role_list)
-        user.is_store_manager = any(role.is_store_manager for role in role_list)
+        role_namespaces = {role.namespace for role in role_list}
+        user.is_cashier = "nexopos.store.cashier" in role_namespaces
+        user.is_store_manager = bool({"admin", "nexopos.store.administrator", "nexopos.store.manager"} & role_namespaces)
         user.save(update_fields=["role", "is_cashier", "is_store_manager"])
 
     @staticmethod
@@ -268,7 +277,8 @@ class AccountsService:
             TenantBootstrapService.ensureTenantDefaults(company, branch)
             role = Role.objects.filter(
                 company=company,
-                code="administrator",
+                branch=branch,
+                namespace="admin",
                 status=0,
             ).first()
             if role is None:
@@ -384,8 +394,6 @@ class AccountsService:
             "purchases.PurchaseItem",
             "purchases.PurchaseOrder",
             "registers.CashRegisterEntry",
-            "expenses.ExpenseEntry",
-            "registers.CashierShift",
             "catalog.ProductTax",
             "catalog.ProductHistory",
             "catalog.ProductHistoryCombined",
@@ -394,7 +402,6 @@ class AccountsService:
             "catalog.ProductUnitQuantity",
             "catalog.ProductGallery",
             "customers.CustomerCoupon",
-            "rewards.RewardRedemption",
             "customers.CustomerReward",
             "rewards.RewardRule",
             "rewards.RewardSystem",
@@ -419,11 +426,11 @@ class AccountsService:
             "accounting.TransactionBalanceDay",
             "accounting.TransactionBalanceMonth",
             "accounting.TransactionAccount",
-            "expenses.ExpenseCategory",
             "payments.PaymentType",
             "registers.CashRegister",
             "settingsapi.BusinessSetting",
             "reports.DashboardDay",
+            "reports.DashboardWeek",
             "reports.DashboardMonth",
             "notifications.Notification",
             "mediahub.Media",
@@ -594,7 +601,7 @@ class AccountsService:
 
         role = None
         if role_id:
-            role = Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1]).first()
+            role = Role.objects.filter(company_id=user.company_id, branch_id=branch_id, id=role_id, status__in=[0, 1]).first()
             if role is None:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
 
@@ -625,8 +632,8 @@ class AccountsService:
             full_name=full_name,
             phone=phone,
             email=email,
-            is_cashier=role.is_cashier if role else False,
-            is_store_manager=role.is_store_manager if role else False,
+            is_cashier=role.namespace == "nexopos.store.cashier" if role else False,
+            is_store_manager=role.namespace in ["admin", "nexopos.store.administrator", "nexopos.store.manager"] if role else False,
             status=data.get("status", 0),
         )
         if role:
@@ -663,7 +670,12 @@ class AccountsService:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
             target_user.branch = branch
         if data.get("role_id"):
-            role = Role.objects.filter(company_id=user.company_id, id=data["role_id"], status__in=[0, 1]).first()
+            role = Role.objects.filter(
+                company_id=user.company_id,
+                branch_id=target_user.branch_id,
+                id=data["role_id"],
+                status__in=[0, 1],
+            ).first()
             if role is None:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
             AccountsService.setUserRoles(target_user, [role])
@@ -703,7 +715,7 @@ class AccountsService:
     def listRoles(user: User):
         AccountsService.ensurePermissions()
         roles = (
-            Role.objects.filter(company_id=user.company_id, status__in=[0, 1])
+            Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, status__in=[0, 1])
             .prefetch_related("permissions")
             .order_by("name")
         )
@@ -713,7 +725,7 @@ class AccountsService:
     def getRole(user: User, role_id: int):
         AccountsService.ensurePermissions()
         role = (
-            Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1])
+            Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1])
             .prefetch_related("permissions")
             .first()
         )
@@ -733,23 +745,34 @@ class AccountsService:
                 f"Invalid permissions: {', '.join(invalid_permissions)}",
             )
 
-        role_code = slugify(payload.code or payload.name)
+        role_namespace = normalizeRoleNamespace(payload.namespace or slugify(payload.name))
         validateUniqueFields(
             Role,
-            {"code": role_code},
+            {"namespace": role_namespace},
             scope=None,
             status_in=(0, 1),
-            extra_filters={"company_id": user.company_id},
-            messages={"code": "Role code already exists."},
+            extra_filters={"company_id": user.company_id, "branch_id": user.branch_id},
+            messages={"namespace": "Role namespace already exists."},
+        )
+        validateUniqueFields(
+            Role,
+            {"name": payload.name},
+            scope=None,
+            status_in=(0, 1),
+            extra_filters={"company_id": user.company_id, "branch_id": user.branch_id},
+            messages={"name": "Role name already exists."},
         )
 
         role = Role.objects.create(
             company_id=user.company_id,
+            branch_id=user.branch_id,
+            user_id=user.id,
             name=payload.name,
-            code=role_code,
+            namespace=role_namespace,
             description=payload.description,
-            is_cashier=payload.is_cashier,
-            is_store_manager=payload.is_store_manager,
+            reward_system_id=payload.reward_system_id,
+            minimal_credit_payment=payload.minimal_credit_payment,
+            locked=payload.locked,
         )
         role.permissions.set([permission_map[code] for code in requested_permissions])
         return AccountsService.serializeRole(role)
@@ -757,7 +780,7 @@ class AccountsService:
     @staticmethod
     def updateRole(user: User, role_id: int, payload):
         role = (
-            Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1])
+            Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1])
             .prefetch_related("permissions")
             .first()
         )
@@ -767,16 +790,26 @@ class AccountsService:
         data = payload.dict(exclude_unset=True)
         permission_codenames = data.pop("permission_codenames", None)
 
-        if "code" in data and data["code"]:
-            data["code"] = slugify(data["code"])
+        if "namespace" in data and data["namespace"]:
+            data["namespace"] = normalizeRoleNamespace(data["namespace"])
             validateUniqueFields(
                 Role,
-                {"code": data["code"]},
+                {"namespace": data["namespace"]},
                 scope=None,
                 exclude_id=role_id,
                 status_in=(0, 1),
-                extra_filters={"company_id": user.company_id},
-                messages={"code": "Role code already exists."},
+                extra_filters={"company_id": user.company_id, "branch_id": user.branch_id},
+                messages={"namespace": "Role namespace already exists."},
+            )
+        if "name" in data and data["name"]:
+            validateUniqueFields(
+                Role,
+                {"name": data["name"]},
+                scope=None,
+                exclude_id=role_id,
+                status_in=(0, 1),
+                extra_filters={"company_id": user.company_id, "branch_id": user.branch_id},
+                messages={"name": "Role name already exists."},
             )
 
         for field, value in data.items():
@@ -798,14 +831,14 @@ class AccountsService:
 
     @staticmethod
     def deleteRole(user: User, role_id: int):
-        role = Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1]).first()
+        role = Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1]).first()
         if role is None:
             raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
-        if role.code == "administrator":
+        if role.locked or role.namespace == "admin":
             raise api_error(
                 400,
                 ErrorCodes.ADMINISTRATOR_ROLE_DELETE_FORBIDDEN,
-                "Administrator role cannot be deleted.",
+                "Locked role cannot be deleted.",
             )
         if role.users.filter(status__in=[0, 1]).exists() or role.user_relations.filter(status=0, user__status__in=[0, 1]).exists():
             raise api_error(
@@ -816,7 +849,7 @@ class AccountsService:
 
         deleted = commonQuery.softDeleteById(
             Role,
-            {"id": role_id, "company_id": user.company_id},
+            {"id": role_id, "company_id": user.company_id, "branch_id": user.branch_id},
             tenant_config={},
         )
         if not deleted:
@@ -829,7 +862,7 @@ class AccountsService:
         if target_user is None:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
 
-        role = Role.objects.filter(company_id=user.company_id, id=role_id, status__in=[0, 1]).first()
+        role = Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1]).first()
         if role is None:
             raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
 

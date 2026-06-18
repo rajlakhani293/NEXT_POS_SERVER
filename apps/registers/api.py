@@ -5,13 +5,10 @@ from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.registers.schemas import (
-    CashMovementIn,
     CashRegisterIn,
     CashRegisterUpdateIn,
-    CloseShiftIn,
-    OpenShiftIn,
 )
-from apps.registers.services import CashierShiftService, RegisterService
+from apps.registers.services import RegisterService
 
 
 router = Router(tags=["registers"], auth=auth_bearer)
@@ -67,62 +64,3 @@ def getRegisterById(request, register_id: int):
 def updateRegister(request, register_id: int, payload: CashRegisterUpdateIn):
     return RegisterService.update(register_id, payload.dict(exclude_none=True), request)
 
-
-@router.get("/shifts/current", response=ApiResponse)
-@permission_required("cash_register_view")
-def getCurrentShift(request):
-    return CashierShiftService.current(request)
-
-
-@router.post("/shifts/open", response=ApiResponse)
-@permission_required("cash_register_open")
-def openShift(request, payload: OpenShiftIn):
-    return CashierShiftService.open(payload.dict(), request)
-
-
-@router.post("/shifts/close", response=ApiResponse)
-@permission_required("cash_register_close")
-def closeShift(request, payload: CloseShiftIn):
-    return CashierShiftService.close(payload.dict(), request)
-
-
-@router.post("/shifts/get-transactions", response=ApiResponse)
-@permission_required("cash_register_view")
-def getAllShifts(request, payload: dict = None):
-    return CashierShiftService.getAll(payload, request)
-
-
-@router.get("/shifts/{shift_id}", response=ApiResponse)
-@permission_required("cash_register_view")
-def getShiftById(request, shift_id: int):
-    return CashierShiftService.getById(shift_id, request)
-
-
-@router.post("/shifts/{shift_id}/entries/get-transactions", response=ApiResponse)
-@permission_required("cash_register_view")
-def getShiftEntries(request, shift_id: int, payload: dict = None):
-    return CashierShiftService.getEntries(shift_id, payload, request)
-
-
-@router.get("/shifts/{shift_id}/z-report", response=ApiResponse)
-@permission_required("cash_register_view")
-def getShiftZReport(request, shift_id: int):
-    return CashierShiftService.getZReport(shift_id, request)
-
-
-@router.get("/shifts/{shift_id}/refresh", response=ApiResponse)
-@permission_required("cash_register_view")
-def refreshShift(request, shift_id: int):
-    return CashierShiftService.refresh(shift_id, request)
-
-
-@router.post("/shifts/cash-in", response=ApiResponse)
-@permission_required("cash_register_cash_in")
-def cashIn(request, payload: CashMovementIn):
-    return CashierShiftService.cashMovement(payload.dict(), request, "cash_in")
-
-
-@router.post("/shifts/cash-out", response=ApiResponse)
-@permission_required("cash_register_cash_out")
-def cashOut(request, payload: CashMovementIn):
-    return CashierShiftService.cashMovement(payload.dict(), request, "cash_out")

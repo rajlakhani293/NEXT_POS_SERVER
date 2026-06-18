@@ -18,46 +18,41 @@ class SaleOrder(TenantAwareModel):
         ("delivery", "Delivery"),
     ]
 
-    customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_sale_orders")
-    cashier = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders", db_column="author_id")
-    register = models.ForeignKey("registers.CashRegister", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
-    shift = models.ForeignKey("registers.CashierShift", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
-    code = models.CharField(max_length=50)
     description = models.TextField(blank=True, null=True)
+    code = models.CharField(max_length=50)
     title = models.CharField(max_length=255, blank=True, null=True)
-    order_type = models.CharField(max_length=20, choices=ORDER_TYPES, default="takeaway", db_column="type")
     payment_status = models.CharField(max_length=30, choices=PAYMENT_STATUSES, default="unpaid")
     process_status = models.CharField(max_length=30, blank=True)
     delivery_status = models.CharField(max_length=30, blank=True)
+    order_type = models.CharField(max_length=20, choices=ORDER_TYPES, default="takeaway", db_column="type")
     discount_type = models.CharField(max_length=30, blank=True, null=True)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="discount")
+    support_instalments = models.BooleanField(default=False)
+    discount_percentage = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    shipping_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="shipping")
     shipping_rate = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     shipping_type = models.CharField(max_length=30, blank=True, null=True)
     total_without_tax = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="discount")
-    discount_percentage = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+    total_with_tax = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     coupon_discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="total_coupons")
-    shipping_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="shipping")
+    total_cogs = models.DecimalField(max_digits=14, decimal_places=5, default=0)
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="tax_value")
     products_tax_value = models.DecimalField(max_digits=14, decimal_places=5, default=0)
-    total_cogs = models.DecimalField(max_digits=14, decimal_places=5, default=0)
-    total_with_tax = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     tax_group = models.ForeignKey("catalog.TaxGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
     tax_type = models.CharField(max_length=30, blank=True, null=True)
-    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     tendered_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, db_column="tendered")
     change_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0, db_column="change")
-    due_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    total_items = models.PositiveIntegerField(default=0)
-    total_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
-    support_instalments = models.BooleanField(default=False)
     final_payment_date = models.DateTimeField(blank=True, null=True)
     total_instalments = models.PositiveIntegerField(default=0)
+    customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_sale_orders")
     note = models.TextField(blank=True)
     note_visibility = models.CharField(max_length=30, blank=True, null=True)
+    register = models.ForeignKey("registers.CashRegister", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
+
     voidance_reason = models.TextField(blank=True, null=True)
     driver = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="delivered_sale_orders", db_column="driver_id")
-
     class Meta:
         db_table = "orders"
         unique_together = [("branch", "code")]
@@ -99,7 +94,6 @@ class OrderAddress(TenantAwareModel):
     city = models.CharField(max_length=120, blank=True, null=True)
     pobox = models.CharField(max_length=50, blank=True, null=True)
     company_name = models.CharField(max_length=255, blank=True, null=True, db_column="company")
-    author = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_addresses", db_column="author_id")
 
     class Meta:
         db_table = "orders_addresses"
@@ -126,25 +120,28 @@ class OrderSetting(TenantAwareModel):
 
 
 class SaleItem(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="items", db_column="order_id")
+    name = models.CharField(max_length=255, blank=True, null=True)
+    unit_name = models.CharField(max_length=255, blank=True, null=True)
+    mode = models.CharField(max_length=30, blank=True, null=True)
+    product_type = models.CharField(max_length=30, blank=True, null=True)
+
     product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="sale_items")
+    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="items", db_column="order_id")
     unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     unit_quantity = models.ForeignKey("catalog.ProductUnitQuantity", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items", db_column="unit_quantity_id")
     product_category = models.ForeignKey("catalog.Category", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     procurement_product = models.ForeignKey("purchases.PurchaseItem", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     tax_group = models.ForeignKey("catalog.TaxGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
-    name = models.CharField(max_length=255, blank=True, null=True)
-    unit_name = models.CharField(max_length=255, blank=True, null=True)
-    mode = models.CharField(max_length=30, blank=True, null=True)
-    product_type = models.CharField(max_length=30, blank=True, null=True)
     tax_type = models.CharField(max_length=30, blank=True, null=True)
+   
     return_observations = models.TextField(blank=True, null=True)
     return_condition = models.CharField(max_length=255, blank=True, null=True)
     discount_type = models.CharField(max_length=30, blank=True, null=True)
-    quantity = models.DecimalField(max_digits=12, decimal_places=3)
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="discount")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
     discount_percentage = models.DecimalField(max_digits=8, decimal_places=2, default=0)
+
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     price_gross = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     price_net = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     wholesale_tax_value = models.DecimalField(max_digits=14, decimal_places=5, default=0)
@@ -173,20 +170,11 @@ class OrderInstalment(TenantAwareModel):
 
 
 class ReturnOrder(TenantAwareModel):
-    RETURN_TYPES = [("refund", "Refund"), ("exchange", "Exchange"), ("credit_note", "Credit Note")]
-    STATUSES = [("draft", "Draft"), ("processed", "Processed"), ("cancelled", "Cancelled")]
-
     sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="returns", db_column="order_id")
-    customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_returns")
-    cashier = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="processed_returns", db_column="author_id")
-    return_type = models.CharField(max_length=20, choices=RETURN_TYPES, default="refund")
-    return_status = models.CharField(max_length=20, choices=STATUSES, default="processed")
-    subtotal = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    shipping = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    total = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=18, decimal_places=5)
+    tax_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="tax_value")
+    shipping = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     payment_method = models.CharField(max_length=80, blank=True)
-    note = models.TextField(blank=True)
 
     class Meta:
         db_table = "orders_refunds"
@@ -198,11 +186,11 @@ class ReturnItem(TenantAwareModel):
     sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="return_items", db_column="order_product_id")
     product = models.ForeignKey("catalog.Product", on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
     unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
-    author = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="authored_return_items", db_column="author_id")
-    quantity = models.DecimalField(max_digits=12, decimal_places=3)
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
-    total = models.DecimalField(max_digits=14, decimal_places=2, db_column="total_price")
-    condition = models.CharField(max_length=20, default="good")
+    unit_price = models.DecimalField(max_digits=18, decimal_places=5)
+    tax_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="tax_value")
+    quantity = models.DecimalField(max_digits=18, decimal_places=5)
+    total = models.DecimalField(max_digits=18, decimal_places=5, db_column="total_price")
+    condition = models.CharField(max_length=20, default="unspoiled")
     description = models.TextField(blank=True, null=True)
 
     class Meta:

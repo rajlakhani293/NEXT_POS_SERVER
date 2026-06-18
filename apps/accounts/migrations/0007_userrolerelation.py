@@ -14,7 +14,7 @@ def backfill_user_role_relations(apps, schema_editor):
         UserRoleRelation.objects.get_or_create(
             user_id=user.id,
             role_id=user.role_id,
-            defaults={"status": 0},
+            defaults={"status": 0, "company_id": user.company_id, "branch_id": user.branch_id},
         )
 
 
@@ -26,6 +26,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('accounts', '0006_user_account_amount_user_birth_date_and_more'),
+        ('organizations', '0001_initial'),
     ]
 
     operations = [
@@ -38,12 +39,15 @@ class Migration(migrations.Migration):
                 ('uuid', models.UUIDField(default=uuid.uuid4, editable=False, unique=True)),
                 ('status', models.IntegerField(choices=[(0, 'Active'), (1, 'Deactive'), (2, 'Delete')], default=0, help_text='0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.')),
                 ('deleted_at', models.DateTimeField(blank=True, null=True)),
+                ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='user_role_relations', to='organizations.branch')),
+                ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='user_role_relations', to='organizations.company')),
                 ('role', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='user_relations', to='accounts.role')),
                 ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='role_relations', to=settings.AUTH_USER_MODEL)),
             ],
             options={
+                'db_table': 'users_roles_relations',
                 'ordering': ['user_id', 'role_id'],
-                'unique_together': {('user', 'role')},
+                'unique_together': {('branch', 'user', 'role')},
             },
         ),
         migrations.RunPython(backfill_user_role_relations, noop_reverse),

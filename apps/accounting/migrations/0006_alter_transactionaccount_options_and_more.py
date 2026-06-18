@@ -46,14 +46,6 @@ class Migration(migrations.Migration):
             name='transactionbalancemonth',
             unique_together=set(),
         ),
-        migrations.RemoveField(
-            model_name='transaction',
-            name='author',
-        ),
-        migrations.RemoveField(
-            model_name='transactionhistory',
-            name='author',
-        ),
         migrations.RenameField(
             model_name='transactionbalanceday',
             old_name='balance_date',

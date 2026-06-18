@@ -7,7 +7,7 @@ from apps.accounts.models import User
 from apps.common.models import TenantAwareModel
 
 
-CUSTOMER_ROLE_CODE = "store-customer"
+CUSTOMER_ROLE_CODE = "nexopos.store.customer"
 
 
 class CustomerGroup(TenantAwareModel):
@@ -40,8 +40,8 @@ class CustomerManager(UserManager):
             super()
             .get_queryset()
             .filter(
-                Q(role_relations__role__code=CUSTOMER_ROLE_CODE, role_relations__status=0)
-                | Q(role__code=CUSTOMER_ROLE_CODE)
+                Q(role_relations__role__namespace=CUSTOMER_ROLE_CODE, role_relations__status=0)
+                | Q(role__namespace=CUSTOMER_ROLE_CODE)
             )
             .distinct()
         )

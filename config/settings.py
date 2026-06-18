@@ -82,7 +82,6 @@ INSTALLED_APPS = [
     'apps.registers',
     'apps.promotions',
     'apps.rewards',
-    'apps.expenses',
     'apps.reports',
     'apps.settingsapi',
 ]

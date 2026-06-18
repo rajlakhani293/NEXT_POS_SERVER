@@ -1,5 +1,6 @@
 # Generated for NexoPOS procurement table alignment.
 
+from django.conf import settings
 from django.db import migrations, models
 import django.db.models.deletion
 
@@ -9,6 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ("catalog", "0001_initial"),
         ("organizations", "0001_initial"),
     ]
@@ -23,6 +25,7 @@ class Migration(migrations.Migration):
                 ("uuid", models.CharField(blank=True, max_length=255, null=True)),
                 ("status", models.IntegerField(choices=[(0, "Active"), (1, "Deactive"), (2, "Delete")], default=0, help_text="0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.")),
                 ("deleted_at", models.DateTimeField(blank=True, null=True)),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="owned_%(app_label)s_%(class)ss", to=settings.AUTH_USER_MODEL)),
                 ("name", models.CharField(max_length=255)),
                 ("value", models.FloatField(default=0)),
                 ("cost", models.FloatField(default=0)),
@@ -52,6 +55,7 @@ class Migration(migrations.Migration):
                 ("uuid", models.CharField(blank=True, max_length=255, null=True)),
                 ("status", models.IntegerField(choices=[(0, "Active"), (1, "Deactive"), (2, "Delete")], default=0, help_text="0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.")),
                 ("deleted_at", models.DateTimeField(blank=True, null=True)),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="owned_%(app_label)s_%(class)ss", to=settings.AUTH_USER_MODEL)),
                 ("first_name", models.CharField(max_length=255)),
                 ("last_name", models.CharField(blank=True, max_length=255, null=True)),
                 ("email", models.EmailField(blank=True, max_length=254, null=True)),
@@ -83,6 +87,7 @@ class Migration(migrations.Migration):
                 ("uuid", models.CharField(blank=True, max_length=255, null=True)),
                 ("status", models.IntegerField(choices=[(0, "Active"), (1, "Deactive"), (2, "Delete")], default=0, help_text="0: Active, 1: Inactive, 2: Deleted. Higher values are reserved for model-specific lifecycle states.")),
                 ("deleted_at", models.DateTimeField(blank=True, null=True)),
+                ("user", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="owned_%(app_label)s_%(class)ss", to=settings.AUTH_USER_MODEL)),
                 ("name", models.CharField(max_length=255)),
                 ("gross_purchase_price", models.FloatField(default=0)),
                 ("net_purchase_price", models.FloatField(default=0)),

@@ -74,7 +74,5 @@ class AppliedCoupon(TenantAwareModel):
     limit_usage = models.PositiveIntegerField(default=0)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="value")
     counted = models.BooleanField(default=False)
-    author = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_coupons", db_column="author_id")
-
     class Meta:
         db_table = "orders_coupons"

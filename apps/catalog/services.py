@@ -634,7 +634,7 @@ class ProductStockService:
 
     @staticmethod
     def stockEnabled(product):
-        return product.get("stock_management") != "disabled" and product.get("type") == "tangible"
+        return product.get("stock_management") != "disabled" and product.get("type") == "materialized"
 
     @staticmethod
     def resolveUnitQuantity(product_id, unit_id, request, required=True):

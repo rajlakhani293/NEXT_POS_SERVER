@@ -33,11 +33,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RenameField(
             model_name="transaction",
-            old_name="created_by",
-            new_name="author",
-        ),
-        migrations.RenameField(
-            model_name="transaction",
             old_name="is_recurring",
             new_name="recurring",
         ),
@@ -104,11 +99,6 @@ class Migration(migrations.Migration):
             model_name="transaction",
             name="transaction_type",
         ),
-        migrations.AlterField(
-            model_name="transaction",
-            name="author",
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="authored_transactions", to=settings.AUTH_USER_MODEL),
-        ),
         migrations.AlterModelOptions(
             name="transaction",
             options={"ordering": ["-created_at", "-id"]},
@@ -132,11 +122,6 @@ class Migration(migrations.Migration):
             model_name="transactionhistory",
             name="value",
             field=models.DecimalField(decimal_places=2, default=0, max_digits=14),
-        ),
-        migrations.AddField(
-            model_name="transactionhistory",
-            name="author",
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="authored_transaction_histories", to=settings.AUTH_USER_MODEL),
         ),
         migrations.AddField(
             model_name="transactionhistory",

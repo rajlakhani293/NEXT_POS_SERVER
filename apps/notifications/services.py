@@ -11,6 +11,11 @@ from apps.notifications.models import Notification
 class NotificationService:
     @staticmethod
     def create(data, request):
+        data["description"] = data.get("description") or data.pop("message", "")
+        data["source"] = data.get("source") or data.pop("source_type", "system")
+        data["url"] = data.get("url") or data.pop("action_url", "#")
+        data["actions"] = data.get("actions") or data.pop("payload", None)
+        data["identifier"] = data.get("identifier") or f"notification-{timezone.now().timestamp()}"
         notification = commonQuery.createRecord(Notification, data, request=request, tenant_config=True)
         return successResponse("Notification created successfully.", data=notification)
 
@@ -20,13 +25,12 @@ class NotificationService:
             Notification,
             {
                 "user_id": user_id,
+                "identifier": f"{source_type}-{source_id or 'general'}",
                 "title": title,
-                "message": message,
-                "notification_type": notification_type,
-                "source_type": source_type,
-                "source_id": source_id,
-                "action_url": action_url,
-                "payload": payload or {},
+                "description": message,
+                "source": source_type,
+                "url": action_url or "#",
+                "actions": payload,
             },
             request=request,
             tenant_config=True,
@@ -37,20 +41,19 @@ class NotificationService:
         result = commonQuery.fetchPaginatedData(
             Notification,
             data,
-            [["title", True, True], ["message", True, True], ["notification_type", True, True], ["source_type", True, True]],
+            [["title", True, True], ["description", True, True], ["identifier", True, True], ["source", True, True]],
             {
                 "attributes": [
                     "id",
                     "user_id",
                     "user__full_name",
+                    "identifier",
                     "title",
-                    "message",
-                    "notification_type",
-                    "source_type",
-                    "source_id",
-                    "action_url",
-                    "is_read",
-                    "read_at",
+                    "description",
+                    "source",
+                    "url",
+                    "dismissable",
+                    "actions",
                     "created_at",
                     "status",
                 ],
@@ -66,7 +69,6 @@ class NotificationService:
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
             status__in=[0, 1],
-            is_read=False,
         ).filter(user_id__in=[request.user.id, None]).count()
         return successResponse("Unread notification count retrieved successfully.", data={"count": count})
 
@@ -80,7 +82,7 @@ class NotificationService:
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
             status__in=[0, 1],
-        ).update(is_read=True, read_at=timezone.now())
+        ).update(status=1)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Notification not found.")
         return successResponse("Notifications marked as read successfully.", data={"updated_count": count})

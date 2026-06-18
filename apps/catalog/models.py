@@ -100,8 +100,9 @@ class Product(TenantAwareModel):
         ("variable", "Variable"),
     ]
     ITEM_TYPES = [
-        ("tangible", "Tangible"),
-        ("intangible", "Intangible"),
+        ("dematerialized", "Dematerialized"),
+        ("materialized", "Materialized"),
+        ("grouped", "Grouped"),
     ]
     STOCK_MANAGEMENT = [
         ("enabled", "Enabled"),
@@ -117,7 +118,7 @@ class Product(TenantAwareModel):
     tax_group = models.ForeignKey(TaxGroup, on_delete=models.SET_NULL, null=True, blank=True, related_name="products")
     tax_value = models.FloatField(default=0)
     product_type = models.CharField(max_length=20, choices=PRODUCT_TYPES, default="product")
-    type = models.CharField(max_length=20, choices=ITEM_TYPES, default="tangible")
+    type = models.CharField(max_length=20, choices=ITEM_TYPES, default="materialized")
     accurate_tracking = models.BooleanField(default=False)
     auto_cogs = models.BooleanField(default=True)
     stock_management = models.CharField(max_length=20, choices=STOCK_MANAGEMENT, default="enabled")

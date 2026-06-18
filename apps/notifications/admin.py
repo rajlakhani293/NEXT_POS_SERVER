@@ -5,6 +5,6 @@ from apps.notifications.models import Notification
 
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
-    list_display = ("title", "notification_type", "source_type", "user", "is_read", "status", "created_at")
-    list_filter = ("notification_type", "source_type", "is_read", "status")
-    search_fields = ("title", "message")
+    list_display = ("title", "identifier", "source", "user", "dismissable", "status", "created_at")
+    list_filter = ("source", "dismissable", "status")
+    search_fields = ("title", "description", "identifier")

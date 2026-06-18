@@ -17,11 +17,6 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name='transaction',
-            name='created_by',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='accounting_transactions', to=settings.AUTH_USER_MODEL),
-        ),
-        migrations.AddField(
             model_name='activetransactionhistory',
             name='account',
             field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='active_histories', to='accounting.transactionaccount'),
@@ -35,6 +30,11 @@ class Migration(migrations.Migration):
             model_name='activetransactionhistory',
             name='company',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company'),
+        ),
+        migrations.AddField(
+            model_name='activetransactionhistory',
+            name='user',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='owned_%(app_label)s_%(class)ss', to=settings.AUTH_USER_MODEL),
         ),
         migrations.AddField(
             model_name='activetransactionhistory',
@@ -60,6 +60,11 @@ class Migration(migrations.Migration):
             model_name='accountingsetting',
             name='company',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company'),
+        ),
+        migrations.AddField(
+            model_name='accountingsetting',
+            name='user',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='owned_%(app_label)s_%(class)ss', to=settings.AUTH_USER_MODEL),
         ),
         migrations.AddField(
             model_name='accountingsetting',

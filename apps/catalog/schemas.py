@@ -95,7 +95,7 @@ class ProductIn(Schema):
     tax_group_id: Optional[int] = None
     tax_value: float = 0
     product_type: str = "product"
-    type: str = "tangible"
+    type: str = "materialized"
     accurate_tracking: bool = False
     auto_cogs: bool = True
     stock_management: str = "enabled"

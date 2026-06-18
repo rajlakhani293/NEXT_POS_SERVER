@@ -61,7 +61,7 @@ class UserAdmin(DjangoUserAdmin):
 class UserRoleRelationAdmin(SmartModelAdmin):
     list_display = ("id", "user", "role", "status", "created_at")
     list_filter = ("status", "role")
-    search_fields = ("user__username", "user__full_name", "role__name", "role__code")
+    search_fields = ("user__username", "user__full_name", "role__name", "role__namespace")
 
 
 @admin.register(AccessToken)

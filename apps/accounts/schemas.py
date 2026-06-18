@@ -1,5 +1,6 @@
 # type: ignore
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Optional
 
 from ninja import Schema
@@ -40,19 +41,21 @@ class UserOut(Schema):
 
 class RoleIn(Schema):
     name: str = Field(..., example="Branch Supervisor")
-    code: str = Field(..., example="branch-supervisor")
+    namespace: str = Field(..., example="nexopos.branch.supervisor")
     description: str = Field("", example="Handles branch sales and approvals.")
-    is_cashier: bool = Field(False, example=False)
-    is_store_manager: bool = Field(False, example=True)
+    reward_system_id: Optional[int] = None
+    minimal_credit_payment: Decimal = Field(Decimal("0"), ge=0)
+    locked: bool = True
     permission_codenames: List[str] = Field(default_factory=list, example=["sales_view", "sales_create", "returns_approve"])
 
 
 class RoleUpdateIn(Schema):
     name: Optional[str] = None
-    code: Optional[str] = None
+    namespace: Optional[str] = None
     description: Optional[str] = None
-    is_cashier: Optional[bool] = None
-    is_store_manager: Optional[bool] = None
+    reward_system_id: Optional[int] = None
+    minimal_credit_payment: Optional[Decimal] = Field(None, ge=0)
+    locked: Optional[bool] = None
     permission_codenames: Optional[List[str]] = None
 
 

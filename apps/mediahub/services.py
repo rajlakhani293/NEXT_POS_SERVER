@@ -1,5 +1,6 @@
 # type: ignore
 from pathlib import Path
+from uuid import uuid4
 
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
@@ -27,20 +28,13 @@ class MediaService:
 
         storage = FileSystemStorage(location=settings.UPLOAD_ROOT, base_url=settings.UPLOAD_URL)
         saved_path = storage.save(f"{folder}/{file.name}", file)
+        path = Path(saved_path)
         media = commonQuery.createRecord(
             Media,
             {
-                "file_name": Path(saved_path).name,
-                "original_name": file.name,
-                "file_url": request.build_absolute_uri(storage.url(saved_path)),
-                "file_path": saved_path,
-                "mime_type": content_type,
-                "file_size": getattr(file, "size", 0) or 0,
-                "folder": folder,
-                "alt_text": alt_text or "",
-                "entity_type": entity_type or "",
-                "entity_id": entity_id,
-                "uploaded_by_id": request.user.id,
+                "name": path.name,
+                "extension": path.suffix.lstrip("."),
+                "slug": f"{path.stem}-{uuid4().hex[:8]}",
             },
             request=request,
             tenant_config=True,
@@ -52,19 +46,13 @@ class MediaService:
         result = commonQuery.fetchPaginatedData(
             Media,
             data,
-            [["original_name", True, True], ["folder", True, True], ["entity_type", True, True]],
+            [["name", True, True], ["extension", True, True], ["slug", True, True]],
             {
                 "attributes": [
                     "id",
-                    "original_name",
-                    "file_name",
-                    "file_url",
-                    "mime_type",
-                    "file_size",
-                    "folder",
-                    "alt_text",
-                    "entity_type",
-                    "entity_id",
+                    "name",
+                    "extension",
+                    "slug",
                     "created_at",
                     "status",
                 ],
@@ -76,6 +64,7 @@ class MediaService:
 
     @staticmethod
     def update(media_id, data, request):
+        data = {key: value for key, value in data.items() if key in ["name", "extension", "slug"]}
         updated = commonQuery.updateRecordById(Media, media_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Media not found.")

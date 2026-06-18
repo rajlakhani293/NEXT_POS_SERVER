@@ -45,6 +45,11 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name='customerreward',
+            name='user',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='owned_%(app_label)s_%(class)ss', to=settings.AUTH_USER_MODEL),
+        ),
+        migrations.AddField(
+            model_name='customerreward',
             name='customer',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='reward_balances', to=settings.AUTH_USER_MODEL),
         ),
@@ -62,6 +67,11 @@ class Migration(migrations.Migration):
             model_name='customercoupon',
             name='company',
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company'),
+        ),
+        migrations.AddField(
+            model_name='customercoupon',
+            name='user',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='owned_%(app_label)s_%(class)ss', to=settings.AUTH_USER_MODEL),
         ),
         migrations.AddField(
             model_name='customercoupon',

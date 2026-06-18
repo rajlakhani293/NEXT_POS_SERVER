@@ -42,11 +42,11 @@ class PurchaseOrder(TenantAwareModel):
 
 
 class PurchaseItem(TenantAwareModel):
-    procurement = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="products")
-    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="purchase_items")
     name = models.CharField(max_length=255)
     gross_purchase_price = models.FloatField(default=0)
     net_purchase_price = models.FloatField(default=0)
+    procurement = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="products")
+    product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="purchase_items")
     purchase_price = models.FloatField(default=0)
     quantity = models.FloatField()
     available_quantity = models.FloatField()

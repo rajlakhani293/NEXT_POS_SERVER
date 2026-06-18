@@ -28,7 +28,7 @@ from apps.customers.models import (
 )
 from apps.payments.services import PaymentTypeService
 from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
-from apps.registers.models import CashierShift, CashRegisterEntry
+from apps.registers.models import CashRegisterEntry
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
     OrderInstalment,
@@ -45,19 +45,12 @@ def getBusinessSettings(user):
     return BusinessSettingService.ensureSettings(user)
 
 
-def getCurrentShift(request, shift_id=None, required=True):
-    where = {"id": shift_id} if shift_id else {"cashier_id": request.user.id, "shift_status": "open"}
-    shift = commonQuery.findOneRecord(
-        CashierShift,
-        where,
-        request=request,
-        tenant_config=True,
-    )
-    if shift is None or shift.get("shift_status") != "open":
-        if not required:
-            return None
-        raise api_error(400, ErrorCodes.BAD_REQUEST, "Open cashier shift is required to create sale.")
-    return shift
+def saleDueAmount(sale_order):
+    return max(money((sale_order or {}).get("total")) - money((sale_order or {}).get("tendered_amount")), Decimal("0"))
+
+
+def getCurrentRegisterContext(request, required=True):
+    return None
 
 
 def parseDraftSnapshot(note):
@@ -86,7 +79,7 @@ class SaleStockService:
 
     @staticmethod
     def stockEnabled(product):
-        return product.get("stock_management") != "disabled" and product.get("type") == "tangible"
+        return product.get("stock_management") != "disabled" and product.get("type") == "materialized"
 
     @staticmethod
     def applySaleItem(item, sale_order, request):
@@ -227,53 +220,11 @@ class SaleValidationService:
 class SaleRegisterService:
     @staticmethod
     def recordCashOrderPayment(sale_order, order_payment, shift, amount, request):
-        balance_before = money(shift.get("expected_cash"))
-        balance_after = balance_before + amount
-        CashierShift.objects.filter(id=shift["id"]).update(expected_cash=F("expected_cash") + amount)
-        shift["expected_cash"] = balance_after
-        commonQuery.createRecord(
-            CashRegisterEntry,
-            {
-                "shift_id": shift["id"],
-                "register_id": shift["register_id"],
-                "cashier_id": request.user.id,
-                "payment_type": "cash-payment",
-                "entry_type": "sale_payment",
-                "amount": amount,
-                "balance_before": balance_before,
-                "balance_after": balance_after,
-                "reference_type": "sale_payment",
-                "reference_id": order_payment["id"],
-                "note": f"Sale payment for {sale_order['code']}",
-            },
-            request=request,
-            tenant_config=True,
-        )
+        return None
 
     @staticmethod
     def recordChangeGiven(sale_order, shift, change_amount, request):
-        balance_before = money(shift.get("expected_cash"))
-        balance_after = balance_before - change_amount
-        CashierShift.objects.filter(id=shift["id"]).update(expected_cash=F("expected_cash") - change_amount)
-        shift["expected_cash"] = balance_after
-        commonQuery.createRecord(
-            CashRegisterEntry,
-            {
-                "shift_id": shift["id"],
-                "register_id": shift["register_id"],
-                "cashier_id": request.user.id,
-                "payment_type": "cash-payment",
-                "entry_type": "change_given",
-                "amount": change_amount,
-                "balance_before": balance_before,
-                "balance_after": balance_after,
-                "reference_type": "sale_order",
-                "reference_id": sale_order["id"],
-                "note": f"Change given for sale {sale_order['code']}",
-            },
-            request=request,
-            tenant_config=True,
-        )
+        return None
 
 
 class SaleCustomerAccountService:
@@ -569,8 +520,6 @@ class OrderPaymentService:
             elif payment_type == "account-payment":
                 SaleCustomerAccountService.applyAccountPayment(customer, sale_order, amount, payment.get("note"), request)
 
-        if shift:
-            CashierShift.objects.filter(id=shift["id"]).update(total_sales_amount=F("total_sales_amount") + sale_order["total"])
         return {
             "paid_amount": paid_amount,
             "cash_paid_amount": cash_paid_amount,
@@ -638,19 +587,20 @@ class SaleCustomerService:
             tenant_config=True,
         )
 
+        due_amount = saleDueAmount(sale_order)
         Customer.objects.filter(id=customer_id).update(
             total_sales=F("total_sales") + sale_order["total"],
             total_sales_count=F("total_sales_count") + 1,
-            owed_amount=F("owed_amount") + sale_order["due_amount"],
+            owed_amount=F("owed_amount") + due_amount,
         )
 
-        if money(sale_order.get("due_amount")) > 0:
-            balance_after = money(customer_before.get("owed_amount") if customer_before else 0) + money(sale_order["due_amount"])
+        if due_amount > 0:
+            balance_after = money(customer_before.get("owed_amount") if customer_before else 0) + due_amount
             commonQuery.createRecord(
                 CustomerAccountHistory,
                 {
                     "customer_id": customer_id,
-                    "amount": sale_order["due_amount"],
+                    "amount": due_amount,
                     "previous_amount": customer_before.get("owed_amount") if customer_before else 0,
                     "next_amount": balance_after,
                     "operation": "add",
@@ -815,7 +765,6 @@ class SaleDraftService:
         if not customer_id:
             return
 
-        from apps.rewards.models import RewardRedemption
         from apps.rewards.services import findMatchingRule, getCustomerRewardSystem
 
         customer = commonQuery.findOneRecord(
@@ -833,36 +782,6 @@ class SaleDraftService:
 
         rule = findMatchingRule(reward_system["id"], sale_order.get("total"), request)
         earned_points = int(rule.get("reward") or 0) if rule else 0
-        sale_note = f"Reward earned from sale {sale_order['code']}."
-
-        redemptions = commonQuery.findAllRecords(
-            RewardRedemption,
-            {
-                "customer_id": customer_id,
-                "reward_system_id": reward_system["id"],
-                "note": sale_note,
-            },
-            {
-                "attributes": [
-                    "id",
-                    "customer_coupon_id",
-                    "points_redeemed",
-                ],
-            },
-            request=request,
-            tenant_config=True,
-        )
-
-        restored_points = sum(
-            [int(redemption.get("points_redeemed") or 0) for redemption in redemptions],
-            0,
-        )
-        customer_coupon_ids = [
-            redemption["customer_coupon_id"]
-            for redemption in redemptions
-            if redemption.get("customer_coupon_id")
-        ]
-
         balance = commonQuery.findOneRecord(
             CustomerReward,
             {"customer_id": customer_id, "reward_id": reward_system["id"]},
@@ -872,7 +791,7 @@ class SaleDraftService:
         if balance is None:
             return
 
-        next_points = max(int(balance.get("points") or 0) + restored_points - earned_points, 0)
+        next_points = max(int(balance.get("points") or 0) - earned_points, 0)
         commonQuery.updateRecordById(
             CustomerReward,
             balance["id"],
@@ -882,24 +801,6 @@ class SaleDraftService:
             request=request,
             tenant_config=True,
         )
-
-        for customer_coupon_id in customer_coupon_ids:
-            commonQuery.updateRecordById(
-                CustomerCoupon,
-                customer_coupon_id,
-                {"status": 2, "deleted_at": timezone.now()},
-                request=request,
-                tenant_config=True,
-            )
-
-        for redemption in redemptions:
-            commonQuery.updateRecordById(
-                RewardRedemption,
-                redemption["id"],
-                {"status": 2, "deleted_at": timezone.now()},
-                request=request,
-                tenant_config=True,
-            )
 
 
 class SaleVoidService:
@@ -969,7 +870,7 @@ class SaleVoidService:
         if customer is None:
             return
 
-        due_amount = money(sale_order.get("due_amount"))
+        due_amount = saleDueAmount(sale_order)
         total = money(sale_order.get("total"))
         next_total_sales = max(money(customer.get("total_sales")) - total, Decimal("0"))
         next_total_sales_count = max(int(customer.get("total_sales_count") or 0) - 1, 0)
@@ -1089,7 +990,7 @@ class SaleReturnValidationService:
                     "unit_price": unit_price,
                     "line_total": line_total,
                     "tax_amount": line_tax,
-                    "condition": item.get("condition") or "good",
+                    "condition": item.get("condition") or "unspoiled",
                     "note": item.get("note") or "",
                 }
             )
@@ -1239,7 +1140,7 @@ class SaleRefundService:
             return {"refund_payment": None, "difference_amount": difference_amount}
 
         payment_type = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
-        shift = getCurrentShift(request, data.get("shift_id"), required=bool(settings.enable_cash_registers and payment_type == "cash-payment"))
+        shift = getCurrentRegisterContext(request, required=bool(settings.enable_cash_registers and payment_type == "cash-payment"))
         return_order = commonQuery.updateRecordById(
             ReturnOrder,
             return_order["id"],
@@ -1248,32 +1149,7 @@ class SaleRefundService:
             tenant_config=True,
         )
 
-        if payment_type == "cash-payment" and shift:
-            balance_before = money(shift.get("expected_cash"))
-            balance_after = balance_before - total
-            CashierShift.objects.filter(id=shift["id"]).update(
-                expected_cash=F("expected_cash") - total,
-                total_refund_amount=F("total_refund_amount") + total,
-            )
-            commonQuery.createRecord(
-                CashRegisterEntry,
-                {
-                    "shift_id": shift["id"],
-                    "register_id": shift["register_id"],
-                    "cashier_id": request.user.id,
-                    "payment_type": payment_type,
-                    "entry_type": "refund",
-                    "amount": total,
-                    "balance_before": balance_before,
-                    "balance_after": balance_after,
-                    "reference_type": "return_order",
-                    "reference_id": return_order["id"],
-                    "note": data.get("note") or f"Refund for sale {sale_order['code']}",
-                },
-                request=request,
-                tenant_config=True,
-            )
-        elif payment_type == "account-payment":
+        if payment_type == "account-payment":
             if not settings.enable_credit_account:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer credit account is disabled.")
             if not customer:
@@ -1290,8 +1166,8 @@ class SaleService:
             ["code", True, True],
             ["payment_status", True, True],
             ["order_type", True, True],
-            ["customer__name", True, False],
-            ["cashier__full_name", True, False],
+            ["customer__full_name", True, False],
+            ["user__full_name", True, False],
         ]
         result = commonQuery.fetchPaginatedData(
             SaleOrder,
@@ -1302,12 +1178,11 @@ class SaleService:
                     "id",
                     "code",
                     "customer_id",
-                    "customer__name",
-                    "cashier_id",
-                    "cashier__full_name",
+                    "customer__full_name",
+                    "user_id",
+                    "user__full_name",
                     "register_id",
                     "register__name",
-                    "shift_id",
                     "order_type",
                     "payment_status",
                     "subtotal",
@@ -1318,9 +1193,6 @@ class SaleService:
                     "total",
                     "tendered_amount",
                     "change_amount",
-                    "due_amount",
-                    "total_items",
-                    "total_quantity",
                     "created_at",
                 ],
                 "order": ["-id"],
@@ -1381,6 +1253,10 @@ class SaleService:
             item["refunded_quantity"] = refunded_qty
             item["refundable_quantity"] = max(sold_qty - refunded_qty, Decimal("0"))
 
+        sale_order["due_amount"] = saleDueAmount(sale_order)
+        sale_order["total_items"] = len(items)
+        sale_order["total_quantity"] = sum((quantity(item.get("quantity")) for item in items), Decimal("0"))
+
         payments = commonQuery.findAllRecords(
             OrderPayment,
             {"sale_order_id": sale_order_id},
@@ -1422,16 +1298,14 @@ class SaleService:
             {
                 "attributes": [
                     "id",
-                    "customer_id",
-                    "cashier_id",
-                    "cashier__full_name",
-                    "return_type",
-                    "return_status",
-                    "subtotal",
+                    "sale_order_id",
+                    "sale_order__customer_id",
+                    "user_id",
+                    "user__full_name",
                     "tax_amount",
+                    "shipping",
                     "total",
                     "payment_method",
-                    "note",
                     "created_at",
                 ],
                 "order": ["-id"],
@@ -1503,7 +1377,7 @@ class SaleService:
             "order_type": sale_data.get("order_type"),
             "payment_status": sale_data.get("payment_status"),
             "customer": sale_data.get("customer"),
-            "cashier_id": sale_data.get("cashier_id"),
+            "user_id": sale_data.get("user_id"),
             "register_id": sale_data.get("register_id"),
             "subtotal": sale_data.get("subtotal"),
             "discount_amount": sale_data.get("discount_amount"),
@@ -1513,7 +1387,7 @@ class SaleService:
             "total": sale_data.get("total"),
             "tendered_amount": sale_data.get("tendered_amount"),
             "change_amount": sale_data.get("change_amount"),
-            "due_amount": sale_data.get("due_amount"),
+            "due_amount": saleDueAmount(sale_data),
             "items": sale_data.get("items") or [],
             "payments": sale_data.get("payments") or [],
             "applied_coupons": sale_data.get("applied_coupons") or [],
@@ -1531,7 +1405,6 @@ class SaleService:
             SaleOrder,
             {
                 "customer_id": customer["id"] if customer else None,
-                "cashier_id": request.user.id,
                 "code": buildCode(SaleOrder, "hold-cart", data.get("code"), request),
                 "order_type": data.get("order_type") or "takeaway",
                 "payment_status": "hold",
@@ -1565,15 +1438,15 @@ class SaleService:
         result = commonQuery.fetchPaginatedData(
             SaleOrder,
             filters,
-            [["code", True, True], ["customer__name", True, False], ["cashier__full_name", True, False]],
+            [["code", True, True], ["customer__full_name", True, False], ["user__full_name", True, False]],
             {
                 "attributes": [
                     "id",
                     "code",
                     "customer_id",
-                    "customer__name",
-                    "cashier_id",
-                    "cashier__full_name",
+                    "customer__full_name",
+                    "user_id",
+                    "user__full_name",
                     "payment_status",
                     "subtotal",
                     "total",
@@ -1629,9 +1502,8 @@ class SaleService:
 
         with transaction.atomic():
             settings = getBusinessSettings(request.user)
-            shift = getCurrentShift(
+            shift = getCurrentRegisterContext(
                 request,
-                data.get("shift_id"),
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
@@ -1642,9 +1514,7 @@ class SaleService:
                 SaleOrder,
                 {
                     "customer_id": data.get("customer_id"),
-                    "cashier_id": request.user.id,
                     "register_id": shift["register_id"] if shift else None,
-                    "shift_id": shift["id"] if shift else None,
                     "code": sale_code,
                     "order_type": order_type,
                     "payment_status": "unpaid",
@@ -1719,10 +1589,7 @@ class SaleService:
                     "total": total,
                     "tendered_amount": paid_amount,
                     "change_amount": change_amount,
-                    "due_amount": due_amount,
                     "coupon_discount_amount": coupon_result["discount_amount"],
-                    "total_items": total_items,
-                    "total_quantity": total_quantity,
                     "payment_status": payment_status,
                     "final_payment_date": timezone.now() if due_amount == 0 else None,
                 },
@@ -1873,16 +1740,15 @@ class SaleService:
             if sale_order.get("payment_status") in ["void", "refunded"]:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Due cannot be collected for this sale.")
 
-            remaining_due = money(sale_order.get("due_amount"))
+            remaining_due = saleDueAmount(sale_order)
             if remaining_due <= 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "This sale does not have any due amount.")
             if not data.get("payments"):
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one payment is required.")
 
             settings = getBusinessSettings(request.user)
-            shift = getCurrentShift(
+            shift = getCurrentRegisterContext(
                 request,
-                data.get("shift_id"),
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
@@ -1908,7 +1774,6 @@ class SaleService:
                 SaleOrder,
                 sale_order_id,
                 {
-                    "due_amount": next_due,
                     "tendered_amount": next_tendered,
                     "payment_status": next_status,
                     "final_payment_date": timezone.now() if next_due == 0 else sale_order.get("final_payment_date"),
@@ -2007,7 +1872,7 @@ class SaleService:
         lines = data.get("lines") or []
         if not lines:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one installment line is required.")
-        if money(sale_order.get("due_amount")) <= 0:
+        if saleDueAmount(sale_order) <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
 
         with transaction.atomic():
@@ -2110,9 +1975,8 @@ class SaleService:
 
         with transaction.atomic():
             settings = getBusinessSettings(request.user)
-            shift = getCurrentShift(
+            shift = getCurrentRegisterContext(
                 request,
-                data.get("shift_id"),
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
@@ -2143,13 +2007,12 @@ class SaleService:
                 tenant_config=True,
             )
 
-            next_due = max(money(sale_order.get("due_amount")) - amount, Decimal("0"))
+            next_due = max(saleDueAmount(sale_order) - amount, Decimal("0"))
             next_tendered = money(sale_order.get("tendered_amount")) + amount
             commonQuery.updateRecordById(
                 SaleOrder,
                 sale_order_id,
                 {
-                    "due_amount": next_due,
                     "tendered_amount": next_tendered,
                     "payment_status": "paid" if next_due == 0 else "partially_paid",
                     "final_payment_date": timezone.now() if next_due == 0 else sale_order.get("final_payment_date"),
@@ -2210,14 +2073,10 @@ class SaleService:
                 ReturnOrder,
                 {
                     "sale_order_id": sale_order["id"],
-                    "customer_id": sale_order.get("customer_id"),
-                    "cashier_id": request.user.id,
-                    "return_type": data.get("return_type") or "refund",
-                    "return_status": "processed",
-                    "subtotal": prepared["subtotal"],
                     "tax_amount": prepared["tax_amount"],
+                    "shipping": 0,
                     "total": prepared["total"],
-                    "note": data.get("note") or "",
+                    "payment_method": data.get("payment_type") or "",
                 },
                 request=request,
                 tenant_config=True,
@@ -2229,11 +2088,16 @@ class SaleService:
                     ReturnItem,
                     {
                         "return_order_id": return_order["id"],
+                        "sale_order_id": sale_order["id"],
                         "sale_item_id": item["sale_item"]["id"],
+                        "product_id": item["sale_item"].get("product_id"),
+                        "unit_id": item["sale_item"].get("unit_id"),
                         "quantity": item["quantity"],
                         "unit_price": item["unit_price"],
+                        "tax_amount": item["tax_amount"],
                         "total": item["line_total"] + item["tax_amount"],
                         "condition": item["condition"],
+                        "description": item["note"],
                     },
                     request=request,
                     tenant_config=True,
@@ -2294,16 +2158,14 @@ class SaleService:
             {
                 "attributes": [
                     "id",
-                    "customer_id",
-                    "customer__name",
-                    "cashier_id",
-                    "cashier__full_name",
-                    "return_type",
-                    "return_status",
-                    "subtotal",
+                    "sale_order_id",
+                    "sale_order__customer_id",
+                    "user_id",
+                    "user__full_name",
                     "tax_amount",
+                    "shipping",
                     "total",
-                    "note",
+                    "payment_method",
                     "created_at",
                 ],
                 "order": ["-id"],
@@ -2322,8 +2184,10 @@ class SaleService:
                         "sale_item__product__name",
                         "quantity",
                         "unit_price",
+                        "tax_amount",
                         "total",
                         "condition",
+                        "description",
                     ],
                 },
                 request=request,
@@ -2341,13 +2205,14 @@ class SaleService:
                 "attributes": [
                     "id",
                     "return_order_id",
-                    "return_order__return_type",
                     "sale_item_id",
                     "sale_item__product__name",
                     "quantity",
                     "unit_price",
+                    "tax_amount",
                     "total",
                     "condition",
+                    "description",
                     "created_at",
                 ],
                 "order": ["-id"],

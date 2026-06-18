@@ -12,10 +12,8 @@ from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
 from apps.customers.models import Customer, CustomerAccountHistory
-from apps.expenses.models import ExpenseEntry
 from apps.purchases.models import PurchaseOrder, Supplier
-from apps.registers.models import CashierShift
-from apps.reports.models import DashboardDay, DashboardMonth
+from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
 from apps.sales.models import OrderPayment, SaleItem, SaleOrder
 
 
@@ -63,12 +61,11 @@ class ReportService:
     def dashboardSummary(data, request):
         base = tenantFilter(request)
         sale_filters = {**base, **dateFilter("created_at", data)}
-        expense_filters = {**base, **dateFilter("expense_date", data)}
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
         sales = SaleOrder.objects.filter(**sale_filters).aggregate(
             total_sales=Coalesce(Sum("total"), zero),
             total_paid=Coalesce(Sum("tendered_amount"), zero),
-            total_due=Coalesce(Sum("due_amount"), zero),
+            total_due=Coalesce(Sum("total", filter=Q(payment_status__in=["unpaid", "partially_paid", "due", "partially_due"])), zero),
             order_count=Count("id"),
             paid_orders=Count("id", filter=Q(payment_status="paid")),
             partially_paid_orders=Count("id", filter=Q(payment_status="partially_paid")),
@@ -83,10 +80,10 @@ class ReportService:
             total_purchase_due=Coalesce(Sum("value", filter=Q(payment_status="unpaid")), zero),
             purchase_count=Count("id"),
         )
-        expenses = ExpenseEntry.objects.filter(**expense_filters).aggregate(
-            total_expense=Coalesce(Sum("amount"), zero),
-            expense_count=Count("id"),
-        )
+        expenses = {
+            "total_expense": Decimal("0"),
+            "expense_count": 0,
+        }
         customers = Customer.objects.filter(**base).aggregate(
             total_customer_due=Coalesce(Sum("owed_amount"), zero),
             customer_count=Count("id"),
@@ -98,7 +95,7 @@ class ReportService:
         best_customers = list(
             SaleOrder.objects.filter(**sale_filters)
             .exclude(customer_id__isnull=True)
-            .values("customer_id", "customer__name")
+            .values("customer_id", "customer__full_name")
             .annotate(
                 order_count=Count("id"),
                 total_spent=Coalesce(Sum("total"), zero),
@@ -107,8 +104,8 @@ class ReportService:
         )
         best_cashiers = list(
             SaleOrder.objects.filter(**sale_filters)
-            .exclude(cashier_id__isnull=True)
-            .values("cashier_id", "cashier__full_name")
+            .exclude(user_id__isnull=True)
+            .values("user_id", "user__full_name")
             .annotate(
                 order_count=Count("id"),
                 total_sales=Coalesce(Sum("total"), zero),
@@ -120,8 +117,8 @@ class ReportService:
             .values(
                 "id",
                 "code",
-                "customer__name",
-                "cashier__full_name",
+                "customer__full_name",
+                "user__full_name",
                 "payment_status",
                 "order_type",
                 "total",
@@ -139,30 +136,6 @@ class ReportService:
             )
             .order_by("day")
         )
-        shift = (
-            CashierShift.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                shift_status="open",
-                status__in=[0, 1],
-            )
-            .order_by("-opened_at")
-            .values(
-                "id",
-                "register_id",
-                "register__name",
-                "cashier_id",
-                "cashier__full_name",
-                "opening_cash",
-                "expected_cash",
-                "total_sales_amount",
-                "total_refund_amount",
-                "total_cash_in",
-                "total_cash_out",
-                "opened_at",
-            )
-            .first()
-        )
         return successResponse(
             "Dashboard summary retrieved successfully.",
             data={
@@ -175,7 +148,7 @@ class ReportService:
                 "best_cashiers": best_cashiers,
                 "recent_orders": recent_orders,
                 "weekly_sales": weekly_sales,
-                "shift": shift,
+                "shift": None,
             },
         )
 
@@ -194,29 +167,35 @@ class ReportService:
         customers = summary_payload.get("customers", {})
         suppliers = summary_payload.get("suppliers", {})
 
-        defaults = {
-            "total_sales": sales.get("total_sales") or 0,
-            "total_purchases": purchases.get("total_purchase") or 0,
-            "total_expenses": expenses.get("total_expense") or 0,
-            "total_customer_due": customers.get("total_customer_due") or 0,
-            "total_supplier_payable": suppliers.get("total_supplier_payable") or 0,
-            "order_count": sales.get("order_count") or 0,
-            "purchase_count": purchases.get("purchase_count") or 0,
-            "expense_count": expenses.get("expense_count") or 0,
-            "summary": jsonsafe(summary_payload),
-        }
+        defaults = {"day_expenses": expenses.get("total_expense") or 0}
         day, _ = DashboardDay.objects.update_or_create(
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
-            dashboard_date=target_date,
+            range_starts=start,
+            range_ends=end,
+            day_of_year=target_date.timetuple().tm_yday,
             defaults=defaults,
         )
+        week_start = start - timedelta(days=target_date.weekday())
+        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        DashboardWeek.objects.update_or_create(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            range_starts=week_start,
+            range_ends=week_end,
+            week_of_year=int(target_date.strftime("%U")),
+            defaults={"week_expenses": expenses.get("total_expense") or 0},
+        )
+        month_start = timezone.make_aware(timezone.datetime(target_date.year, target_date.month, 1))
+        next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        month_end = next_month - timedelta(seconds=1)
         DashboardMonth.objects.update_or_create(
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
-            year=target_date.year,
-            month=target_date.month,
-            defaults=defaults,
+            range_starts=month_start,
+            range_ends=month_end,
+            month_of_year=target_date.month,
+            defaults={"total_expenses": expenses.get("total_expense") or 0},
         )
         return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
 
@@ -311,13 +290,13 @@ class ReportService:
         result = commonQuery.fetchPaginatedData(
             SaleOrder,
             data,
-            [["code", True, True], ["customer__name", True, True], ["cashier__full_name", True, True], ["payment_status", True, True]],
+            [["code", True, True], ["customer__full_name", True, True], ["user__full_name", True, True], ["payment_status", True, True]],
             {
                 "attributes": [
                     "id",
                     "code",
-                    "customer__name",
-                    "cashier__full_name",
+                    "customer__full_name",
+                    "user__full_name",
                     "order_type",
                     "payment_status",
                     "subtotal",
@@ -325,13 +304,10 @@ class ReportService:
                     "tax_amount",
                     "total",
                     "tendered_amount",
-                    "due_amount",
-                    "total_items",
-                    "total_quantity",
                     "created_at",
                     "status",
                 ],
-                "sumField": ["total", "tendered_amount", "due_amount"],
+                "sumField": ["total", "tendered_amount"],
             },
             request=request,
             tenant_config=True,
@@ -543,12 +519,20 @@ class ReportService:
     def cashierReport(data, request):
         queryset = SaleOrder.objects.filter(**{**tenantFilter(request), **dateFilter("created_at", data)})
         if not request.user.is_superuser:
-            queryset = queryset.filter(cashier_id=request.user.id)
-        rows = queryset.values("cashier_id", "cashier__full_name").annotate(
+            queryset = queryset.filter(user_id=request.user.id)
+        rows = queryset.values("user_id", "user__full_name").annotate(
             order_count=Count("id"),
             total_sales=Coalesce(Sum("total"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
             total_paid=Coalesce(Sum("tendered_amount"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
-            total_due=Coalesce(Sum("due_amount"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
+            total_due=Coalesce(
+                Sum(
+                    ExpressionWrapper(
+                        F("total") - F("tendered_amount"),
+                        output_field=DecimalField(max_digits=14, decimal_places=2),
+                    )
+                ),
+                Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2)),
+            ),
         ).order_by("-total_sales")
         return successResponse("Cashier report retrieved successfully.", data=paginatedResponse(rows, data))
 
