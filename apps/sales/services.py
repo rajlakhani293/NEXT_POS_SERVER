@@ -27,16 +27,16 @@ from apps.customers.models import (
     CustomerReward,
 )
 from apps.payments.services import PaymentTypeService
-from apps.promotions.models import AppliedCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
-from apps.registers.models import CashRegisterEntry
+from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
+from apps.registers.models import RegistersHistory
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
     OrderInstalment,
     OrderPayment,
-    ReturnItem,
-    ReturnOrder,
-    SaleItem,
-    SaleOrder,
+    OrdersProductsRefund,
+    OrdersRefund,
+    OrdersProduct,
+    Order,
 )
 from apps.settingsapi.services import BusinessSettingService
 
@@ -112,7 +112,7 @@ class SaleStockService:
         line_total = (item_qty * unit_price) - discount_amount + tax_amount
 
         sale_item = commonQuery.createRecord(
-            SaleItem,
+            OrdersProduct,
             {
                 "sale_order_id": sale_order["id"],
                 "product_id": product["id"],
@@ -443,7 +443,7 @@ class SaleCouponService:
                 continue
 
             applied = commonQuery.createRecord(
-                AppliedCoupon,
+                OrdersCoupon,
                 {
                     "sale_order_id": sale_order["id"],
                     "coupon_id": coupon["id"],
@@ -713,7 +713,7 @@ class SaleDraftService:
     @staticmethod
     def reverseAppliedCoupons(sale_order_id, request):
         applied_coupons = commonQuery.findAllRecords(
-            AppliedCoupon,
+            OrdersCoupon,
             {"sale_order_id": sale_order_id},
             {
                 "attributes": [
@@ -807,7 +807,7 @@ class SaleVoidService:
     @staticmethod
     def restockSale(sale_order, request):
         items = commonQuery.findAllRecords(
-            SaleItem,
+            OrdersProduct,
             {"sale_order_id": sale_order["id"]},
             {
                 "attributes": [
@@ -848,7 +848,7 @@ class SaleVoidService:
                 request,
             )
             commonQuery.updateRecordById(
-                SaleItem,
+                OrdersProduct,
                 item["id"],
                 {"item_status": "void"},
                 request=request,
@@ -909,7 +909,7 @@ class SaleReturnValidationService:
     @staticmethod
     def ensureSaleOrder(sale_order_id, request):
         sale_order = commonQuery.findOneRecord(
-            SaleOrder,
+            Order,
             sale_order_id,
             request=request,
             tenant_config=True,
@@ -928,7 +928,7 @@ class SaleReturnValidationService:
     @staticmethod
     def ensureSaleItem(sale_order_id, sale_item_id, request):
         sale_item = commonQuery.findOneRecord(
-            SaleItem,
+            OrdersProduct,
             sale_item_id,
             request=request,
             tenant_config=True,
@@ -940,7 +940,7 @@ class SaleReturnValidationService:
     @staticmethod
     def refundedQuantity(sale_item_id, request):
         records = commonQuery.findAllRecords(
-            ReturnItem,
+            OrdersProductsRefund,
             {"sale_item_id": sale_item_id},
             {"attributes": ["quantity"]},
             request=request,
@@ -996,7 +996,7 @@ class SaleReturnValidationService:
             )
 
         previous_returns = commonQuery.findAllRecords(
-            ReturnOrder,
+            OrdersRefund,
             {"sale_order_id": sale_order["id"]},
             {"attributes": ["total"]},
             request=request,
@@ -1017,11 +1017,11 @@ class SaleReturnValidationService:
 class SaleRefundService:
     @staticmethod
     def updateOrderPaymentStatus(sale_order_id, request):
-        sale_order = commonQuery.findOneRecord(SaleOrder, sale_order_id, request=request, tenant_config=True)
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
         if sale_order is None:
             return None
         returns = commonQuery.findAllRecords(
-            ReturnOrder,
+            OrdersRefund,
             {"sale_order_id": sale_order_id},
             {"attributes": ["total"]},
             request=request,
@@ -1034,7 +1034,7 @@ class SaleRefundService:
             return sale_order
         status = "refunded" if refunded_total >= sale_total else "partially_refunded"
         return commonQuery.updateRecordById(
-            SaleOrder,
+            Order,
             sale_order_id,
             {"payment_status": status},
             request=request,
@@ -1124,7 +1124,7 @@ class SaleRefundService:
             difference_amount = Decimal("0")
             if data.get("exchange_sale_id"):
                 exchange_sale = commonQuery.findOneRecord(
-                    SaleOrder,
+                    Order,
                     data["exchange_sale_id"],
                     request=request,
                     tenant_config=True,
@@ -1142,7 +1142,7 @@ class SaleRefundService:
         payment_type = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
         shift = getCurrentRegisterContext(request, required=bool(settings.enable_cash_registers and payment_type == "cash-payment"))
         return_order = commonQuery.updateRecordById(
-            ReturnOrder,
+            OrdersRefund,
             return_order["id"],
             {"payment_method": payment_type},
             request=request,
@@ -1170,7 +1170,7 @@ class SaleService:
             ["user__full_name", True, False],
         ]
         result = commonQuery.fetchPaginatedData(
-            SaleOrder,
+            Order,
             data,
             field_config,
             {
@@ -1205,7 +1205,7 @@ class SaleService:
     @staticmethod
     def buildSaleDetail(sale_order_id, request):
         sale_order = commonQuery.findOneRecord(
-            SaleOrder,
+            Order,
             sale_order_id,
             request=request,
             tenant_config=True,
@@ -1223,7 +1223,7 @@ class SaleService:
             )
 
         items = commonQuery.findAllRecords(
-            SaleItem,
+            OrdersProduct,
             {"sale_order_id": sale_order_id},
             {
                 "attributes": [
@@ -1274,7 +1274,7 @@ class SaleService:
         )
 
         applied_coupons = commonQuery.findAllRecords(
-            AppliedCoupon,
+            OrdersCoupon,
             {"sale_order_id": sale_order_id},
             {
                 "attributes": [
@@ -1293,7 +1293,7 @@ class SaleService:
         )
 
         refunds = commonQuery.findAllRecords(
-            ReturnOrder,
+            OrdersRefund,
             {"sale_order_id": sale_order_id},
             {
                 "attributes": [
@@ -1315,7 +1315,7 @@ class SaleService:
         )
         for refund in refunds:
             refund["items"] = commonQuery.findAllRecords(
-                ReturnItem,
+                OrdersProductsRefund,
                 {"return_order_id": refund["id"]},
                 {
                     "attributes": [
@@ -1402,10 +1402,10 @@ class SaleService:
         customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
         prepared = SaleDraftService.buildDraftItems(data.get("items") or [], request)
         draft = commonQuery.createRecord(
-            SaleOrder,
+            Order,
             {
                 "customer_id": customer["id"] if customer else None,
-                "code": buildCode(SaleOrder, "hold-cart", data.get("code"), request),
+                "code": buildCode(Order, "hold-cart", data.get("code"), request),
                 "order_type": data.get("order_type") or "takeaway",
                 "payment_status": "hold",
                 "subtotal": prepared["subtotal"],
@@ -1436,7 +1436,7 @@ class SaleService:
         filter_data["payment_status"] = "hold"
         filters["filter"] = filter_data
         result = commonQuery.fetchPaginatedData(
-            SaleOrder,
+            Order,
             filters,
             [["code", True, True], ["customer__full_name", True, False], ["user__full_name", True, False]],
             {
@@ -1464,7 +1464,7 @@ class SaleService:
     @staticmethod
     def getHeldCart(draft_id, request):
         draft = commonQuery.findOneRecord(
-            SaleOrder,
+            Order,
             draft_id,
             request=request,
             tenant_config=True,
@@ -1479,7 +1479,7 @@ class SaleService:
     @staticmethod
     def deleteHeldCart(draft_id, request):
         draft = commonQuery.findOneRecord(
-            SaleOrder,
+            Order,
             draft_id,
             request=request,
             tenant_config=True,
@@ -1487,7 +1487,7 @@ class SaleService:
         if draft is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Held cart not found.")
         commonQuery.updateRecordById(
-            SaleOrder,
+            Order,
             draft_id,
             {"status": 2, "deleted_at": timezone.now()},
             request=request,
@@ -1509,9 +1509,9 @@ class SaleService:
             customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
             order_type = SaleValidationService.ensureOrderTypeAllowed(data.get("order_type"), settings)
 
-            sale_code = buildCode(SaleOrder, "Sale", data.get("code"), request)
+            sale_code = buildCode(Order, "Sale", data.get("code"), request)
             sale_order = commonQuery.createRecord(
-                SaleOrder,
+                Order,
                 {
                     "customer_id": data.get("customer_id"),
                     "register_id": shift["register_id"] if shift else None,
@@ -1582,7 +1582,7 @@ class SaleService:
                 SaleRegisterService.recordChangeGiven(sale_order, shift, change_amount, request)
 
             sale_order = commonQuery.updateRecordById(
-                SaleOrder,
+                Order,
                 sale_order["id"],
                 {
                     "subtotal": subtotal,
@@ -1646,14 +1646,14 @@ class SaleService:
 
             if data.get("draft_id"):
                 draft = commonQuery.findOneRecord(
-                    SaleOrder,
+                    Order,
                     data["draft_id"],
                     request=request,
                     tenant_config=True,
                 )
                 if draft and draft.get("payment_status") == "hold":
                     commonQuery.updateRecordById(
-                        SaleOrder,
+                        Order,
                         draft["id"],
                         {"status": 2, "deleted_at": timezone.now()},
                         request=request,
@@ -1693,7 +1693,7 @@ class SaleService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid sale cannot be voided. Use refund flow instead.")
 
             returns = commonQuery.findAllRecords(
-                ReturnOrder,
+                OrdersRefund,
                 {"sale_order_id": sale_order_id},
                 {"attributes": ["id"]},
                 request=request,
@@ -1708,7 +1708,7 @@ class SaleService:
             SaleVoidService.restockSale(sale_order, request)
 
             updated = commonQuery.updateRecordById(
-                SaleOrder,
+                Order,
                 sale_order_id,
                 {
                     "payment_status": "void",
@@ -1771,7 +1771,7 @@ class SaleService:
             next_status = "paid" if next_due == 0 else "partially_paid"
 
             updated_sale = commonQuery.updateRecordById(
-                SaleOrder,
+                Order,
                 sale_order_id,
                 {
                     "tendered_amount": next_tendered,
@@ -1834,7 +1834,7 @@ class SaleService:
     def updateProcessingStatus(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         updated = commonQuery.updateRecordById(
-            SaleOrder,
+            Order,
             sale_order_id,
             {
                 "process_status": data.get("status") or "",
@@ -1849,7 +1849,7 @@ class SaleService:
     def updateDeliveryStatus(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         updated = commonQuery.updateRecordById(
-            SaleOrder,
+            Order,
             sale_order_id,
             {
                 "delivery_status": data.get("status") or "",
@@ -1896,7 +1896,7 @@ class SaleService:
                 )
 
             commonQuery.updateRecordById(
-                SaleOrder,
+                Order,
                 sale_order_id,
                 {
                     "support_instalments": True,
@@ -2010,7 +2010,7 @@ class SaleService:
             next_due = max(saleDueAmount(sale_order) - amount, Decimal("0"))
             next_tendered = money(sale_order.get("tendered_amount")) + amount
             commonQuery.updateRecordById(
-                SaleOrder,
+                Order,
                 sale_order_id,
                 {
                     "tendered_amount": next_tendered,
@@ -2070,7 +2070,7 @@ class SaleService:
             prepared = SaleReturnValidationService.validateItems(sale_order, data.get("items") or [], request)
 
             return_order = commonQuery.createRecord(
-                ReturnOrder,
+                OrdersRefund,
                 {
                     "sale_order_id": sale_order["id"],
                     "tax_amount": prepared["tax_amount"],
@@ -2085,7 +2085,7 @@ class SaleService:
             created_items = []
             for item in prepared["items"]:
                 return_item = commonQuery.createRecord(
-                    ReturnItem,
+                    OrdersProductsRefund,
                     {
                         "return_order_id": return_order["id"],
                         "sale_order_id": sale_order["id"],
@@ -2107,7 +2107,7 @@ class SaleService:
                 refunded_qty = SaleReturnValidationService.refundedQuantity(item["sale_item"]["id"], request)
                 item_status = "returned" if refunded_qty >= quantity(item["sale_item"].get("quantity")) else "partially_returned"
                 commonQuery.updateRecordById(
-                    SaleItem,
+                    OrdersProduct,
                     item["sale_item"]["id"],
                     {"item_status": item_status},
                     request=request,
@@ -2153,7 +2153,7 @@ class SaleService:
     def getRefunds(sale_order_id, request):
         SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         refunds = commonQuery.findAllRecords(
-            ReturnOrder,
+            OrdersRefund,
             {"sale_order_id": sale_order_id},
             {
                 "attributes": [
@@ -2175,7 +2175,7 @@ class SaleService:
         )
         for refund in refunds:
             refund["items"] = commonQuery.findAllRecords(
-                ReturnItem,
+                OrdersProductsRefund,
                 {"return_order_id": refund["id"]},
                 {
                     "attributes": [
@@ -2199,7 +2199,7 @@ class SaleService:
     def getRefundedItems(sale_order_id, request):
         SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         refunded_items = commonQuery.findAllRecords(
-            ReturnItem,
+            OrdersProductsRefund,
             {"return_order__sale_order_id": sale_order_id},
             {
                 "attributes": [

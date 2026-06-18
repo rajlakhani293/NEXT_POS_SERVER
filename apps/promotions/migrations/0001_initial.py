@@ -46,7 +46,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name='AppliedCoupon',
+            name='OrdersCoupon',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
@@ -68,7 +68,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
                 ('coupon', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='applied_orders', to='promotions.coupon')),
                 ('customer_coupon_id', models.PositiveIntegerField(blank=True, null=True)),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='applied_coupons', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='applied_coupons', to='sales.Order')),
             ],
             options={
                 'db_table': 'orders_coupons',

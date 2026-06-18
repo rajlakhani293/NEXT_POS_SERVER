@@ -11,7 +11,7 @@ class TransactionAccount(TenantAwareModel):
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        related_name="nexopos_sub_accounts",
+        related_name="sub_accounts",
     )
     category_identifier = models.CharField(max_length=40, blank=True)
     description = models.TextField(blank=True)

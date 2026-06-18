@@ -19,7 +19,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='SaleOrder',
+            name='Order',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
                 ('customer', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='customer_sale_orders', to=settings.AUTH_USER_MODEL)),
                 ('driver', models.ForeignKey(blank=True, db_column='driver_id', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='delivered_sale_orders', to=settings.AUTH_USER_MODEL)),
-                ('register', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_orders', to='registers.cashregister')),
+                ('register', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_orders', to='registers.Register')),
                 ('tax_group', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_orders', to='catalog.taxgroup')),
             ],
             options={
@@ -72,7 +72,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name='SaleItem',
+            name='OrdersProduct',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
@@ -108,8 +108,8 @@ class Migration(migrations.Migration):
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
                 ('product', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='sale_items', to='catalog.product')),
                 ('product_category', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='catalog.category')),
-                ('procurement_product', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='purchases.purchaseitem')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='items', to='sales.saleorder')),
+                ('procurement_product', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='purchases.ProcurementsProduct')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='items', to='sales.Order')),
                 ('tax_group', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='catalog.taxgroup')),
                 ('unit', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='catalog.unit')),
                 ('unit_quantity', models.ForeignKey(blank=True, db_column='unit_quantity_id', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='sale_items', to='catalog.productunitquantity')),
@@ -163,7 +163,7 @@ class Migration(migrations.Migration):
                 ('company_name', models.CharField(blank=True, db_column='company', max_length=255, null=True)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='order_addresses', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='order_addresses', to='sales.Order')),
             ],
             options={
                 'db_table': 'orders_addresses',
@@ -184,7 +184,7 @@ class Migration(migrations.Migration):
                 ('tax_value', models.DecimalField(decimal_places=5, default=0, max_digits=14)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='taxes', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='taxes', to='sales.Order')),
                 ('tax', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='order_taxes', to='catalog.tax')),
             ],
             options={
@@ -205,7 +205,7 @@ class Migration(migrations.Migration):
                 ('value', models.TextField(blank=True)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='settings', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='settings', to='sales.Order')),
             ],
             options={
                 'db_table': 'orders_settings',
@@ -225,14 +225,14 @@ class Migration(migrations.Migration):
                 ('value', models.DecimalField(decimal_places=2, max_digits=12)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='payments', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='payments', to='sales.Order')),
             ],
             options={
                 'db_table': 'orders_payments',
             },
         ),
         migrations.CreateModel(
-            name='ReturnOrder',
+            name='OrdersRefund',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
@@ -247,14 +247,14 @@ class Migration(migrations.Migration):
                 ('payment_method', models.CharField(blank=True, max_length=80)),
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='returns', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='returns', to='sales.Order')),
             ],
             options={
                 'db_table': 'orders_refunds',
             },
         ),
         migrations.CreateModel(
-            name='ReturnItem',
+            name='OrdersProductsRefund',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('created_at', models.DateTimeField(auto_now_add=True)),
@@ -272,9 +272,9 @@ class Migration(migrations.Migration):
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
                 ('product', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='return_items', to='catalog.product')),
-                ('return_order', models.ForeignKey(db_column='order_refund_id', on_delete=django.db.models.deletion.CASCADE, related_name='items', to='sales.returnorder')),
-                ('sale_item', models.ForeignKey(db_column='order_product_id', on_delete=django.db.models.deletion.PROTECT, related_name='return_items', to='sales.saleitem')),
-                ('sale_order', models.ForeignKey(blank=True, db_column='order_id', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='return_items', to='sales.saleorder')),
+                ('return_order', models.ForeignKey(db_column='order_refund_id', on_delete=django.db.models.deletion.CASCADE, related_name='items', to='sales.OrdersRefund')),
+                ('sale_item', models.ForeignKey(db_column='order_product_id', on_delete=django.db.models.deletion.PROTECT, related_name='return_items', to='sales.OrdersProduct')),
+                ('sale_order', models.ForeignKey(blank=True, db_column='order_id', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='return_items', to='sales.Order')),
                 ('unit', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='return_items', to='catalog.unit')),
             ],
             options={
@@ -297,7 +297,7 @@ class Migration(migrations.Migration):
                 ('branch', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.branch')),
                 ('company', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='%(class)ss', to='organizations.company')),
                 ('payment', models.ForeignKey(blank=True, db_column='payment_id', null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='instalments', to='sales.orderpayment')),
-                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='instalments', to='sales.saleorder')),
+                ('sale_order', models.ForeignKey(db_column='order_id', on_delete=django.db.models.deletion.CASCADE, related_name='instalments', to='sales.Order')),
             ],
             options={
                 'db_table': 'orders_instalments',

@@ -3,7 +3,7 @@ from django.db import models
 from apps.common.models import TenantAwareModel
 
 
-class SaleOrder(TenantAwareModel):
+class Order(TenantAwareModel):
     PAYMENT_STATUSES = [
         ("hold", "Hold"),
         ("unpaid", "Unpaid"),
@@ -49,7 +49,7 @@ class SaleOrder(TenantAwareModel):
     customer = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_sale_orders")
     note = models.TextField(blank=True)
     note_visibility = models.CharField(max_length=30, blank=True, null=True)
-    register = models.ForeignKey("registers.CashRegister", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
+    register = models.ForeignKey("registers.Register", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_orders")
 
     voidance_reason = models.TextField(blank=True, null=True)
     driver = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="delivered_sale_orders", db_column="driver_id")
@@ -60,7 +60,7 @@ class SaleOrder(TenantAwareModel):
 
 
 class OrderPayment(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="payments", db_column="order_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="payments", db_column="order_id")
     identifier = models.CharField(max_length=80, default="cash-payment")
     value = models.DecimalField(max_digits=12, decimal_places=2)
 
@@ -82,7 +82,7 @@ class OrderStorage(TenantAwareModel):
 class OrderAddress(TenantAwareModel):
     ADDRESS_TYPES = [("billing", "Billing"), ("shipping", "Shipping")]
 
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="order_addresses", db_column="order_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="order_addresses", db_column="order_id")
     type = models.CharField(max_length=20, choices=ADDRESS_TYPES)
     first_name = models.CharField(max_length=120, blank=True, null=True)
     last_name = models.CharField(max_length=120, blank=True, null=True)
@@ -101,7 +101,7 @@ class OrderAddress(TenantAwareModel):
 
 class OrderTax(TenantAwareModel):
     tax = models.ForeignKey("catalog.Tax", on_delete=models.SET_NULL, null=True, blank=True, related_name="order_taxes")
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="taxes", db_column="order_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="taxes", db_column="order_id")
     rate = models.DecimalField(max_digits=12, decimal_places=5, default=0)
     tax_name = models.CharField(max_length=120, blank=True, null=True)
     tax_value = models.DecimalField(max_digits=14, decimal_places=5, default=0)
@@ -111,7 +111,7 @@ class OrderTax(TenantAwareModel):
 
 
 class OrderSetting(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="settings", db_column="order_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="settings", db_column="order_id")
     key = models.CharField(max_length=120)
     value = models.TextField(blank=True)
 
@@ -119,28 +119,25 @@ class OrderSetting(TenantAwareModel):
         db_table = "orders_settings"
 
 
-class SaleItem(TenantAwareModel):
+class OrdersProduct(TenantAwareModel):
     name = models.CharField(max_length=255, blank=True, null=True)
     unit_name = models.CharField(max_length=255, blank=True, null=True)
     mode = models.CharField(max_length=30, blank=True, null=True)
     product_type = models.CharField(max_length=30, blank=True, null=True)
-
     product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="sale_items")
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="items", db_column="order_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items", db_column="order_id")
     unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     unit_quantity = models.ForeignKey("catalog.ProductUnitQuantity", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items", db_column="unit_quantity_id")
     product_category = models.ForeignKey("catalog.Category", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
-    procurement_product = models.ForeignKey("purchases.PurchaseItem", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
+    procurement_product = models.ForeignKey("purchases.ProcurementsProduct", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     tax_group = models.ForeignKey("catalog.TaxGroup", on_delete=models.SET_NULL, null=True, blank=True, related_name="sale_items")
     tax_type = models.CharField(max_length=30, blank=True, null=True)
-   
     return_observations = models.TextField(blank=True, null=True)
     return_condition = models.CharField(max_length=255, blank=True, null=True)
     discount_type = models.CharField(max_length=30, blank=True, null=True)
     discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="discount")
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     discount_percentage = models.DecimalField(max_digits=8, decimal_places=2, default=0)
-
     unit_price = models.DecimalField(max_digits=12, decimal_places=2)
     price_gross = models.DecimalField(max_digits=14, decimal_places=5, default=0)
     price_net = models.DecimalField(max_digits=14, decimal_places=5, default=0)
@@ -159,7 +156,7 @@ class SaleItem(TenantAwareModel):
 
 
 class OrderInstalment(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="instalments", db_column="order_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="instalments", db_column="order_id")
     amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     paid = models.BooleanField(default=False)
     payment = models.ForeignKey(OrderPayment, on_delete=models.SET_NULL, null=True, blank=True, related_name="instalments", db_column="payment_id")
@@ -169,8 +166,8 @@ class OrderInstalment(TenantAwareModel):
         db_table = "orders_instalments"
 
 
-class ReturnOrder(TenantAwareModel):
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.CASCADE, related_name="returns", db_column="order_id")
+class OrdersRefund(TenantAwareModel):
+    sale_order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="returns", db_column="order_id")
     total = models.DecimalField(max_digits=18, decimal_places=5)
     tax_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="tax_value")
     shipping = models.DecimalField(max_digits=18, decimal_places=5, default=0)
@@ -180,10 +177,10 @@ class ReturnOrder(TenantAwareModel):
         db_table = "orders_refunds"
 
 
-class ReturnItem(TenantAwareModel):
-    return_order = models.ForeignKey(ReturnOrder, on_delete=models.CASCADE, related_name="items", db_column="order_refund_id")
-    sale_order = models.ForeignKey(SaleOrder, on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items", db_column="order_id")
-    sale_item = models.ForeignKey(SaleItem, on_delete=models.PROTECT, related_name="return_items", db_column="order_product_id")
+class OrdersProductsRefund(TenantAwareModel):
+    return_order = models.ForeignKey(OrdersRefund, on_delete=models.CASCADE, related_name="items", db_column="order_refund_id")
+    sale_order = models.ForeignKey(Order, on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items", db_column="order_id")
+    sale_item = models.ForeignKey(OrdersProduct, on_delete=models.PROTECT, related_name="return_items", db_column="order_product_id")
     product = models.ForeignKey("catalog.Product", on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
     unit = models.ForeignKey("catalog.Unit", on_delete=models.SET_NULL, null=True, blank=True, related_name="return_items")
     unit_price = models.DecimalField(max_digits=18, decimal_places=5)

@@ -63,8 +63,8 @@ class Migration(migrations.Migration):
         ),
         migrations.AddField(
             model_name='transactionaccount',
-            name='sub_category',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='nexopos_sub_accounts', to='accounting.transactionaccount'),
+            name='sub_accounts',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='sub_accounts', to='accounting.transactionaccount'),
         ),
         migrations.RunPython(backfill_nexopos_account_fields, noop_reverse),
         migrations.RunPython(rename_void_rule_events, noop_reverse),

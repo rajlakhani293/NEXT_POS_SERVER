@@ -29,7 +29,7 @@ def customerDue(request, payload: Optional[dict] = None):
     return ReportService.customerDue(payload, request)
 
 
-@router.post("/supplier-payable", response=ApiResponse)
+@router.post("/Provider-payable", response=ApiResponse)
 @permission_required("reports_view")
 def supplierPayable(request, payload: Optional[dict] = None):
     return ReportService.supplierPayable(payload, request)

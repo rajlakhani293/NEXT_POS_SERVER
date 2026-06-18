@@ -10,14 +10,14 @@ from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.promotions.models import Coupon
 from apps.rewards.models import (
-    RewardRule,
+    RewardsSystemRule,
     RewardSystem,
 )
 
 
 def getRewardRules(system_id, request):
     return commonQuery.findAllRecords(
-        RewardRule,
+        RewardsSystemRule,
         {"reward_system_id": system_id},
         {"attributes": ["id", "from_amount", "to_amount", "reward"], "order": ["from_amount"]},
         request=request,
@@ -44,7 +44,7 @@ def attachRewardRules(systems, request):
         return systems
 
     rules = commonQuery.findAllRecords(
-        RewardRule,
+        RewardsSystemRule,
         {"reward_system_id__in": system_ids},
         {
             "attributes": [
@@ -91,7 +91,7 @@ def normalizeRules(data):
 
 def replaceRules(reward_system_id, rules, request):
     commonQuery.hardDeleteRecords(
-        RewardRule,
+        RewardsSystemRule,
         {"reward_system_id": reward_system_id},
         request=request,
         tenant_config=True,
@@ -101,7 +101,7 @@ def replaceRules(reward_system_id, rules, request):
         if reward <= 0:
             continue
         commonQuery.createRecord(
-            RewardRule,
+            RewardsSystemRule,
             {
                 "reward_system_id": reward_system_id,
                 "from_amount": rule.get("from_amount") or 0,

@@ -1,7 +1,5 @@
 from typing import Optional
-
 from ninja import Router
-
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse

@@ -3,7 +3,7 @@ from django.db import models
 from apps.common.models import TenantAwareModel
 
 
-class CashRegister(TenantAwareModel):
+class Register(TenantAwareModel):
     name = models.CharField(max_length=150)
     code = models.SlugField(max_length=120, blank=True, null=True)
     location = models.CharField(max_length=255, blank=True)
@@ -17,7 +17,7 @@ class CashRegister(TenantAwareModel):
         ordering = ["name"]
 
 
-class CashRegisterEntry(TenantAwareModel):
+class RegistersHistory(TenantAwareModel):
     ENTRY_TYPES = [
         ("opening", "Opening"),
         ("sale_payment", "Sale Payment"),
@@ -29,7 +29,7 @@ class CashRegisterEntry(TenantAwareModel):
         ("closing", "Closing"),
     ]
 
-    register = models.ForeignKey(CashRegister, on_delete=models.CASCADE, related_name="entries")
+    register = models.ForeignKey(Register, on_delete=models.CASCADE, related_name="entries")
     cashier = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="register_entries")
     payment_id = models.PositiveBigIntegerField(blank=True, null=True)
     payment_type_id = models.PositiveIntegerField(default=0)

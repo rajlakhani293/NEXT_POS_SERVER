@@ -61,8 +61,8 @@ class CouponCustomerGroup(TenantAwareModel):
         unique_together = [("coupon", "customer_group")]
 
 
-class AppliedCoupon(TenantAwareModel):
-    sale_order = models.ForeignKey("sales.SaleOrder", on_delete=models.CASCADE, related_name="applied_coupons", db_column="order_id")
+class OrdersCoupon(TenantAwareModel):
+    sale_order = models.ForeignKey("sales.Order", on_delete=models.CASCADE, related_name="applied_coupons", db_column="order_id")
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_orders")
     customer_coupon_id = models.PositiveIntegerField(null=True, blank=True)
     code = models.CharField(max_length=150)

@@ -10,7 +10,7 @@ from apps.common.helpers import buildUniqueValue, validateTenantRelationIds, val
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCoupon, CustomerGroup
 from apps.promotions.models import (
-    AppliedCoupon,
+    OrdersCoupon,
     Coupon,
     CouponCategory,
     CouponCustomer,
@@ -381,7 +381,7 @@ class CouponService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Customer coupon not found.")
 
         result = commonQuery.fetchPaginatedData(
-            AppliedCoupon,
+            OrdersCoupon,
             {
                 **(data or {}),
                 "filter": {

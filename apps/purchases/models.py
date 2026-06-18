@@ -3,7 +3,7 @@ from django.db import models
 from apps.common.models import TenantAwareModel
 
 
-class Supplier(TenantAwareModel):
+class Provider(TenantAwareModel):
     first_name = models.CharField(max_length=255)
     last_name = models.CharField(max_length=255, blank=True, null=True)
     email = models.EmailField(blank=True, null=True)
@@ -20,9 +20,9 @@ class Supplier(TenantAwareModel):
         ordering = ["first_name"]
 
 
-class PurchaseOrder(TenantAwareModel):
+class Procurement(TenantAwareModel):
     name = models.CharField(max_length=255)
-    provider = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="procurements")
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT, related_name="procurements")
     value = models.FloatField(default=0)
     cost = models.FloatField(default=0)
     tax_value = models.FloatField(default=0)
@@ -41,11 +41,11 @@ class PurchaseOrder(TenantAwareModel):
         ordering = ["-id"]
 
 
-class PurchaseItem(TenantAwareModel):
+class ProcurementsProduct(TenantAwareModel):
     name = models.CharField(max_length=255)
     gross_purchase_price = models.FloatField(default=0)
     net_purchase_price = models.FloatField(default=0)
-    procurement = models.ForeignKey(PurchaseOrder, on_delete=models.CASCADE, related_name="products")
+    procurement = models.ForeignKey(Procurement, on_delete=models.CASCADE, related_name="products")
     product = models.ForeignKey("catalog.Product", on_delete=models.PROTECT, related_name="purchase_items")
     purchase_price = models.FloatField(default=0)
     quantity = models.FloatField()

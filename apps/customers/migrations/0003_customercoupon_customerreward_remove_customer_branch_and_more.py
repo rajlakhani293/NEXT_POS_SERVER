@@ -154,7 +154,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='customeraccounthistory',
             name='order',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='customer_account_history', to='sales.saleorder'),
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='customer_account_history', to='sales.Order'),
         ),
         migrations.AddField(
             model_name='customeraccounthistory',

@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="CashRegister",
+            name="Register",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="CashRegisterEntry",
+            name="RegistersHistory",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -66,7 +66,7 @@ class Migration(migrations.Migration):
                 ("branch", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.branch")),
                 ("cashier", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="register_entries", to=settings.AUTH_USER_MODEL)),
                 ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.company")),
-                ("register", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="entries", to="registers.cashregister")),
+                ("register", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="entries", to="registers.Register")),
             ],
             options={
                 "db_table": "registers_history",

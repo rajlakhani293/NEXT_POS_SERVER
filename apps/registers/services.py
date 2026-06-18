@@ -4,13 +4,13 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildCode
 from apps.common.responses import successResponse
-from apps.registers.models import CashRegister
+from apps.registers.models import Register
 
 
 class RegisterService:
     @staticmethod
     def ensureDefaultRegister(company, branch):
-        register, _created = CashRegister.objects.get_or_create(
+        register, _created = Register.objects.get_or_create(
             company_id=company.id,
             branch_id=branch.id,
             code="main-register",
@@ -26,7 +26,7 @@ class RegisterService:
     @staticmethod
     def getDefaultRegister(request):
         register = commonQuery.findOneRecord(
-            CashRegister,
+            Register,
             {},
             options={"order": ["id"]},
             request=request,
@@ -36,10 +36,10 @@ class RegisterService:
             return register
 
         return commonQuery.createRecord(
-            CashRegister,
+            Register,
             {
                 "name": "Main Register",
-                "code": buildCode(CashRegister, "Main Register", "main-register", request),
+                "code": buildCode(Register, "Main Register", "main-register", request),
                 "location": "Main Branch",
                 "description": "Default cash register.",
                 "balance": 0,
@@ -51,7 +51,7 @@ class RegisterService:
     @staticmethod
     def dropdownList(request):
         registers = commonQuery.findAllRecords(
-            CashRegister,
+            Register,
             {},
             {"attributes": ["id", "name", "code", "location", "balance"], "order": ["name"]},
             request=request,
@@ -63,14 +63,14 @@ class RegisterService:
 
     @staticmethod
     def create(data, request):
-        data["code"] = buildCode(CashRegister, data.get("name"), data.get("code"), request)
-        register = commonQuery.createRecord(CashRegister, data, request=request, tenant_config=True)
+        data["code"] = buildCode(Register, data.get("name"), data.get("code"), request)
+        register = commonQuery.createRecord(Register, data, request=request, tenant_config=True)
         return successResponse("Cash register created successfully.", data=register)
 
     @staticmethod
     def getAll(data, request):
         result = commonQuery.fetchPaginatedData(
-            CashRegister,
+            Register,
             data,
             [["name", True, True], ["code", True, True], ["location", True, True]],
             {"attributes": ["id", "name", "code", "location", "balance", "status", "created_at"]},
@@ -83,7 +83,7 @@ class RegisterService:
 
     @staticmethod
     def getById(register_id, request):
-        register = commonQuery.findOneRecord(CashRegister, register_id, request=request, tenant_config=True)
+        register = commonQuery.findOneRecord(Register, register_id, request=request, tenant_config=True)
         if register is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
         register["is_open"] = register.get("status") == 0
@@ -93,20 +93,20 @@ class RegisterService:
     def update(register_id, data, request):
         if data.get("code"):
             data["code"] = buildCode(
-                CashRegister,
+                Register,
                 data.get("name") or "Cash Register",
                 data.get("code"),
                 request,
                 exclude_id=register_id,
             )
-        updated = commonQuery.updateRecordById(CashRegister, register_id, data, request=request, tenant_config=True)
+        updated = commonQuery.updateRecordById(Register, register_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
         return successResponse("Cash register updated successfully.", data=updated)
 
     @staticmethod
     def delete(data, request):
-        count = commonQuery.softDeleteById(CashRegister, data.get("ids"), request=request, tenant_config=True)
+        count = commonQuery.softDeleteById(Register, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
         return successResponse("Cash registers deleted successfully.")
@@ -114,7 +114,7 @@ class RegisterService:
     @staticmethod
     def updateStatus(data, request):
         count = commonQuery.updateStatusById(
-            CashRegister,
+            Register,
             data.get("ids"),
             data.get("status"),
             request=request,

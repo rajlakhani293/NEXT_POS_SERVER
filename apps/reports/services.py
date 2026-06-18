@@ -12,9 +12,9 @@ from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
 from apps.customers.models import Customer, CustomerAccountHistory
-from apps.purchases.models import PurchaseOrder, Supplier
+from apps.purchases.models import Procurement, Provider
 from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
-from apps.sales.models import OrderPayment, SaleItem, SaleOrder
+from apps.sales.models import OrderPayment, OrdersProduct, Order
 
 
 def tenantFilter(request):
@@ -62,7 +62,7 @@ class ReportService:
         base = tenantFilter(request)
         sale_filters = {**base, **dateFilter("created_at", data)}
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
-        sales = SaleOrder.objects.filter(**sale_filters).aggregate(
+        sales = Order.objects.filter(**sale_filters).aggregate(
             total_sales=Coalesce(Sum("total"), zero),
             total_paid=Coalesce(Sum("tendered_amount"), zero),
             total_due=Coalesce(Sum("total", filter=Q(payment_status__in=["unpaid", "partially_paid", "due", "partially_due"])), zero),
@@ -75,7 +75,7 @@ class ReportService:
             void_orders=Count("id", filter=Q(payment_status="void")),
             refund_total=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
         )
-        purchases = PurchaseOrder.objects.filter(**base).aggregate(
+        purchases = Procurement.objects.filter(**base).aggregate(
             total_purchase=Coalesce(Sum("value"), zero),
             total_purchase_due=Coalesce(Sum("value", filter=Q(payment_status="unpaid")), zero),
             purchase_count=Count("id"),
@@ -88,12 +88,12 @@ class ReportService:
             total_customer_due=Coalesce(Sum("owed_amount"), zero),
             customer_count=Count("id"),
         )
-        suppliers = Supplier.objects.filter(**base).aggregate(
+        suppliers = Provider.objects.filter(**base).aggregate(
             total_supplier_payable=Coalesce(Sum("amount_due"), zero),
             supplier_count=Count("id"),
         )
         best_customers = list(
-            SaleOrder.objects.filter(**sale_filters)
+            Order.objects.filter(**sale_filters)
             .exclude(customer_id__isnull=True)
             .values("customer_id", "customer__full_name")
             .annotate(
@@ -103,7 +103,7 @@ class ReportService:
             .order_by("-total_spent", "-order_count")[:5]
         )
         best_cashiers = list(
-            SaleOrder.objects.filter(**sale_filters)
+            Order.objects.filter(**sale_filters)
             .exclude(user_id__isnull=True)
             .values("user_id", "user__full_name")
             .annotate(
@@ -113,7 +113,7 @@ class ReportService:
             .order_by("-total_sales", "-order_count")[:5]
         )
         recent_orders = list(
-            SaleOrder.objects.filter(**sale_filters)
+            Order.objects.filter(**sale_filters)
             .values(
                 "id",
                 "code",
@@ -127,7 +127,7 @@ class ReportService:
             .order_by("-created_at")[:8]
         )
         weekly_sales = list(
-            SaleOrder.objects.filter(**base, created_at__gte=timezone.now() - timedelta(days=6))
+            Order.objects.filter(**base, created_at__gte=timezone.now() - timedelta(days=6))
             .annotate(day=TruncDate("created_at"))
             .values("day")
             .annotate(
@@ -214,7 +214,7 @@ class ReportService:
     @staticmethod
     def supplierPayable(data, request):
         result = commonQuery.fetchPaginatedData(
-            Supplier,
+            Provider,
             data,
             [["first_name", True, True], ["last_name", True, True], ["phone", True, True], ["email", True, True]],
             {"attributes": ["id", "first_name", "last_name", "phone", "email", "amount_due", "amount_paid", "status"]},
@@ -224,7 +224,7 @@ class ReportService:
         for item in result["items"]:
             item["name"] = " ".join([part for part in [item.get("first_name"), item.get("last_name")] if part]).strip()
             item["payable_amount"] = item.get("amount_due")
-        return successResponse("Supplier payable report retrieved successfully.", data=result)
+        return successResponse("Provider payable report retrieved successfully.", data=result)
 
     @staticmethod
     def stockLedger(data, request):
@@ -288,7 +288,7 @@ class ReportService:
     @staticmethod
     def saleReport(data, request):
         result = commonQuery.fetchPaginatedData(
-            SaleOrder,
+            Order,
             data,
             [["code", True, True], ["customer__full_name", True, True], ["user__full_name", True, True], ["payment_status", True, True]],
             {
@@ -318,7 +318,7 @@ class ReportService:
     def soldStockReport(data, request):
         field_config = [["product__name", True, True], ["sale_order__code", True, True]]
         result = commonQuery.fetchPaginatedData(
-            SaleItem,
+            OrdersProduct,
             data,
             field_config,
             {
@@ -349,7 +349,7 @@ class ReportService:
         base = tenantFilter(request)
         filters = {**base, **dateFilter("created_at", data)}
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
-        queryset = SaleItem.objects.filter(**filters).annotate(
+        queryset = OrdersProduct.objects.filter(**filters).annotate(
             cost_total=ExpressionWrapper(
                 F("quantity") * F("cost_price"),
                 output_field=DecimalField(max_digits=14, decimal_places=2),
@@ -517,7 +517,7 @@ class ReportService:
 
     @staticmethod
     def cashierReport(data, request):
-        queryset = SaleOrder.objects.filter(**{**tenantFilter(request), **dateFilter("created_at", data)})
+        queryset = Order.objects.filter(**{**tenantFilter(request), **dateFilter("created_at", data)})
         if not request.user.is_superuser:
             queryset = queryset.filter(user_id=request.user.id)
         rows = queryset.values("user_id", "user__full_name").annotate(

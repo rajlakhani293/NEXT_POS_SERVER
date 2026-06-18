@@ -17,7 +17,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="PurchaseOrder",
+            name="Procurement",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.CreateModel(
-            name="Supplier",
+            name="Provider",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -74,12 +74,12 @@ class Migration(migrations.Migration):
             },
         ),
         migrations.AddField(
-            model_name="purchaseorder",
+            model_name="Procurement",
             name="provider",
-            field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="procurements", to="purchases.supplier"),
+            field=models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="procurements", to="purchases.Provider"),
         ),
         migrations.CreateModel(
-            name="PurchaseItem",
+            name="ProcurementsProduct",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
@@ -102,7 +102,7 @@ class Migration(migrations.Migration):
                 ("branch", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.branch")),
                 ("company", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="%(class)ss", to="organizations.company")),
                 ("convert_unit", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="converted_procurement_products", to="catalog.unit")),
-                ("procurement", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="products", to="purchases.purchaseorder")),
+                ("procurement", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name="products", to="purchases.Procurement")),
                 ("product", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="purchase_items", to="catalog.product")),
                 ("tax_group", models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name="procurement_products", to="catalog.taxgroup")),
                 ("unit", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name="procurement_products", to="catalog.unit")),

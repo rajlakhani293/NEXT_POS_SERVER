@@ -18,7 +18,7 @@ class RewardSystem(TenantAwareModel):
         ordering = ["name"]
 
 
-class RewardRule(TenantAwareModel):
+class RewardsSystemRule(TenantAwareModel):
     reward_system = models.ForeignKey(RewardSystem, on_delete=models.CASCADE, related_name="rules", db_column="reward_id")
     from_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="from")
     to_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="to")

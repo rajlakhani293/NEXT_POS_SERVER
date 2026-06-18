@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from apps.common.admin import TenantModelAdmin
 from apps.promotions.models import (
-    AppliedCoupon,
+    OrdersCoupon,
     Coupon,
     CouponCategory,
     CouponCustomer,
@@ -16,4 +16,4 @@ admin.site.register(CouponProduct, TenantModelAdmin)
 admin.site.register(CouponCategory, TenantModelAdmin)
 admin.site.register(CouponCustomer, TenantModelAdmin)
 admin.site.register(CouponCustomerGroup, TenantModelAdmin)
-admin.site.register(AppliedCoupon, TenantModelAdmin)
+admin.site.register(OrdersCoupon, TenantModelAdmin)

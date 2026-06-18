@@ -1,9 +1,9 @@
 from django.contrib import admin
 
 from apps.common.admin import TenantModelAdmin
-from apps.purchases.models import PurchaseItem, PurchaseOrder, Supplier
+from apps.purchases.models import ProcurementsProduct, Procurement, Provider
 
 
-admin.site.register(Supplier, TenantModelAdmin)
-admin.site.register(PurchaseOrder, TenantModelAdmin)
-admin.site.register(PurchaseItem, TenantModelAdmin)
+admin.site.register(Provider, TenantModelAdmin)
+admin.site.register(Procurement, TenantModelAdmin)
+admin.site.register(ProcurementsProduct, TenantModelAdmin)

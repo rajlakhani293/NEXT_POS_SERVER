@@ -108,7 +108,7 @@ class CustomerAccountHistory(TenantAwareModel):
 
     customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="account_history")
     order = models.ForeignKey(
-        "sales.SaleOrder",
+        "sales.Order",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
