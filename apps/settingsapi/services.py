@@ -30,7 +30,23 @@ BUSINESS_SETTING_FIELDS = [
 
 
 class OptionSettingService:
-    OPTION_KEY = "business_settings"
+    OPTION_KEY_MAP = {
+        "allow_decimal_quantities": "ns_pos_allow_decimal_quantities",
+        "quick_product_enabled": "ns_pos_quick_product",
+        "show_quantity": "ns_pos_show_quantity",
+        "currency_precision": "ns_currency_precision",
+        "hide_empty_categories": "ns_pos_hide_empty_categories",
+        "unit_price_editable": "ns_pos_unit_price_ediable",
+        "order_types": "ns_pos_order_types",
+        "default_change_payment_type": "ns_pos_registers_default_change_payment_type",
+    }
+
+    EXTRA_OPTION_DEFAULTS = {
+        "ns_registration_enabled": "no",
+        "ns_store_name": "NexoPOS",
+        "ns_store_language": "en",
+        "ns_scale_barcode_product_length": 4,
+    }
 
     @staticmethod
     def defaultValues():
@@ -51,39 +67,116 @@ class OptionSettingService:
 
     @staticmethod
     def ensureCompanySettings(company):
-        for branch in company.branches.all():
-            OptionSettingService.ensureOption(company=company, branch=branch)
         return OptionSettingService.defaultValues()
 
     @staticmethod
     def ensureSettings(user):
-        return OptionSettingService.ensureOption(
+        return OptionSettingService.ensureOptions(
             company=user.company,
             branch=user.branch,
             user=user,
         )
 
     @staticmethod
-    def ensureOption(company, branch, user=None):
-        option, created = Option.objects.get_or_create(
+    def encodeValue(value):
+        if isinstance(value, (list, dict)):
+            return json.dumps(value), True
+        if value is True:
+            return "yes", False
+        if value is False:
+            return "no", False
+        return str(value or ""), False
+
+    @staticmethod
+    def ensureOptionValue(company, branch, key, value, user=None):
+        encoded_value, is_array = OptionSettingService.encodeValue(value)
+        option, _created = Option.objects.get_or_create(
             company=company,
             branch=branch,
-            key=OptionSettingService.OPTION_KEY,
+            key=key,
             defaults={
                 "user": user,
-                "value": json.dumps(OptionSettingService.defaultValues()),
-                "array": True,
+                "value": encoded_value,
+                "array": is_array,
             },
         )
+        update_fields = []
         if user and option.user_id is None:
             option.user = user
-            option.save(update_fields=["user"])
-        if created:
-            return option
+            update_fields.append("user")
+        if option.value in [None, ""]:
+            option.value = encoded_value
+            option.array = is_array
+            update_fields.extend(["value", "array"])
+        if update_fields:
+            option.save(update_fields=[*set(update_fields), "updated_at"])
         return option
 
     @staticmethod
-    def optionValue(option):
+    def ensureOptions(company, branch, user=None):
+        from apps.payments.models import PaymentType
+
+        payment_type = PaymentType.objects.filter(
+            company_id=company.id,
+            branch_id=branch.id,
+            identifier="cash-payment",
+            status=0,
+        ).first()
+        defaults = {
+            **OptionSettingService.EXTRA_OPTION_DEFAULTS,
+            "ns_pos_allow_decimal_quantities": "yes",
+            "ns_pos_quick_product": "yes",
+            "ns_pos_show_quantity": "yes",
+            "ns_currency_precision": 2,
+            "ns_pos_hide_empty_categories": "yes",
+            "ns_pos_unit_price_ediable": "yes",
+            "ns_pos_order_types": ["takeaway", "delivery"],
+            "ns_pos_registers_default_change_payment_type": payment_type.id if payment_type else 1,
+        }
+        for key, value in defaults.items():
+            OptionSettingService.ensureOptionValue(company, branch, key, value, user=user)
+        return Option.objects.filter(company=company, branch=branch)
+
+    @staticmethod
+    def ensureOption(company, branch, user=None):
+        return OptionSettingService.ensureOptions(company=company, branch=branch, user=user)
+
+    @staticmethod
+    def decodeOption(option):
+        if option is None:
+            return None
+        if option.array:
+            try:
+                return json.loads(option.value or "[]")
+            except (TypeError, json.JSONDecodeError):
+                return []
+        if option.value == "yes":
+            return True
+        if option.value == "no":
+            return False
+        if str(option.value or "").isdigit():
+            return int(option.value)
+        return option.value
+
+    @staticmethod
+    def optionValue(options):
+        option_map = {option.key: option for option in options}
+        defaults = OptionSettingService.defaultValues()
+        values = {
+            "allow_partial_orders": defaults["allow_partial_orders"],
+            "enable_customer_rewards": defaults["enable_customer_rewards"],
+            "enable_credit_account": defaults["enable_credit_account"],
+            "enable_cash_registers": defaults["enable_cash_registers"],
+        }
+        reverse_map = {
+            key: OptionSettingService.decodeOption(option_map.get(option_key))
+            for key, option_key in OptionSettingService.OPTION_KEY_MAP.items()
+        }
+        values.update({key: value for key, value in reverse_map.items() if value is not None})
+        return {**defaults, **values}
+
+    @staticmethod
+    def optionValueOld(option):
         try:
             data = json.loads(option.value or "{}")
         except (TypeError, json.JSONDecodeError):
@@ -135,10 +228,13 @@ class OptionSettingService:
 
     @staticmethod
     def update(user, data):
-        settings = OptionSettingService.ensureSettings(user)
-        setting_data = OptionSettingService.optionValue(settings)
+        OptionSettingService.ensureSettings(user)
+        setting_data = OptionSettingService.defaultValues()
         for field in BUSINESS_SETTING_FIELDS:
             if field == "order_types":
+                continue
+            if field not in OptionSettingService.OPTION_KEY_MAP:
+                setting_data[field] = bool(data.get(field))
                 continue
             if field == "currency_precision":
                 precision = int(data.get(field, 2))
@@ -150,7 +246,12 @@ class OptionSettingService:
             else:
                 setting_data[field] = bool(data.get(field))
         setting_data["order_types"] = OptionSettingService.normalizeOrderTypes(data.get("order_types"))
-        settings.value = json.dumps(setting_data)
-        settings.array = True
-        settings.save(update_fields=["value", "array", "updated_at"])
+        for field, key in OptionSettingService.OPTION_KEY_MAP.items():
+            OptionSettingService.ensureOptionValue(
+                user.company,
+                user.branch,
+                key,
+                setting_data.get(field),
+                user=user,
+            )
         return OptionSettingService.get(user)

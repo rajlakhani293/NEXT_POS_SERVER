@@ -20,6 +20,21 @@ from apps.common.helpers import buildSku, decimalValue, saveProductImage, valida
 from apps.common.responses import successResponse
 
 
+DEFAULT_SCALE_RANGES = [
+    ("Test Range", 1, 99, 1, "Range for testing and development purposes"),
+    ("Fruits & Vegetables", 100, 999, 100, "Fresh produce that requires weighing"),
+    ("Meat & Poultry", 1000, 1999, 1000, "Fresh meat and poultry products"),
+    ("Seafood", 2000, 2999, 2000, "Fresh fish and seafood products"),
+    ("Bakery", 3000, 3999, 3000, "Bakery items sold by weight"),
+    ("Deli & Cheese", 4000, 4999, 4000, "Deli meats and cheese products"),
+    ("Bulk Foods", 5000, 5999, 5000, "Bulk food items like nuts, grains, and spices"),
+    ("Prepared Foods", 6000, 6999, 6000, "Ready-to-eat prepared foods"),
+    ("Organic Products", 7000, 7999, 7000, "Certified organic products"),
+    ("Specialty Items", 8000, 8999, 8000, "Specialty and gourmet products"),
+    ("General Weighable", 9000, 9999, 9000, "General category for weighable products"),
+]
+
+
 def _emptyToNone(data, fields):
     for field in fields:
         if data.get(field) == "":
@@ -38,6 +53,38 @@ def _relationName(model, record_id, request):
         tenant_config=True,
     )
     return row["name"] if row else None
+
+
+class ScaleRangeService:
+    @staticmethod
+    def ensureDefaultScaleRanges(company, branch):
+        ranges = []
+        for name, range_start, range_end, next_scale_plu, description in DEFAULT_SCALE_RANGES:
+            scale_range, created = ScaleRange.objects.get_or_create(
+                company_id=company.id,
+                branch_id=branch.id,
+                name=name,
+                defaults={
+                    "range_start": range_start,
+                    "range_end": range_end,
+                    "next_scale_plu": next_scale_plu,
+                    "description": description,
+                },
+            )
+            update_fields = []
+            if created is False and scale_range.range_start != range_start:
+                scale_range.range_start = range_start
+                update_fields.append("range_start")
+            if created is False and scale_range.range_end != range_end:
+                scale_range.range_end = range_end
+                update_fields.append("range_end")
+            if created is False and scale_range.description != description:
+                scale_range.description = description
+                update_fields.append("description")
+            if update_fields:
+                scale_range.save(update_fields=[*update_fields, "updated_at"])
+            ranges.append(scale_range)
+        return ranges
 
 
 class CategoryService:
