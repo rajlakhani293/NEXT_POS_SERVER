@@ -5,7 +5,8 @@ from django.db.models import Q
 
 from apps.accounts.models import User
 from apps.common.models import TenantAwareModel
-
+from apps.promotions.models import Coupon
+from apps.rewards.models import RewardSystem
 
 CUSTOMER_ROLE_CODE = "nexopos.store.customer"
 
@@ -19,13 +20,7 @@ class CustomerGroup(TenantAwareModel):
         default=0,
         help_text="Minimum percentage the customer must pay when creating a credit sale.",
     )
-    reward_system = models.ForeignKey(
-        "rewards.RewardSystem",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="customer_groups",
-    )
+    reward_system = models.ForeignKey(RewardSystem, on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_groups")
 
     class Meta:
         ordering = ["name"]
@@ -125,20 +120,12 @@ class CustomerAccountHistory(TenantAwareModel):
 
 
 class CustomerCoupon(TenantAwareModel):
-    coupon = models.ForeignKey(
-        "promotions.Coupon",
-        on_delete=models.CASCADE,
-        related_name="issued_coupons",
-    )
-    customer = models.ForeignKey(
-        "accounts.User",
-        on_delete=models.CASCADE,
-        related_name="coupons",
-    )
     name = models.CharField(max_length=150, blank=True, default="")
     usage = models.PositiveIntegerField(default=0)
     limit_usage = models.PositiveIntegerField(default=0)
     code = models.CharField(max_length=150)
+    coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name="issued_coupons")
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="coupons")
 
     class Meta:
         db_table = "customers_coupons"
@@ -146,17 +133,8 @@ class CustomerCoupon(TenantAwareModel):
 
 
 class CustomerReward(TenantAwareModel):
-    customer = models.ForeignKey(
-        "accounts.User",
-        on_delete=models.CASCADE,
-        related_name="reward_balances",
-    )
-    reward = models.ForeignKey(
-        "rewards.RewardSystem",
-        on_delete=models.CASCADE,
-        related_name="customer_rewards",
-        db_column="reward_id",
-    )
+    customer = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reward_balances")
+    reward = models.ForeignKey(RewardSystem, on_delete=models.CASCADE, related_name="customer_rewards", db_column="reward_id")
     reward_name = models.CharField(max_length=150, blank=True, default="")
     points = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     target = models.DecimalField(max_digits=18, decimal_places=5, default=0)
