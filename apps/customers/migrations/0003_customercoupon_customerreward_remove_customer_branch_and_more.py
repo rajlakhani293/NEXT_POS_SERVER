@@ -29,6 +29,9 @@ class Migration(migrations.Migration):
                 ('limit_usage', models.PositiveIntegerField(default=0)),
                 ('code', models.CharField(max_length=150)),
             ],
+            options={
+                'db_table': 'customers_coupons',
+            },
         ),
         migrations.CreateModel(
             name='CustomerReward',
@@ -43,6 +46,9 @@ class Migration(migrations.Migration):
                 ('points', models.DecimalField(decimal_places=5, default=0, max_digits=18)),
                 ('target', models.DecimalField(decimal_places=5, default=0, max_digits=18)),
             ],
+            options={
+                'db_table': 'customers_rewards',
+            },
         ),
         migrations.RemoveField(
             model_name='customer',

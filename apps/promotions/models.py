@@ -20,6 +20,7 @@ class Coupon(TenantAwareModel):
     limit_usage = models.PositiveIntegerField(default=0)
 
     class Meta:
+        db_table = "coupons"
         unique_together = [("branch", "code")]
         ordering = ["name"]
 
@@ -29,6 +30,7 @@ class CouponProduct(TenantAwareModel):
     product = models.ForeignKey("catalog.Product", on_delete=models.CASCADE, related_name="coupon_links")
 
     class Meta:
+        db_table = "coupons_products"
         unique_together = [("coupon", "product")]
 
 
@@ -37,6 +39,7 @@ class CouponCategory(TenantAwareModel):
     category = models.ForeignKey("catalog.Category", on_delete=models.CASCADE, related_name="coupon_links")
 
     class Meta:
+        db_table = "coupons_categories"
         unique_together = [("coupon", "category")]
 
 
@@ -45,6 +48,7 @@ class CouponCustomer(TenantAwareModel):
     customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="coupon_links")
 
     class Meta:
+        db_table = "coupons_customers"
         unique_together = [("coupon", "customer")]
 
 
@@ -53,20 +57,24 @@ class CouponCustomerGroup(TenantAwareModel):
     customer_group = models.ForeignKey("customers.CustomerGroup", on_delete=models.CASCADE, related_name="coupon_links")
 
     class Meta:
+        db_table = "coupons_customers_groups"
         unique_together = [("coupon", "customer_group")]
 
 
 class AppliedCoupon(TenantAwareModel):
-    sale_order = models.ForeignKey("sales.SaleOrder", on_delete=models.CASCADE, related_name="applied_coupons")
+    sale_order = models.ForeignKey("sales.SaleOrder", on_delete=models.CASCADE, related_name="applied_coupons", db_column="order_id")
     coupon = models.ForeignKey(Coupon, on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_orders")
-    customer_coupon = models.ForeignKey(
-        "customers.CustomerCoupon",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="applied_orders",
-    )
+    customer_coupon_id = models.PositiveIntegerField(null=True, blank=True)
     code = models.CharField(max_length=150)
+    name = models.CharField(max_length=150, blank=True, default="")
     type = models.CharField(max_length=30)
     discount_value = models.DecimalField(max_digits=12, decimal_places=2)
-    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    minimum_cart_value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    maximum_cart_value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    limit_usage = models.PositiveIntegerField(default=0)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0, db_column="value")
+    counted = models.BooleanField(default=False)
+    author = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="applied_coupons", db_column="author_id")
+
+    class Meta:
+        db_table = "orders_coupons"

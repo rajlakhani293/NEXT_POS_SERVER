@@ -10,15 +10,20 @@ class Migration(migrations.Migration):
 
     dependencies = [
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
-        ('rewards', '0002_alter_rewardredemption_customer_and_more'),
+        ('rewards', '0001_initial'),
         ('organizations', '0001_initial'),
         ('accounts', '0006_user_account_amount_user_birth_date_and_more'),
-        ('promotions', '0002_alter_appliedcoupon_customer_coupon_and_more'),
+        ('promotions', '0001_initial'),
         ('sales', '0001_initial'),
         ('customers', '0003_customercoupon_customerreward_remove_customer_branch_and_more'),
     ]
 
     operations = [
+        migrations.AddField(
+            model_name='customergroup',
+            name='reward_system',
+            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='customer_groups', to='rewards.rewardsystem'),
+        ),
         migrations.DeleteModel(
             name='Customer',
         ),
@@ -46,7 +51,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='customerreward',
             name='reward',
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='customer_rewards', to='rewards.rewardsystem'),
+            field=models.ForeignKey(db_column='reward_id', on_delete=django.db.models.deletion.CASCADE, related_name='customer_rewards', to='rewards.rewardsystem'),
         ),
         migrations.AddField(
             model_name='customercoupon',

@@ -9,17 +9,11 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('rewards', '0001_initial'),
         ('customers', '0001_initial'),
         ('organizations', '0001_initial'),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='customergroup',
-            name='reward_system',
-            field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='customer_groups', to='rewards.rewardsystem'),
-        ),
         migrations.AddField(
             model_name='customercreditledger',
             name='branch',

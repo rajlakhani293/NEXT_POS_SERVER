@@ -141,6 +141,7 @@ class CustomerCoupon(TenantAwareModel):
     code = models.CharField(max_length=150)
 
     class Meta:
+        db_table = "customers_coupons"
         unique_together = [("customer", "code")]
 
 
@@ -154,10 +155,12 @@ class CustomerReward(TenantAwareModel):
         "rewards.RewardSystem",
         on_delete=models.CASCADE,
         related_name="customer_rewards",
+        db_column="reward_id",
     )
     reward_name = models.CharField(max_length=150, blank=True, default="")
     points = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     target = models.DecimalField(max_digits=18, decimal_places=5, default=0)
 
     class Meta:
+        db_table = "customers_rewards"
         unique_together = [("customer", "reward")]
