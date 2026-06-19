@@ -1,9 +1,15 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import Literal, List, Optional
 
 from ninja import Schema
 
 from apps.common.schemas import ActiveStatus
+
+ProductType = Literal["product", "variation", "variable", "stock", "service"]
+CatalogItemType = Literal["dematerialized", "materialized", "grouped"]
+StockManagement = Literal["enabled", "disabled"]
+TaxType = Literal["inclusive", "exclusive"]
+ExpirationAction = Literal["prevent_sales", "allow_sales"]
 
 
 class CategoryIn(Schema):
@@ -91,14 +97,14 @@ class TaxUpdateIn(Schema):
 
 class ProductIn(Schema):
     name: str
-    tax_type: Optional[str] = None
+    tax_type: Optional[TaxType] = None
     tax_group_id: Optional[int] = None
     tax_value: float = 0
-    product_type: str = "product"
-    type: str = "materialized"
+    product_type: ProductType = "product"
+    type: CatalogItemType = "materialized"
     accurate_tracking: bool = False
     auto_cogs: bool = True
-    stock_management: str = "enabled"
+    stock_management: StockManagement = "enabled"
     barcode: Optional[str] = None
     barcode_type: Optional[str] = None
     sku: Optional[str] = None
@@ -107,7 +113,7 @@ class ProductIn(Schema):
     category_id: Optional[int] = None
     parent_id: Optional[int] = None
     unit_group_id: Optional[int] = None
-    on_expiration: str = "prevent_sales"
+    on_expiration: ExpirationAction = "prevent_sales"
     expires: bool = False
     searchable: bool = True
     position: int = 0
@@ -116,14 +122,14 @@ class ProductIn(Schema):
 
 class ProductUpdateIn(Schema):
     name: Optional[str] = None
-    tax_type: Optional[str] = None
+    tax_type: Optional[TaxType] = None
     tax_group_id: Optional[int] = None
     tax_value: Optional[float] = None
-    product_type: Optional[str] = None
-    type: Optional[str] = None
+    product_type: Optional[ProductType] = None
+    type: Optional[CatalogItemType] = None
     accurate_tracking: Optional[bool] = None
     auto_cogs: Optional[bool] = None
-    stock_management: Optional[str] = None
+    stock_management: Optional[StockManagement] = None
     barcode: Optional[str] = None
     barcode_type: Optional[str] = None
     sku: Optional[str] = None
@@ -132,7 +138,7 @@ class ProductUpdateIn(Schema):
     category_id: Optional[int] = None
     parent_id: Optional[int] = None
     unit_group_id: Optional[int] = None
-    on_expiration: Optional[str] = None
+    on_expiration: Optional[ExpirationAction] = None
     expires: Optional[bool] = None
     searchable: Optional[bool] = None
     position: Optional[int] = None

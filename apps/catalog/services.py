@@ -48,6 +48,17 @@ def _buildBarcode(request, exclude_id=None):
     return buildUniqueValue(Product, request, "barcode", raw, exclude_id=exclude_id)
 
 
+def _normalizeProductPayload(data):
+    if data.get("product_type") in ["stock", "service"]:
+        legacy_type = data.pop("product_type")
+        data["product_type"] = "product"
+        if "type" not in data:
+            data["type"] = "dematerialized" if legacy_type == "service" else "materialized"
+        if legacy_type == "service" and "stock_management" not in data:
+            data["stock_management"] = "disabled"
+    return data
+
+
 class ScaleRangeService:
     @staticmethod
     def ensureDefaultScaleRanges(company, branch):
@@ -455,6 +466,7 @@ class ProductService:
     @staticmethod
     def create(data, request, image=None):
         with transaction.atomic():
+            data = _normalizeProductPayload(data)
             _emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
             if data.get("sku"):
                 data["sku"] = buildSku(Product, data.get("name"), data.get("sku"), request)
@@ -498,6 +510,7 @@ class ProductService:
     @staticmethod
     def update(data, request, product_id, image=None):
         with transaction.atomic():
+            data = _normalizeProductPayload(data)
             product = commonQuery.findOneRecord(Product, product_id, request=request, tenant_config=True)
             if product is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
