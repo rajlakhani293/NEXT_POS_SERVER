@@ -17,9 +17,6 @@ from apps.registers.api import router as registers_router
 from apps.reports.api import router as reports_router
 from apps.rewards.api import router as rewards_router
 from apps.sales.api import router as sales_router
-from apps.settings.api import mediaRouter as media_router
-from apps.settings.api import notificationsRouter as notifications_router
-from apps.settings.api import paymentsRouter as payments_router
 from apps.settings.api import router as settings_router
 from apps.common.responses import errorResponse, successResponse
 
@@ -31,11 +28,8 @@ api.add_router("/accounting/", accounting_router)
 api.add_router("/organizations/", organizations_router)
 api.add_router("/customers/", customers_router)
 api.add_router("/catalog/", catalog_router)
-api.add_router("/media/", media_router)
-api.add_router("/notifications/", notifications_router)
 api.add_router("/purchases/", purchases_router)
 api.add_router("/sales/", sales_router)
-api.add_router("/payments/", payments_router)
 api.add_router("/registers/", registers_router)
 api.add_router("/promotions/", promotions_router)
 api.add_router("/rewards/", rewards_router)
