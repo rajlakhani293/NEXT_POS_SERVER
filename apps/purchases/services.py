@@ -20,7 +20,7 @@ from apps.common.helpers import (
     validateTenantRelationIds,
 )
 from apps.common.responses import successResponse
-from apps.notifications.services import NotificationService
+from apps.settings.services import NotificationService
 from apps.purchases.models import ProcurementsProduct, Procurement, Provider
 
 

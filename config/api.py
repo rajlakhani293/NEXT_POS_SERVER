@@ -10,17 +10,17 @@ from apps.accounts.api import router as accounts_router
 from apps.accounting.api import router as accounting_router
 from apps.catalog.api import router as catalog_router
 from apps.customers.api import router as customers_router
-from apps.mediahub.api import router as media_router
-from apps.notifications.api import router as notifications_router
 from apps.organizations.api import router as organizations_router
-from apps.payments.api import router as payments_router
 from apps.promotions.api import router as promotions_router
 from apps.purchases.api import router as purchases_router
 from apps.registers.api import router as registers_router
 from apps.reports.api import router as reports_router
 from apps.rewards.api import router as rewards_router
 from apps.sales.api import router as sales_router
-from apps.settingsapi.api import router as settings_router
+from apps.settings.api import mediaRouter as media_router
+from apps.settings.api import notificationsRouter as notifications_router
+from apps.settings.api import paymentsRouter as payments_router
+from apps.settings.api import router as settings_router
 from apps.common.responses import errorResponse, successResponse
 
 

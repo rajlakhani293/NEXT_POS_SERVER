@@ -28,7 +28,7 @@ from apps.customers.models import (
     CustomerGroup,
     CustomerReward,
 )
-from apps.payments.services import PaymentTypeService
+from apps.settings.services import OptionSettingService, PaymentTypeService
 from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
 from apps.registers.models import RegistersHistory
 from apps.rewards.services import CustomerRewardService
@@ -40,7 +40,6 @@ from apps.sales.models import (
     OrdersProduct,
     Order,
 )
-from apps.settingsapi.services import OptionSettingService
 
 
 def getOptionSettings(user):

@@ -1,6 +1,6 @@
 # type: ignore
 import json
-from apps.settingsapi.models import Option
+from apps.settings.models import Option
 
 
 ORDER_TYPE_OPTIONS = [
@@ -244,7 +244,7 @@ def ensureOptionValue(company, branch, key, value, user=None):
 
 
 def defaultOptionRows(company, branch):
-    from apps.payments.models import PaymentType
+    from apps.settings.models import PaymentType
     from apps.accounting.models import TransactionAccount
 
     payment_type = PaymentType.objects.filter(
@@ -315,7 +315,7 @@ class TenantDefaultsService:
         from apps.accounting.services import AccountingService
         from apps.accounts.services import AccountsService
         from apps.catalog.services import ScaleRangeService
-        from apps.payments.services import PaymentTypeService
+        from apps.settings.services import PaymentTypeService
 
         AccountsService.seedDefaultRoles(company, branch)
         PaymentTypeService.ensureDefaultPaymentTypes(company, branch)

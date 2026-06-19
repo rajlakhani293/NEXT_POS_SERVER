@@ -1,6 +1,22 @@
 # type: ignore
 from django.db import models
+
 from apps.common.models import TenantAwareModel
+
+
+PAYMENT_TYPES = [
+    ("cash-payment", "Cash"),
+    ("bank-payment", "Bank Payment"),
+    ("account-payment", "Customer Account"),
+]
+
+
+def paymentTypeOptions():
+    return [{"value": value, "label": label} for value, label in PAYMENT_TYPES]
+
+
+def paymentTypeValues():
+    return [value for value, _label in PAYMENT_TYPES]
 
 
 class Option(TenantAwareModel):
@@ -62,3 +78,49 @@ class FailedJob(models.Model):
 
     def __str__(self):
         return f"{self.queue} failed #{self.id}"
+
+
+class Media(TenantAwareModel):
+    name = models.CharField(max_length=255, unique=True)
+    extension = models.CharField(max_length=50)
+    slug = models.CharField(max_length=255)
+
+    class Meta:
+        db_table = "medias"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.name
+
+
+class Notification(TenantAwareModel):
+    identifier = models.CharField(max_length=255)
+    title = models.CharField(max_length=255)
+    description = models.TextField()
+    url = models.CharField(max_length=255, default="#")
+    source = models.CharField(max_length=255, default="system")
+    dismissable = models.BooleanField(default=True)
+    actions = models.JSONField(blank=True, null=True)
+
+    class Meta:
+        db_table = "notifications"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.title
+
+
+class PaymentType(TenantAwareModel):
+    label = models.CharField(max_length=120)
+    identifier = models.CharField(max_length=80)
+    description = models.TextField(blank=True)
+    readonly = models.BooleanField(default=False)
+    sort_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "payments_types"
+        unique_together = [("branch", "identifier"), ("branch", "label")]
+        ordering = ["sort_order", "label"]
+
+    def __str__(self):
+        return self.label

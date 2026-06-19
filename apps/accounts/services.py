@@ -19,7 +19,7 @@ from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance, validateUniqueFields
 from apps.common.tenantDefaults import TenantDefaultsService
 from apps.organizations.models import Branch, Company
-from apps.settingsapi.services import OptionSettingService
+from apps.settings.services import OptionSettingService
 
 
 def normalizeRoleNamespace(value):
@@ -426,14 +426,14 @@ class AccountsService:
             "accounting.TransactionBalanceDay",
             "accounting.TransactionBalanceMonth",
             "accounting.TransactionAccount",
-            "payments.PaymentType",
+            "settings.PaymentType",
             "registers.Register",
-            "settingsapi.Option",
+            "settings.Option",
             "reports.DashboardDay",
             "reports.DashboardWeek",
             "reports.DashboardMonth",
-            "notifications.Notification",
-            "mediahub.Media",
+            "settings.Notification",
+            "settings.Media",
             "accounts.Role",
             "organizations.Branch",
         ]

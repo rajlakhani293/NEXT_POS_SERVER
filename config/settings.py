@@ -73,16 +73,13 @@ INSTALLED_APPS = [
     'apps.accounting',
     'apps.customers',
     'apps.catalog',
-    'apps.mediahub',
-    'apps.notifications',
     'apps.purchases',
     'apps.sales',
-    'apps.payments',
     'apps.registers',
     'apps.promotions',
     'apps.rewards',
     'apps.reports',
-    'apps.settingsapi',
+    'apps.settings',
 ]
 
 MIDDLEWARE = [

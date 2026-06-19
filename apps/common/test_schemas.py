@@ -2,7 +2,7 @@ from django.test import SimpleTestCase
 from pydantic import ValidationError
 
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
-from apps.notifications.schemas import NotificationIn
+from apps.settings.schemas import NotificationIn
 from apps.sales.schemas import SaleCreateIn
 
 
