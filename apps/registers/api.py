@@ -7,6 +7,8 @@ from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.registers.schemas import (
     CashRegisterIn,
     CashRegisterUpdateIn,
+    RegisterMoneyActionIn,
+    RegisterStatusIn,
 )
 from apps.registers.services import RegisterService
 
@@ -53,6 +55,30 @@ def updateRegisterStatus(request, payload: StatusUpdateSchema):
     return RegisterService.updateStatus(payload.dict(), request)
 
 
+@router.post("/open", response=ApiResponse)
+@permission_required("cash_register_open")
+def openRegister(request, payload: RegisterStatusIn):
+    return RegisterService.openRegister(payload.dict(), request)
+
+
+@router.post("/close", response=ApiResponse)
+@permission_required("cash_register_close")
+def closeRegister(request, payload: RegisterStatusIn):
+    return RegisterService.closeRegister(payload.dict(), request)
+
+
+@router.post("/cash-in", response=ApiResponse)
+@permission_required("cash_register_open")
+def cashIn(request, payload: RegisterMoneyActionIn):
+    return RegisterService.cashIn(payload.dict(), request)
+
+
+@router.post("/cash-out", response=ApiResponse)
+@permission_required("cash_register_close")
+def cashOut(request, payload: RegisterMoneyActionIn):
+    return RegisterService.cashOut(payload.dict(), request)
+
+
 @router.get("/{register_id}", response=ApiResponse)
 @permission_required("cash_register_view")
 def getRegisterById(request, register_id: int):
@@ -63,4 +89,3 @@ def getRegisterById(request, register_id: int):
 @permission_required("cash_register_close")
 def updateRegister(request, register_id: int, payload: CashRegisterUpdateIn):
     return RegisterService.update(register_id, payload.dict(exclude_none=True), request)
-

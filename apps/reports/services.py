@@ -74,6 +74,8 @@ class ReportService:
             partially_refunded_orders=Count("id", filter=Q(payment_status="partially_refunded")),
             void_orders=Count("id", filter=Q(payment_status="void")),
             refund_total=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
+            tax_total=Coalesce(Sum("tax_amount"), zero),
+            total_discount=Coalesce(Sum("discount_amount"), zero),
         )
         purchases = Procurement.objects.filter(**base).aggregate(
             total_purchase=Coalesce(Sum("value"), zero),
@@ -167,7 +169,37 @@ class ReportService:
         customers = summary_payload.get("customers", {})
         suppliers = summary_payload.get("suppliers", {})
 
-        defaults = {"day_expenses": expenses.get("total_expense") or 0}
+        total_paid = sales.get("total_paid") or 0
+        total_due = sales.get("total_due") or 0
+        paid_count = sales.get("paid_orders") or 0
+        unpaid_count = sales.get("unpaid_orders") or 0
+        partial_count = sales.get("partially_paid_orders") or 0
+        income = sales.get("total_sales") or 0
+        tax_total = sales.get("tax_total") or 0
+        discounts = sales.get("total_discount") or 0
+        expense_total = expenses.get("total_expense") or 0
+        defaults = {
+            "day_paid_orders": total_paid,
+            "total_paid_orders": total_paid,
+            "day_paid_orders_count": paid_count,
+            "total_paid_orders_count": paid_count,
+            "day_unpaid_orders": total_due,
+            "total_unpaid_orders": total_due,
+            "day_unpaid_orders_count": unpaid_count,
+            "total_unpaid_orders_count": unpaid_count,
+            "day_partially_paid_orders": total_due if partial_count else 0,
+            "total_partially_paid_orders": total_due if partial_count else 0,
+            "day_partially_paid_orders_count": partial_count,
+            "total_partially_paid_orders_count": partial_count,
+            "day_income": income,
+            "total_income": income,
+            "day_discounts": discounts,
+            "total_discounts": discounts,
+            "day_taxes": tax_total,
+            "total_taxes": tax_total,
+            "day_expenses": expense_total,
+            "total_expenses": expense_total,
+        }
         day, _ = DashboardDay.objects.update_or_create(
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
@@ -183,8 +215,13 @@ class ReportService:
             branch_id=request.user.branch_id,
             range_starts=week_start,
             range_ends=week_end,
-            week_of_year=int(target_date.strftime("%U")),
-            defaults={"week_expenses": expenses.get("total_expense") or 0},
+            week_number=int(target_date.strftime("%U")),
+            defaults={
+                "total_gross_income": income,
+                "total_taxes": tax_total,
+                "total_expenses": expense_total,
+                "total_net_income": income - tax_total - expense_total,
+            },
         )
         month_start = timezone.make_aware(timezone.datetime(target_date.year, target_date.month, 1))
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
@@ -195,7 +232,28 @@ class ReportService:
             range_starts=month_start,
             range_ends=month_end,
             month_of_year=target_date.month,
-            defaults={"total_expenses": expenses.get("total_expense") or 0},
+            defaults={
+                "month_paid_orders": total_paid,
+                "total_paid_orders": total_paid,
+                "month_paid_orders_count": paid_count,
+                "total_paid_orders_count": paid_count,
+                "month_unpaid_orders": total_due,
+                "total_unpaid_orders": total_due,
+                "month_unpaid_orders_count": unpaid_count,
+                "total_unpaid_orders_count": unpaid_count,
+                "month_partially_paid_orders": total_due if partial_count else 0,
+                "total_partially_paid_orders": total_due if partial_count else 0,
+                "month_partially_paid_orders_count": partial_count,
+                "total_partially_paid_orders_count": partial_count,
+                "month_income": income,
+                "total_income": income,
+                "month_discounts": discounts,
+                "total_discounts": discounts,
+                "month_taxes": tax_total,
+                "total_taxes": tax_total,
+                "month_expenses": expense_total,
+                "total_expenses": expense_total,
+            },
         )
         return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
 

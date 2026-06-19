@@ -55,7 +55,7 @@ def getPaymentTypeDropdown(request):
 
 
 @paymentsRouter.patch("/types/status", response=ApiResponse)
-@permission_required("payments_create")
+@permission_required("payments_update")
 def updatePaymentTypeStatus(request, payload: StatusUpdateSchema):
     data = PaymentTypeService.updatePaymentTypeStatus(payload.dict(), request)
     return successResponse("Payment type status updated successfully.", data=data)
@@ -69,14 +69,14 @@ def getPaymentType(request, payment_type_id: int):
 
 
 @paymentsRouter.put("/types/{payment_type_id}", response=ApiResponse)
-@permission_required("payments_create")
+@permission_required("payments_update")
 def updatePaymentType(request, payment_type_id: int, payload: PaymentTypeUpdateIn):
     data = PaymentTypeService.updatePaymentType(payment_type_id, payload.dict(), request)
     return successResponse("Payment type updated successfully.", data=data)
 
 
 @paymentsRouter.delete("/types/", response=ApiResponse)
-@permission_required("payments_create")
+@permission_required("payments_delete")
 def deletePaymentTypes(request, payload: BulkIdsSchema):
     data = PaymentTypeService.deletePaymentTypes(payload.dict(), request)
     return successResponse("Payment types deleted successfully.", data=data)

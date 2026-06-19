@@ -66,8 +66,6 @@ class TransactionHistory(TenantAwareModel):
 
     transaction = models.ForeignKey(Transaction, on_delete=models.CASCADE, null=True, blank=True, related_name="histories")
     operation = models.CharField(max_length=10, choices=OPERATION_TYPES, default=OPERATION_DEBIT)
-    is_reflection = models.BooleanField(default=False)
-    reflection_source_id = models.PositiveBigIntegerField(blank=True, null=True)
     transaction_account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, null=True, blank=True, related_name="histories")
     rule = models.ForeignKey(
         "TransactionActionRule",
@@ -78,7 +76,6 @@ class TransactionHistory(TenantAwareModel):
     )
     procurement_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_refund_id = models.PositiveBigIntegerField(blank=True, null=True)
-    order_payment_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_refund_product_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_product_id = models.PositiveBigIntegerField(blank=True, null=True)

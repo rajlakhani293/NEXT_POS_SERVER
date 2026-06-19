@@ -10,15 +10,13 @@ class Register(TenantAwareModel):
     STATUS_INUSE = "in-use"
 
     name = models.CharField(max_length=150)
-    code = models.SlugField(max_length=120, blank=True, null=True)
-    location = models.CharField(max_length=255, blank=True)
+    register_status = models.CharField(max_length=20, default=STATUS_CLOSED)
     description = models.TextField(blank=True, null=True)
     used_by = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="used_registers", db_column="used_by")
     balance = models.DecimalField(max_digits=18, decimal_places=5, default=0)
 
     class Meta:
         db_table = "registers"
-        unique_together = [("branch", "code")]
         ordering = ["name"]
 
 
@@ -47,6 +45,21 @@ class RegistersHistory(TenantAwareModel):
         (ACTION_REFUND, "Refund"),
         (ACTION_ACCOUNT_PAY, "Account Pay"),
         (ACTION_ACCOUNT_CHANGE, "Account In"),
+    ]
+    IN_ACTIONS = [
+        ACTION_CASHING,
+        ACTION_OPENING,
+        ACTION_ORDER_PAYMENT,
+        ACTION_ACCOUNT_PAY,
+    ]
+    OUT_ACTIONS = [
+        ACTION_REFUND,
+        ACTION_CLOSING,
+        ACTION_CASHOUT,
+        ACTION_DELETE,
+        ACTION_ORDER_CHANGE,
+        ACTION_ORDER_VOUCHER,
+        ACTION_ACCOUNT_CHANGE,
     ]
 
     register = models.ForeignKey(Register, on_delete=models.CASCADE, related_name="entries")

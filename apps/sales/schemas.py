@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from ninja import Field, Schema
 
@@ -101,7 +101,7 @@ class SaleReturnItemIn(Schema):
     sale_item_id: int
     quantity: Decimal
     unit_price: Optional[Decimal] = None
-    condition: str = "good"
+    condition: Literal["unspoiled", "damaged"] = "unspoiled"
     note: str = ""
 
 

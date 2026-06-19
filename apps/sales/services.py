@@ -30,7 +30,8 @@ from apps.customers.models import (
 )
 from apps.settings.services import OptionSettingService, PaymentTypeService
 from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
-from apps.registers.models import RegistersHistory
+from apps.registers.models import Register, RegistersHistory
+from apps.registers.services import RegisterService
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
     OrderInstalment,
@@ -51,8 +52,33 @@ def saleDueAmount(sale_order):
     return max(money((sale_order or {}).get("total")) - money((sale_order or {}).get("tendered_amount")), Decimal("0"))
 
 
-def getCurrentRegisterContext(request, required=True):
-    return None
+def getCurrentRegisterContext(request, register_id=None, required=True):
+    filters = {
+        "company_id": request.user.company_id,
+        "branch_id": request.user.branch_id,
+        "status": 0,
+    }
+    if register_id:
+        filters["id"] = register_id
+    else:
+        filters["used_by_id"] = request.user.id
+
+    register = (
+        Register.objects.filter(**filters)
+        .filter(register_status__in=[Register.STATUS_OPENED, Register.STATUS_INUSE])
+        .values("id", "name", "register_status", "balance")
+        .first()
+    )
+    if register is None and required:
+        raise api_error(400, ErrorCodes.BAD_REQUEST, "Open cash register is required.")
+    if register is None:
+        return None
+    return {
+        "register_id": register["id"],
+        "name": register["name"],
+        "register_status": register["register_status"],
+        "balance": register["balance"],
+    }
 
 
 def parseDraftSnapshot(note):
@@ -221,12 +247,27 @@ class SaleValidationService:
 
 class SaleRegisterService:
     @staticmethod
-    def recordCashOrderPayment(sale_order, order_payment, shift, amount, request):
-        return None
+    def recordCashOrderPayment(sale_order, order_payment, register_context, amount, request):
+        return RegisterService.recordHistory(
+            register_context["register_id"],
+            RegistersHistory.ACTION_ORDER_PAYMENT,
+            amount,
+            request,
+            f"Cash payment for order {sale_order.get('code')}",
+            payment_id=order_payment.get("id"),
+            order_id=sale_order.get("id"),
+        )
 
     @staticmethod
-    def recordChangeGiven(sale_order, shift, change_amount, request):
-        return None
+    def recordChangeGiven(sale_order, register_context, change_amount, request):
+        return RegisterService.recordHistory(
+            register_context["register_id"],
+            RegistersHistory.ACTION_ORDER_CHANGE,
+            change_amount,
+            request,
+            f"Change given for order {sale_order.get('code')}",
+            order_id=sale_order.get("id"),
+        )
 
 
 class SaleCustomerAccountService:
@@ -1143,7 +1184,11 @@ class SaleRefundService:
             return {"refund_payment": None, "difference_amount": difference_amount}
 
         payment_type = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
-        shift = getCurrentRegisterContext(request, required=bool(settings.enable_cash_registers and payment_type == "cash-payment"))
+        shift = getCurrentRegisterContext(
+            request,
+            sale_order.get("register_id"),
+            required=bool(settings.enable_cash_registers and payment_type == "cash-payment"),
+        )
         return_order = commonQuery.updateRecordById(
             OrdersRefund,
             return_order["id"],
@@ -1507,6 +1552,7 @@ class SaleService:
             settings = getOptionSettings(request.user)
             shift = getCurrentRegisterContext(
                 request,
+                data.get("register_id"),
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
@@ -1755,6 +1801,7 @@ class SaleService:
             settings = getOptionSettings(request.user)
             shift = getCurrentRegisterContext(
                 request,
+                sale_order.get("register_id"),
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
@@ -1983,6 +2030,7 @@ class SaleService:
             settings = getOptionSettings(request.user)
             shift = getCurrentRegisterContext(
                 request,
+                sale_order.get("register_id"),
                 required=bool(settings.enable_cash_registers),
             )
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
