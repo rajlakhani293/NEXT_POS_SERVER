@@ -704,7 +704,7 @@ class SaleCustomerService:
 
         due_amount = saleDueAmount(sale_order)
         Customer.objects.filter(id=customer_id).update(
-            total_sales=F("total_sales") + sale_order["total"],
+            purchases_amount=F("purchases_amount") + sale_order["total"],
             total_sales_count=F("total_sales_count") + 1,
             owed_amount=F("owed_amount") + due_amount,
         )
@@ -990,7 +990,7 @@ class SaleVoidService:
 
         due_amount = saleDueAmount(sale_order)
         total = money(sale_order.get("total"))
-        next_total_sales = max(money(customer.get("total_sales")) - total, Decimal("0"))
+        next_purchases_amount = max(money(customer.get("purchases_amount")) - total, Decimal("0"))
         next_total_sales_count = max(int(customer.get("total_sales_count") or 0) - 1, 0)
         next_owed_amount = max(money(customer.get("owed_amount")) - due_amount, Decimal("0"))
 
@@ -998,7 +998,7 @@ class SaleVoidService:
             Customer,
             customer_id,
             {
-                "total_sales": next_total_sales,
+                "purchases_amount": next_purchases_amount,
                 "total_sales_count": next_total_sales_count,
                 "owed_amount": next_owed_amount,
             },

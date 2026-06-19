@@ -107,6 +107,6 @@ class DomainActionService:
         if sale_order.get("customer_id"):
             customer = Customer.objects.filter(id=sale_order["customer_id"]).first()
             if customer:
-                customer.total_sales = max(DomainActionService._money(customer.total_sales) - refund_total, Decimal("0"))
-                customer.save(update_fields=["total_sales"])
+                customer.purchases_amount = max(DomainActionService._money(customer.purchases_amount) - refund_total, Decimal("0"))
+                customer.save(update_fields=["purchases_amount"])
         ReportService.refreshDashboardSnapshot({}, request)
