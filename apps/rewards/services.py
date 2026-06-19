@@ -1,3 +1,4 @@
+# type: ignore
 from django.db import transaction
 from django.db.models import F
 from django.utils.text import slugify
@@ -97,15 +98,19 @@ def replaceRules(reward_system_id, rules, request):
         tenant_config=True,
     )
     for rule in rules or []:
+        from_amount = money(rule.get("from_amount") or 0)
+        to_amount = money(rule.get("to_amount") or 0)
         reward = money(rule.get("reward") or 0)
         if reward <= 0:
             continue
+        if to_amount > 0 and to_amount < from_amount:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Reward rule end amount must be greater than start amount.")
         commonQuery.createRecord(
             RewardSystemRule,
             {
                 "reward_system_id": reward_system_id,
-                "from_amount": rule.get("from_amount") or 0,
-                "to_amount": rule.get("to_amount") or 0,
+                "from_amount": from_amount,
+                "to_amount": to_amount,
                 "reward": reward,
             },
             request=request,

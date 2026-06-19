@@ -6,7 +6,7 @@ from apps.catalog.models import Category, Product
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import buildUniqueValue, validateTenantRelationIds, validateUniqueFields
+from apps.common.helpers import buildUniqueValue, decimalValue as money, validateTenantRelationIds, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCoupon, CustomerGroup
 from apps.promotions.models import (
@@ -17,7 +17,6 @@ from apps.promotions.models import (
     CouponCustomerGroup,
     CouponProduct,
 )
-
 
 LINK_FIELDS = ["product_ids", "category_ids", "customer_ids", "customer_group_ids"]
 
@@ -110,6 +109,13 @@ def validateCouponTargetScope(links):
         )
 
 
+def validateCouponValueRange(coupon_data):
+    minimum = money(coupon_data.get("minimum_cart_value") or 0)
+    maximum = money(coupon_data.get("maximum_cart_value") or 0)
+    if maximum > 0 and maximum < minimum:
+        raise api_error(400, ErrorCodes.BAD_REQUEST, "Maximum cart value must be greater than minimum cart value.")
+
+
 def replaceLinks(coupon_id, links, request):
     link_config = [
         (CouponProduct, Product, "product_ids", "product_id", "Product"),
@@ -200,6 +206,7 @@ class CouponService:
         with transaction.atomic():
             coupon_data, links = splitCouponData(data)
             validateCouponTargetScope(links)
+            validateCouponValueRange(coupon_data)
             coupon_data["code"] = buildCouponCode(coupon_data.get("code"), request)
             coupon = commonQuery.createRecord(
                 Coupon,
@@ -281,6 +288,7 @@ class CouponService:
             final_links = getExistingCouponTargetLinks(coupon_id, request)
             final_links.update(links)
             validateCouponTargetScope(final_links)
+            validateCouponValueRange({**coupon, **coupon_data})
             if "code" in coupon_data:
                 coupon_data["code"] = buildCouponCode(coupon_data.get("code"), request, exclude_id=coupon_id)
             updated = commonQuery.updateRecordById(
