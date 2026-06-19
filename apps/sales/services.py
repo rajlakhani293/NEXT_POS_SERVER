@@ -28,6 +28,7 @@ from apps.customers.models import (
     CustomerGroup,
     CustomerReward,
 )
+from apps.settings.models import PaymentType
 from apps.settings.services import OptionSettingService, PaymentTypeService
 from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
 from apps.registers.models import Register, RegistersHistory
@@ -302,6 +303,12 @@ class SaleValidationService:
 class SaleRegisterService:
     @staticmethod
     def recordCashOrderPayment(sale_order, order_payment, register_context, amount, request):
+        payment_type = PaymentType.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            identifier=order_payment.get("identifier"),
+            status__in=[0, 1],
+        ).values("id").first()
         return RegisterService.recordHistory(
             register_context["register_id"],
             RegistersHistory.ACTION_ORDER_PAYMENT,
@@ -309,6 +316,7 @@ class SaleRegisterService:
             request,
             f"Cash payment for order {sale_order.get('code')}",
             payment_id=order_payment.get("id"),
+            payment_type_id=payment_type["id"] if payment_type else 0,
             order_id=sale_order.get("id"),
         )
 
@@ -616,9 +624,10 @@ class OrderPaymentService:
             )
             paid_amount += amount
 
-            if payment_type == "cash-payment" and shift:
-                cash_paid_amount += amount
+            if shift:
                 SaleRegisterService.recordCashOrderPayment(sale_order, order_payment, shift, amount, request)
+            if payment_type == "cash-payment":
+                cash_paid_amount += amount
             elif payment_type == "account-payment":
                 SaleCustomerAccountService.applyAccountPayment(customer, sale_order, amount, payment.get("note"), request)
 
@@ -662,9 +671,10 @@ class OrderPaymentService:
             paid_amount += amount
             payment_ids.append(order_payment["id"])
 
-            if payment_type == "cash-payment" and shift:
-                cash_paid_amount += amount
+            if shift:
                 SaleRegisterService.recordCashOrderPayment(sale_order, order_payment, shift, amount, request)
+            if payment_type == "cash-payment":
+                cash_paid_amount += amount
             elif payment_type == "account-payment":
                 SaleCustomerAccountService.applyAccountPayment(customer, sale_order, amount, payment.get("note"), request)
 

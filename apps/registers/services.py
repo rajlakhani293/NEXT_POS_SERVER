@@ -49,6 +49,12 @@ class RegisterService:
         with transaction.atomic():
             register = RegisterService._getRegister(register_id, request, for_update=True)
             balance_before = money(register.balance)
+            if action in [RegistersHistory.ACTION_CASHING, RegistersHistory.ACTION_CASHOUT] and amount <= 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
+            if action in [RegistersHistory.ACTION_CASHING, RegistersHistory.ACTION_CASHOUT] and register.register_status not in [Register.STATUS_OPENED, Register.STATUS_INUSE]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Cash register must be open.")
+            if action == RegistersHistory.ACTION_CASHOUT and balance_before - amount < 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Not enough fund to cash out.")
             if action in RegistersHistory.IN_ACTIONS:
                 balance_after = balance_before + amount
                 transaction_type = "positive" if amount > 0 else "unchanged"
@@ -205,7 +211,7 @@ class RegisterService:
                 request,
                 data.get("note") or "Register closing",
             )
-            Register.objects.filter(id=register.id).update(register_status=Register.STATUS_CLOSED, used_by=None)
+            Register.objects.filter(id=register.id).update(register_status=Register.STATUS_CLOSED, used_by=None, balance=0)
         return successResponse("Cash register closed successfully.", data=history)
 
     @staticmethod
