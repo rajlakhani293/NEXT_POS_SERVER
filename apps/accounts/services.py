@@ -512,7 +512,7 @@ class AccountsService:
             "catalog.ProductGallery",
             "customers.CustomerCoupon",
             "customers.CustomerReward",
-            "rewards.RewardsSystemRule",
+            "rewards.RewardSystemRule",
             "rewards.RewardSystem",
             "promotions.CouponProduct",
             "promotions.CouponCategory",

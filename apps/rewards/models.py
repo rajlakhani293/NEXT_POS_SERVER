@@ -5,10 +5,12 @@ from apps.common.models import TenantAwareModel
 
 class RewardSystem(TenantAwareModel):
     name = models.CharField(max_length=150)
-    target = models.PositiveIntegerField(default=0)
+    target = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     coupon = models.ForeignKey(
         "promotions.Coupon",
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="reward_systems",
     )
     description = models.TextField(blank=True)
@@ -18,7 +20,7 @@ class RewardSystem(TenantAwareModel):
         ordering = ["name"]
 
 
-class RewardsSystemRule(TenantAwareModel):
+class RewardSystemRule(TenantAwareModel):
     reward_system = models.ForeignKey(RewardSystem, on_delete=models.CASCADE, related_name="rules", db_column="reward_id")
     from_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="from")
     to_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="to")

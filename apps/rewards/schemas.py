@@ -7,28 +7,28 @@ from apps.common.schemas import ActiveStatus
 class RewardRuleIn(Schema):
     from_amount: Decimal = Decimal("0")
     to_amount: Decimal = Decimal("0")
-    reward: int = 0
+    reward: Decimal = Decimal("0")
 
 
 class RewardSystemIn(Schema):
     name: str
     coupon_id: int
-    target: int = 0
+    target: Decimal = Decimal("0")
     description: str = ""
     from_amount: Decimal = Decimal("0")
     to_amount: Decimal = Decimal("0")
-    reward: int = 0
+    reward: Decimal = Decimal("0")
     rules: List[RewardRuleIn] = Field(default_factory=list)
 
 
 class RewardSystemUpdateIn(Schema):
     name: Optional[str] = None
     coupon_id: Optional[int] = None
-    target: Optional[int] = None
+    target: Optional[Decimal] = None
     description: Optional[str] = None
     from_amount: Optional[Decimal] = None
     to_amount: Optional[Decimal] = None
-    reward: Optional[int] = None
+    reward: Optional[Decimal] = None
     rules: Optional[List[RewardRuleIn]] = None
     status: Optional[ActiveStatus] = None
 
@@ -36,7 +36,7 @@ class RewardSystemUpdateIn(Schema):
 class RewardBalanceAdjustIn(Schema):
     customer_id: int
     reward_system_id: int
-    points: int
+    points: Decimal
     note: str = ""
 
 
@@ -50,5 +50,5 @@ class RewardSaleEarnIn(Schema):
 class RewardRedeemIn(Schema):
     customer_id: int
     reward_system_id: int
-    points: int
+    points: Decimal
     note: str = ""

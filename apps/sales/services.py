@@ -784,7 +784,7 @@ class SaleDraftService:
             return
 
         rule = findMatchingRule(reward_system["id"], sale_order.get("total"), request)
-        earned_points = int(rule.get("reward") or 0) if rule else 0
+        earned_points = money(rule.get("reward") or 0) if rule else Decimal("0")
         balance = commonQuery.findOneRecord(
             CustomerReward,
             {"customer_id": customer_id, "reward_id": reward_system["id"]},
@@ -794,7 +794,7 @@ class SaleDraftService:
         if balance is None:
             return
 
-        next_points = max(int(balance.get("points") or 0) - earned_points, 0)
+        next_points = max(money(balance.get("points") or 0) - earned_points, Decimal("0"))
         commonQuery.updateRecordById(
             CustomerReward,
             balance["id"],

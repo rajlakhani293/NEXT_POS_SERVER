@@ -10,14 +10,14 @@ from apps.common.responses import successResponse
 from apps.customers.models import Customer, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.promotions.models import Coupon
 from apps.rewards.models import (
-    RewardsSystemRule,
+    RewardSystemRule,
     RewardSystem,
 )
 
 
 def getRewardRules(system_id, request):
     return commonQuery.findAllRecords(
-        RewardsSystemRule,
+        RewardSystemRule,
         {"reward_system_id": system_id},
         {"attributes": ["id", "from_amount", "to_amount", "reward"], "order": ["from_amount"]},
         request=request,
@@ -44,7 +44,7 @@ def attachRewardRules(systems, request):
         return systems
 
     rules = commonQuery.findAllRecords(
-        RewardsSystemRule,
+        RewardSystemRule,
         {"reward_system_id__in": system_ids},
         {
             "attributes": [
@@ -91,17 +91,17 @@ def normalizeRules(data):
 
 def replaceRules(reward_system_id, rules, request):
     commonQuery.hardDeleteRecords(
-        RewardsSystemRule,
+        RewardSystemRule,
         {"reward_system_id": reward_system_id},
         request=request,
         tenant_config=True,
     )
     for rule in rules or []:
-        reward = int(rule.get("reward") or 0)
+        reward = money(rule.get("reward") or 0)
         if reward <= 0:
             continue
         commonQuery.createRecord(
-            RewardsSystemRule,
+            RewardSystemRule,
             {
                 "reward_system_id": reward_system_id,
                 "from_amount": rule.get("from_amount") or 0,
@@ -196,8 +196,8 @@ def buildCustomerCouponCode(coupon, customer_id, request):
 
 
 def issueEligibleRewardCoupons(customer_id, reward_system, balance, request, note=""):
-    target = int(reward_system.get("target") or 0)
-    current_points = int(balance.get("points") or 0)
+    target = money(reward_system.get("target") or 0)
+    current_points = money(balance.get("points") or 0)
     issued_coupons = []
 
     if target <= 0 or current_points < target:
@@ -429,7 +429,7 @@ class CustomerRewardService:
 
     @staticmethod
     def earn(data, request):
-        points = int(data.get("points") or 0)
+        points = money(data.get("points") or 0)
         if points <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Points must be greater than 0.")
         ensureCustomer(data.get("customer_id"), request)
@@ -494,7 +494,7 @@ class CustomerRewardService:
                 "message": "No reward rule matched this cart value.",
             }
 
-        earned_points = int(rule.get("reward") or 0)
+        earned_points = money(rule.get("reward") or 0)
         with transaction.atomic():
             balance = getOrCreateBalance(customer["id"], reward_system["id"], request)
             CustomerReward.objects.filter(id=balance["id"]).update(
@@ -534,14 +534,14 @@ class CustomerRewardService:
 
     @staticmethod
     def redeem(data, request):
-        points = int(data.get("points") or 0)
+        points = money(data.get("points") or 0)
         if points <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Points must be greater than 0.")
         ensureCustomer(data.get("customer_id"), request)
         reward_system = ensureRewardSystem(data.get("reward_system_id"), request)
         with transaction.atomic():
             balance = getOrCreateBalance(data["customer_id"], data["reward_system_id"], request)
-            if int(balance.get("points") or 0) < points:
+            if money(balance.get("points") or 0) < points:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer does not have enough reward points.")
 
             coupon = commonQuery.findOneRecord(
