@@ -1,13 +1,14 @@
 # type: ignore
+import json
+import time
 from pathlib import Path
-from uuid import uuid4
-
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 
+from apps.accounts.models import Role, User
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -24,7 +25,7 @@ from apps.common.tenantDefaults import (
     ensureDefaultOptions,
     ensureOptionValue,
 )
-from apps.settings.models import Media, Notification, PaymentType, paymentTypeValues
+from apps.settings.models import FailedJob, Job, Media, Notification, PaymentType, paymentTypeValues
 
 
 class OptionSettingService:
@@ -157,7 +158,7 @@ class PaymentTypeService:
                     "label": item["label"],
                     "description": item["description"],
                     "readonly": True,
-                    "sort_order": item["sort_order"],
+                    "priority": item["priority"],
                     "status": 0,
                 },
             )
@@ -165,9 +166,9 @@ class PaymentTypeService:
             if not payment_type.readonly:
                 payment_type.readonly = True
                 update_fields.append("readonly")
-            if payment_type.sort_order != item["sort_order"] and created:
-                payment_type.sort_order = item["sort_order"]
-                update_fields.append("sort_order")
+            if payment_type.priority != item["priority"] and created:
+                payment_type.priority = item["priority"]
+                update_fields.append("priority")
             if update_fields:
                 payment_type.save(update_fields=update_fields)
             seeded.append(serializeModelInstance(payment_type))
@@ -200,7 +201,7 @@ class PaymentTypeService:
                 branch_id=request.user.branch_id,
                 status=0,
             )
-            .order_by("sort_order", "label")
+            .order_by("priority", "label")
             .values("identifier", "label")
         )
         return successResponse(
@@ -216,8 +217,8 @@ class PaymentTypeService:
             data,
             field_config,
             {
-                "attributes": ["id", "label", "identifier", "description", "readonly", "sort_order", "status"],
-                "order": ["sort_order", "label"],
+                "attributes": ["id", "label", "identifier", "description", "readonly", "priority", "status"],
+                "order": ["priority", "label"],
             },
             request=request,
             tenant_config={"company_id": True, "branch_id": True},
@@ -248,7 +249,7 @@ class PaymentTypeService:
                 **data,
                 "identifier": identifier,
                 "readonly": False,
-                "sort_order": max(int(data.get("sort_order") or 0), 0),
+                "priority": max(int(data.get("priority") or 0), 0),
             },
             request=request,
             tenant_config={"company_id": True, "branch_id": True},
@@ -321,7 +322,7 @@ class PaymentTypeService:
                     **data,
                     "identifier": identifier,
                     "readonly": payment_type.readonly,
-                    "sort_order": max(int(data.get("sort_order") or 0), 0),
+                    "priority": max(int(data.get("priority") or 0), 0),
                 },
                 request=request,
                 tenant_config={"company_id": True, "branch_id": True},
@@ -384,7 +385,30 @@ class MediaService:
     MAX_FILE_SIZE = 5 * 1024 * 1024
 
     @staticmethod
-    def upload(file, request, folder="general", entity_type="", entity_id=None, alt_text=""):
+    def mediaData(media):
+        data = serializeModelInstance(media)
+        original_path = f"{media.slug}.{media.extension}"
+        data["sizes"] = {
+            "original": f"{settings.UPLOAD_URL}{original_path}",
+        }
+        return data
+
+    @staticmethod
+    def buildStoredName(file):
+        path = Path(getattr(file, "name", "upload"))
+        extension = path.suffix.lstrip(".").lower()
+        base_name = slugify(path.stem) or "upload"
+        year = timezone.now().strftime("%Y")
+        month = timezone.now().strftime("%m")
+        candidate = base_name
+        suffix = 1
+        while Media.objects.filter(name=candidate, extension=extension, status__in=[0, 1]).exists():
+            candidate = f"{base_name}-{suffix}"
+            suffix += 1
+        return candidate, extension, f"{year}/{month}/{candidate}"
+
+    @staticmethod
+    def upload(file, request, folder="", entity_type="", entity_id=None, alt_text=""):
         if not file:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "File is required.")
         if getattr(file, "size", 0) > MediaService.MAX_FILE_SIZE:
@@ -393,20 +417,21 @@ class MediaService:
         if content_type and content_type not in MediaService.ALLOWED_IMAGE_TYPES:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Only image files are allowed.")
 
+        name, extension, slug = MediaService.buildStoredName(file)
         storage = FileSystemStorage(location=settings.UPLOAD_ROOT, base_url=settings.UPLOAD_URL)
-        saved_path = storage.save(f"{folder}/{file.name}", file)
-        path = Path(saved_path)
+        storage.save(f"{slug}.{extension}", file)
         media = commonQuery.createRecord(
             Media,
             {
-                "name": path.name,
-                "extension": path.suffix.lstrip("."),
-                "slug": f"{path.stem}-{uuid4().hex[:8]}",
+                "name": name,
+                "extension": extension,
+                "slug": slug,
             },
             request=request,
             tenant_config=True,
         )
-        return successResponse("Media uploaded successfully.", data=media)
+        media_instance = Media.objects.get(id=media["id"])
+        return successResponse("Media uploaded successfully.", data=MediaService.mediaData(media_instance))
 
     @staticmethod
     def getAll(data, request):
@@ -420,7 +445,9 @@ class MediaService:
                     "name",
                     "extension",
                     "slug",
+                    "user_id",
                     "created_at",
+                    "updated_at",
                     "status",
                 ],
             },
@@ -439,7 +466,19 @@ class MediaService:
 
     @staticmethod
     def delete(data, request):
-        count = commonQuery.softDeleteById(Media, data.get("ids"), request=request, tenant_config=True)
+        ids = data.get("ids")
+        ids = ids if isinstance(ids, list) else [ids]
+        media_items = Media.objects.filter(
+            id__in=ids,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            status__in=[0, 1],
+        )
+        storage = FileSystemStorage(location=settings.UPLOAD_ROOT, base_url=settings.UPLOAD_URL)
+        for media in media_items:
+            storage.delete(f"{media.slug}.{media.extension}")
+
+        count = commonQuery.softDeleteById(Media, ids, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Media not found.")
         return successResponse("Media deleted successfully.")
@@ -447,30 +486,102 @@ class MediaService:
 
 class NotificationService:
     @staticmethod
+    def generateIdentifier():
+        return f"notification-{timezone.now().strftime('%d-%m-%y')}-{timezone.now().timestamp()}"
+
+    @staticmethod
+    def upsertForUser(*, user_id, title, description, url="#", identifier=None, source="system", dismissable=True, actions=None, request=None):
+        identifier = identifier or NotificationService.generateIdentifier()
+        notification = Notification.objects.filter(
+            user_id=user_id,
+            identifier=identifier,
+            company_id=request.user.company_id if request else None,
+            branch_id=request.user.branch_id if request else None,
+            status__in=[0, 1],
+        ).first()
+        payload = {
+            "user_id": user_id,
+            "identifier": identifier,
+            "title": title,
+            "description": description,
+            "url": url or "#",
+            "source": source or "system",
+            "dismissable": dismissable,
+            "actions": actions or None,
+        }
+        if notification is None:
+            return commonQuery.createRecord(Notification, payload, request=request, tenant_config=True)
+        return commonQuery.updateRecordById(Notification, notification.id, payload, request=request, tenant_config=True)
+
+    @staticmethod
     def create(data, request):
         data["description"] = data.get("description") or data.pop("message", "")
         data["source"] = data.get("source") or data.pop("source_type", "system")
         data["url"] = data.get("url") or data.pop("action_url", "#")
         data["actions"] = data.get("actions") or data.pop("payload", None)
-        data["identifier"] = data.get("identifier") or f"notification-{timezone.now().timestamp()}"
-        notification = commonQuery.createRecord(Notification, data, request=request, tenant_config=True)
+        data["identifier"] = data.get("identifier") or NotificationService.generateIdentifier()
+        notification = NotificationService.upsertForUser(
+            user_id=data.get("user_id") or request.user.id,
+            title=data.get("title"),
+            description=data.get("description"),
+            url=data.get("url"),
+            identifier=data.get("identifier"),
+            source=data.get("source"),
+            dismissable=data.get("dismissable", True),
+            actions=data.get("actions"),
+            request=request,
+        )
         return successResponse("Notification created successfully.", data=notification)
 
     @staticmethod
     def push(*, title, message="", notification_type="info", source_type="system", source_id=None, user_id=None, action_url="", payload=None, request=None):
-        return commonQuery.createRecord(
-            Notification,
-            {
-                "user_id": user_id,
-                "identifier": f"{source_type}-{source_id or 'general'}",
-                "title": title,
-                "description": message,
-                "source": source_type,
-                "url": action_url or "#",
-                "actions": payload,
-            },
+        return NotificationService.upsertForUser(
+            user_id=user_id or (request.user.id if request else None),
+            identifier=f"{source_type}-{source_id or 'general'}",
+            title=title,
+            description=message,
+            source=source_type,
+            url=action_url or "#",
+            actions=payload,
             request=request,
-            tenant_config=True,
+        )
+
+    @staticmethod
+    def dispatchForUsers(users, *, title, description="", url="#", identifier=None, source="system", dismissable=True, actions=None, request=None):
+        return [
+            NotificationService.upsertForUser(
+                user_id=user.id,
+                title=title,
+                description=description,
+                url=url,
+                identifier=identifier,
+                source=source,
+                dismissable=dismissable,
+                actions=actions,
+                request=request,
+            )
+            for user in users
+        ]
+
+    @staticmethod
+    def dispatchForRoleNamespaces(namespaces, *, title, description="", url="#", identifier=None, source="system", dismissable=True, actions=None, request=None):
+        roles = Role.objects.filter(
+            namespace__in=namespaces,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            status=0,
+        )
+        users = User.objects.filter(role__in=roles, company_id=request.user.company_id, branch_id=request.user.branch_id, status=0)
+        return NotificationService.dispatchForUsers(
+            users,
+            title=title,
+            description=description,
+            url=url,
+            identifier=identifier,
+            source=source,
+            dismissable=dismissable,
+            actions=actions,
+            request=request,
         )
 
     @staticmethod
@@ -530,3 +641,115 @@ class NotificationService:
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Notification not found.")
         return successResponse("Notifications deleted successfully.")
+
+
+class JobQueueService:
+    DEFAULT_QUEUE = "default"
+
+    @staticmethod
+    def timestamp(value=None):
+        if value is None:
+            return int(time.time())
+        if hasattr(value, "timestamp"):
+            return int(value.timestamp())
+        return int(value)
+
+    @staticmethod
+    def encodePayload(job_name, data=None):
+        return json.dumps(
+            {
+                "job": job_name,
+                "data": data or {},
+            },
+            default=str,
+        )
+
+    @staticmethod
+    def decodePayload(payload):
+        if isinstance(payload, dict):
+            return payload
+        try:
+            decoded = json.loads(payload or "{}")
+        except json.JSONDecodeError:
+            decoded = {}
+        return decoded if isinstance(decoded, dict) else {}
+
+    @staticmethod
+    def enqueue(job_name, data=None, *, request=None, queue=None, available_at=None):
+        if request is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Request context is required to enqueue a tenant job.")
+        return Job.objects.create(
+            user=request.user,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            queue=queue or JobQueueService.DEFAULT_QUEUE,
+            payload=JobQueueService.encodePayload(job_name, data),
+            attempts=0,
+            reserved_at=None,
+            available_at=JobQueueService.timestamp(available_at),
+            created_at=JobQueueService.timestamp(),
+        )
+
+    @staticmethod
+    def reserveNext(*, queue=None, now=None):
+        current_time = JobQueueService.timestamp(now)
+        with transaction.atomic():
+            job = (
+                Job.objects.select_for_update(skip_locked=True)
+                .filter(
+                    queue=queue or JobQueueService.DEFAULT_QUEUE,
+                    reserved_at__isnull=True,
+                    available_at__lte=current_time,
+                    status=0,
+                )
+                .order_by("id")
+                .first()
+            )
+            if job is None:
+                return None
+            job.reserved_at = current_time
+            job.attempts = int(job.attempts or 0) + 1
+            job.save(update_fields=["reserved_at", "attempts"])
+            return job
+
+    @staticmethod
+    def complete(job):
+        job.delete()
+
+    @staticmethod
+    def fail(job, exc):
+        FailedJob.objects.create(
+            user_id=job.user_id,
+            company_id=job.company_id,
+            branch_id=job.branch_id,
+            queue=job.queue,
+            connection="database",
+            payload=job.payload,
+            exception=str(exc),
+            status=0,
+        )
+        job.delete()
+
+    @staticmethod
+    def release(job, delay=60):
+        job.reserved_at = None
+        job.available_at = JobQueueService.timestamp() + int(delay)
+        job.save(update_fields=["reserved_at", "available_at"])
+
+    @staticmethod
+    def runNext(handlers, *, queue=None):
+        job = JobQueueService.reserveNext(queue=queue)
+        if job is None:
+            return None
+        payload = JobQueueService.decodePayload(job.payload)
+        handler = handlers.get(payload.get("job"))
+        if handler is None:
+            JobQueueService.fail(job, f"Missing job handler: {payload.get('job')}")
+            return {"status": "failed", "job_id": job.id, "reason": "missing_handler"}
+        try:
+            handler(payload.get("data") or {}, job)
+        except Exception as exc:
+            JobQueueService.fail(job, exc)
+            return {"status": "failed", "job_id": job.id, "reason": str(exc)}
+        JobQueueService.complete(job)
+        return {"status": "completed", "job_id": job.id}

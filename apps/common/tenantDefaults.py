@@ -87,19 +87,19 @@ DEFAULT_PAYMENT_TYPES = [
         "identifier": "cash-payment",
         "label": "Cash",
         "description": "Default cash payment method.",
-        "sort_order": 0,
+        "priority": 0,
     },
     {
         "identifier": "bank-payment",
         "label": "Bank Payment",
         "description": "Default bank payment method.",
-        "sort_order": 1,
+        "priority": 1,
     },
     {
         "identifier": "account-payment",
         "label": "Customer Account",
         "description": "Default customer account payment method.",
-        "sort_order": 2,
+        "priority": 2,
     },
 ]
 

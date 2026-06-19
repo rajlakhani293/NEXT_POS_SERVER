@@ -27,14 +27,14 @@ class PaymentTypeCreateIn(Schema):
     label: str = Field(..., min_length=1)
     identifier: Optional[str] = ""
     description: Optional[str] = ""
-    sort_order: int = 0
+    priority: int = 0
 
 
 class PaymentTypeUpdateIn(Schema):
     label: str = Field(..., min_length=1)
     identifier: Optional[str] = ""
     description: Optional[str] = ""
-    sort_order: int = 0
+    priority: int = 0
 
 
 class PaymentTypeListIn(Schema):
@@ -42,7 +42,7 @@ class PaymentTypeListIn(Schema):
     limit: int = 10
     search: Optional[str] = ""
     filters: Optional[int] = 2
-    sortBy: Optional[str] = "sort_order"
+    sortBy: Optional[str] = "priority"
     sortDirection: Optional[str] = "ascending"
 
 

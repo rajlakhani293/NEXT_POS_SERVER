@@ -107,12 +107,12 @@ class PaymentType(TenantAwareModel):
     identifier = models.CharField(max_length=80)
     description = models.TextField(blank=True)
     readonly = models.BooleanField(default=False)
-    sort_order = models.PositiveIntegerField(default=0)
+    priority = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = "payments_types"
         unique_together = [("branch", "identifier"), ("branch", "label")]
-        ordering = ["sort_order", "label"]
+        ordering = ["priority", "label"]
 
     def __str__(self):
         return self.label
