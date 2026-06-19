@@ -1,5 +1,6 @@
 # type: ignore
 from django.db import transaction
+from django.utils import timezone
 
 from apps.catalog.models import (
     Category,
@@ -17,7 +18,7 @@ from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.domainActions import DomainActionService
-from apps.common.helpers import buildSku, decimalValue, saveProductImage, validateTenantRelationId, validateUniqueFields
+from apps.common.helpers import buildSku, buildUniqueValue, decimalValue, saveProductImage, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.common.tenantDefaults import DEFAULT_SCALE_RANGES
 
@@ -40,6 +41,11 @@ def _relationName(model, record_id, request):
         tenant_config=True,
     )
     return row["name"] if row else None
+
+
+def _buildBarcode(request, exclude_id=None):
+    raw = timezone.now().strftime("%y%m%d%H%M%S%f")[:13]
+    return buildUniqueValue(Product, request, "barcode", raw, exclude_id=exclude_id)
 
 
 class ScaleRangeService:
@@ -452,6 +458,8 @@ class ProductService:
             _emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
             if data.get("sku"):
                 data["sku"] = buildSku(Product, data.get("name"), data.get("sku"), request)
+            else:
+                data["sku"] = buildSku(Product, data.get("name"), None, request)
             if data.get("barcode"):
                 validateUniqueFields(
                     Product,
@@ -461,6 +469,10 @@ class ProductService:
                     status_in=(0, 1),
                     messages={"barcode": "Barcode already exists on another product."},
                 )
+            else:
+                data["barcode"] = _buildBarcode(request)
+            if not data.get("barcode_type"):
+                data["barcode_type"] = "ean13"
             for field, model, label in [
                 ("category_id", Category, "Category"),
                 ("tax_group_id", TaxGroup, "Tax group"),
@@ -510,6 +522,10 @@ class ProductService:
                     status_in=(0, 1),
                     messages={"barcode": "Barcode already exists on another product."},
                 )
+            elif "barcode" in data:
+                data["barcode"] = _buildBarcode(request, exclude_id=product["id"])
+            if "barcode_type" in data and not data.get("barcode_type"):
+                data["barcode_type"] = "ean13"
 
             updated = commonQuery.updateRecordById(Product, product_id, data, request=request, tenant_config=True)
             if updated is None:
