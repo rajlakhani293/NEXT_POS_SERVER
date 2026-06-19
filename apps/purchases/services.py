@@ -18,6 +18,7 @@ from apps.common.helpers import (
     decimalValue as qty,
     validateTenantRelationId,
     validateTenantRelationIds,
+    validateUniqueFields,
 )
 from apps.common.responses import successResponse
 from apps.settings.services import NotificationService
@@ -31,10 +32,20 @@ class SupplierService:
 
     @staticmethod
     def create(data, request):
+        if data.get("email"):
+            validateUniqueFields(
+                Provider,
+                {"email": data.get("email")},
+                request=request,
+                scope="branch",
+                status_in=(0, 1),
+                case_insensitive=["email"],
+                messages={"email": "Provider email already exists."},
+            )
         data["uuid"] = data.get("uuid") or uuid4().hex
-        Provider = commonQuery.createRecord(Provider, data, request=request, tenant_config=True)
-        Provider["name"] = SupplierService.displayName(Provider)
-        return successResponse("Provider created successfully.", data=Provider)
+        provider = commonQuery.createRecord(Provider, data, request=request, tenant_config=True)
+        provider["name"] = SupplierService.displayName(provider)
+        return successResponse("Provider created successfully.", data=provider)
 
     @staticmethod
     def getAll(data, request):
@@ -82,15 +93,26 @@ class SupplierService:
 
     @staticmethod
     def getById(supplier_id, request):
-        Provider = commonQuery.findOneRecord(Provider, supplier_id, request=request, tenant_config=True)
-        if Provider is None:
+        provider = commonQuery.findOneRecord(Provider, supplier_id, request=request, tenant_config=True)
+        if provider is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
-        Provider["name"] = SupplierService.displayName(Provider)
-        Provider["payable_amount"] = Provider.get("amount_due")
-        return successResponse("Provider retrieved successfully.", data=Provider)
+        provider["name"] = SupplierService.displayName(provider)
+        provider["payable_amount"] = provider.get("amount_due")
+        return successResponse("Provider retrieved successfully.", data=provider)
 
     @staticmethod
     def update(supplier_id, data, request):
+        if data.get("email"):
+            validateUniqueFields(
+                Provider,
+                {"email": data.get("email")},
+                request=request,
+                scope="branch",
+                exclude_id=supplier_id,
+                status_in=(0, 1),
+                case_insensitive=["email"],
+                messages={"email": "Provider email already exists."},
+            )
         updated = commonQuery.updateRecordById(Provider, supplier_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
@@ -267,7 +289,7 @@ class PurchaseOrderService:
         value = sum((money(item.get("total_purchase_price")) for item in products), Decimal("0"))
         tax_value = sum((money(item.get("tax_value")) for item in products), Decimal("0"))
         total_items = sum((qty(item.get("quantity")) for item in products), Decimal("0"))
-        delivered = bool(products) and all(qty(item.get("available_quantity")) <= qty(item.get("quantity")) for item in products)
+        delivered = bool(products) and all(qty(item.get("available_quantity")) <= 0 for item in products)
         return commonQuery.updateRecordById(
             Procurement,
             order_id,
@@ -414,6 +436,11 @@ class PurchaseOrderService:
 
     @staticmethod
     def update(order_id, data, request):
+        procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
+        if procurement is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+        if procurement.get("delivery_status") == "stocked":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to edit a procurement that has already been stocked. Please use stock adjustment.")
         if data.get("provider_id"):
             PurchaseOrderService.validateSupplier(data.get("provider_id"), request)
         updated = commonQuery.updateRecordById(Procurement, order_id, data, request=request, tenant_config=True)
@@ -481,6 +508,52 @@ class PurchaseOrderService:
                 tenant_config=True,
             )
             return successResponse("Procurement received successfully.", data={**updated, "received_quantity": received_now})
+
+    @staticmethod
+    def stockAwaitingProcurements(request):
+        due_procurements = list(
+            Procurement.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                status__in=[0, 1],
+                automatic_approval=True,
+                delivery_status="pending",
+                delivery_time__lte=timezone.now(),
+            ).values("id")
+        )
+        stocked_count = 0
+        for procurement in due_procurements:
+            items = commonQuery.findAllRecords(
+                ProcurementsProduct,
+                {"procurement_id": procurement["id"]},
+                {"attributes": ["id", "available_quantity"]},
+                request=request,
+                tenant_config=True,
+            )
+            receive_items = [
+                {"purchase_item_id": item["id"], "received_quantity": item.get("available_quantity") or 0}
+                for item in items
+                if qty(item.get("available_quantity")) > 0
+            ]
+            if not receive_items:
+                continue
+            PurchaseOrderService.receive(
+                procurement["id"],
+                {"items": receive_items, "note": "Auto-stocked approved procurement."},
+                request,
+            )
+            stocked_count += 1
+        if stocked_count:
+            NotificationService.push(
+                title="Procurement Automatically Stocked",
+                message=f"{stocked_count} procurement(s) have recently been automatically stocked.",
+                notification_type="info",
+                source_type="purchase",
+                source_id=None,
+                action_url="/purchases",
+                request=request,
+            )
+        return successResponse("Awaiting procurements stocked successfully.", data={"stocked_count": stocked_count})
 
     @staticmethod
     def getOrderProducts(order_id, request):
@@ -575,6 +648,8 @@ class PurchaseOrderService:
         procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
         if procurement is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+        if procurement.get("delivery_status") == "stocked":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to add products to a stocked procurement.")
         item = PurchaseOrderService.normalizeProductItem(data, request)
         created = commonQuery.createRecord(ProcurementsProduct, {**item, "procurement_id": order_id}, request=request, tenant_config=True)
         PurchaseOrderService.recalculateOrder(order_id, request)
@@ -585,6 +660,8 @@ class PurchaseOrderService:
         procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
         if procurement is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+        if procurement.get("delivery_status") == "stocked":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to edit products from a stocked procurement.")
         item = commonQuery.findOneRecord(ProcurementsProduct, {"id": purchase_item_id, "procurement_id": order_id}, request=request, tenant_config=True)
         if item is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
@@ -618,8 +695,23 @@ class PurchaseOrderService:
         item = commonQuery.findOneRecord(ProcurementsProduct, {"id": purchase_item_id, "procurement_id": order_id}, request=request, tenant_config=True)
         if item is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
-        if qty(item.get("available_quantity")) < qty(item.get("quantity")):
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Stocked procurement product cannot be deleted.")
+        if procurement.get("delivery_status") == "stocked":
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_DELETED,
+                {
+                    "product_id": item["product_id"],
+                    "procurement_id": order_id,
+                    "procurement_product_id": item["id"],
+                    "quantity": item.get("quantity"),
+                    "unit_id": item["unit_id"],
+                    "unit_price": item.get("purchase_price") or 0,
+                    "total_price": item.get("total_purchase_price") or 0,
+                    "description": f"Procurement product deleted from {procurement['name']}",
+                },
+                request,
+            )
+        elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement product cannot be deleted. Please use stock adjustment.")
         ProcurementsProduct.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, id=purchase_item_id, procurement_id=order_id).delete()
         PurchaseOrderService.recalculateOrder(order_id, request)
         return successResponse("Procurement product deleted successfully.")

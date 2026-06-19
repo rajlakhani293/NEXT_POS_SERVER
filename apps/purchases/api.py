@@ -42,7 +42,7 @@ def getSupplierDropdown(request):
 
 
 @router.delete("/suppliers/delete", response=ApiResponse)
-@permission_required("purchases_update")
+@permission_required("purchases_delete")
 def deleteSuppliers(request, payload: BulkIdsSchema):
     return SupplierService.delete(payload.dict(), request)
 
@@ -84,7 +84,7 @@ def getAllProcurementProducts(request, payload: Optional[dict] = None):
 
 
 @router.delete("/orders/delete", response=ApiResponse)
-@permission_required("purchases_update")
+@permission_required("purchases_delete")
 def deletePurchaseOrders(request, payload: BulkIdsSchema):
     return PurchaseOrderService.delete(payload.dict(), request)
 
@@ -138,7 +138,7 @@ def bulkUpdatePurchaseOrderProducts(request, order_id: int, payload: PurchasePro
 
 
 @router.delete("/orders/{order_id}/products/{purchase_item_id}", response=ApiResponse)
-@permission_required("purchases_update")
+@permission_required("purchases_delete")
 def deletePurchaseOrderProduct(request, order_id: int, purchase_item_id: int):
     return PurchaseOrderService.deleteProduct(order_id, purchase_item_id, request)
 
@@ -171,6 +171,12 @@ def storePurchasePreload(request, payload: Optional[dict] = None):
 @permission_required("purchases_view")
 def getLowStockSuggestions(request):
     return PurchaseOrderService.lowStockSuggestions(request)
+
+
+@router.post("/stock-awaiting", response=ApiResponse)
+@permission_required("purchases_update")
+def stockAwaitingProcurements(request):
+    return PurchaseOrderService.stockAwaitingProcurements(request)
 
 
 @router.post("/products/search-product", response=ApiResponse)

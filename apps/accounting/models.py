@@ -17,6 +17,7 @@ class TransactionAccount(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "transactions_accounts"
         unique_together = [("branch", "account")]
         ordering = ["category_identifier", "name"]
 
@@ -34,17 +35,18 @@ class Transaction(TenantAwareModel):
     name = models.CharField(max_length=180)
     account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, related_name="transactions")
     description = models.TextField(blank=True)
-    media_id = models.PositiveBigIntegerField(blank=True, null=True)
-    value = models.DecimalField(max_digits=14, decimal_places=2)
+    media_id = models.PositiveBigIntegerField(default=0)
+    value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     recurring = models.BooleanField(default=False)
     type = models.CharField(max_length=80, default=TYPE_DIRECT)
-    active = models.BooleanField(default=True)
+    active = models.BooleanField(default=False)
     group_id = models.PositiveBigIntegerField(blank=True, null=True)
-    occurrence = models.CharField(max_length=80, blank=True)
-    occurrence_value = models.PositiveIntegerField(default=0)
+    occurrence = models.CharField(max_length=80, blank=True, null=True)
+    occurrence_value = models.CharField(max_length=80, blank=True, null=True)
     scheduled_date = models.DateTimeField(blank=True, null=True)
 
     class Meta:
+        db_table = "transactions"
         ordering = ["-created_at", "-id"]
 
     def __str__(self):
@@ -97,25 +99,27 @@ class TransactionHistory(TenantAwareModel):
 
 
 class TransactionBalanceDay(TenantAwareModel):
-    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    expense = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    closing_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    opening_balance = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    income = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    expense = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    closing_balance = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     date = models.DateField(blank=True, null=True)
 
     class Meta:
+        db_table = "transactions_balance_days"
         unique_together = [("branch", "date")]
         ordering = ["-date"]
 
 
 class TransactionBalanceMonth(TenantAwareModel):
-    opening_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    income = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    expense = models.DecimalField(max_digits=14, decimal_places=2, default=0)
-    closing_balance = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    opening_balance = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    income = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    expense = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    closing_balance = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     date = models.DateField(blank=True, null=True)
 
     class Meta:
+        db_table = "transactions_balance_months"
         unique_together = [("branch", "date")]
         ordering = ["-date"]
 
@@ -142,6 +146,7 @@ class TransactionActionRule(TenantAwareModel):
     locked = models.BooleanField(default=False)
 
     class Meta:
+        db_table = "transactions_actions_rules"
         ordering = ["id"]
 
     def __str__(self):
