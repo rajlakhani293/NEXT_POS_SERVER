@@ -101,6 +101,12 @@ def stockCombinedReport(request, payload: Optional[dict] = None):
     return ReportService.stockCombinedReport(payload, request)
 
 
+@router.post("/stock-combined/refresh", response=ApiResponse)
+@permission_required("reports_view")
+def refreshStockCombinedReport(request, payload: Optional[dict] = None):
+    return ReportService.enqueueStockCombinedRefresh(payload or {}, request)
+
+
 @router.post("/cashier-report", response=ApiResponse)
 @permission_required("reports_view")
 def cashierReport(request, payload: Optional[dict] = None):

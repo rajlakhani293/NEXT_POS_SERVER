@@ -14,7 +14,7 @@ from apps.settings.schemas import (
     PaymentTypeListIn,
     PaymentTypeUpdateIn,
 )
-from apps.settings.services import MediaService, NotificationService, OptionSettingService, PaymentTypeService
+from apps.settings.services import JobQueueService, MediaService, NotificationService, OptionSettingService, PaymentTypeService
 
 
 router = Router(tags=["settings"], auth=auth_bearer)
@@ -33,6 +33,15 @@ def getOptionSettings(request):
 @permission_required("settings_update")
 def updateOptionSettings(request, payload: OptionSettingIn):
     return OptionSettingService.update(request.user, payload.dict())
+
+
+@router.post("/jobs/run-next", response=ApiResponse)
+@permission_required("settings_update")
+def runNextJob(request):
+    from apps.reports.services import ReportService
+
+    result = JobQueueService.runNext(ReportService.jobHandlers())
+    return successResponse("Job processed successfully." if result else "No pending job found.", data=result)
 
 
 @paymentsRouter.post("/types/", response=ApiResponse)

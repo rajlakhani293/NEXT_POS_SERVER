@@ -1,8 +1,9 @@
 # type: ignore
 from datetime import timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
-from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum, Value
+from django.db.models import Count, DecimalField, ExpressionWrapper, F, FloatField, Q, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.db.models.functions import TruncDate
@@ -12,6 +13,7 @@ from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.accounting.models import TransactionAccount, TransactionHistory
 from apps.catalog.models import Product, ProductHistory, ProductHistoryCombined, ProductUnitQuantity
+from apps.accounts.models import User
 from apps.customers.models import Customer, CustomerAccountHistory
 from apps.purchases.models import Procurement, Provider
 from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
@@ -57,6 +59,14 @@ def paginatedResponse(queryset, data):
     }
 
 
+def parseReportDate(value=None):
+    if not value:
+        return timezone.localdate()
+    if hasattr(value, "date"):
+        return timezone.localtime(value).date() if timezone.is_aware(value) else value.date()
+    return timezone.datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+
+
 class ReportService:
     ACCOUNT_CATEGORY_LABELS = {
         "assets": "Assets",
@@ -64,6 +74,27 @@ class ReportService:
         "revenues": "Revenues",
         "expenses": "Expenses",
     }
+    COMBINED_PROCURED_ACTIONS = {
+        ProductHistory.ACTION_ADDED,
+        ProductHistory.ACTION_STOCKED,
+        ProductHistory.ACTION_ADJUSTMENT_RETURN,
+        ProductHistory.ACTION_CONVERT_IN,
+        ProductHistory.ACTION_RETURNED,
+        ProductHistory.ACTION_TRANSFER_IN,
+        ProductHistory.ACTION_TRANSFER_CANCELED,
+        ProductHistory.ACTION_TRANSFER_REJECTED,
+    }
+    COMBINED_DEFECTIVE_ACTIONS = {
+        ProductHistory.ACTION_DELETED,
+        ProductHistory.ACTION_LOST,
+        ProductHistory.ACTION_REMOVED,
+        ProductHistory.ACTION_DEFECTIVE,
+    }
+
+    @staticmethod
+    def requestFromJob(job):
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)
 
     @staticmethod
     def dashboardSummary(data, request):
@@ -650,11 +681,7 @@ class ReportService:
     @staticmethod
     def stockCombinedReport(data, request):
         data = data or {}
-        report_date = data.get("date")
-        if report_date:
-            report_date = timezone.datetime.fromisoformat(str(report_date).replace("Z", "+00:00")).date()
-        else:
-            report_date = timezone.localdate()
+        report_date = parseReportDate(data.get("date"))
 
         queryset = ProductHistoryCombined.objects.filter(
             **tenantFilter(request),
@@ -693,6 +720,87 @@ class ReportService:
         result = paginatedResponse(rows, data)
         result["date"] = report_date
         return successResponse("Stock combined report retrieved successfully.", data=result)
+
+    @staticmethod
+    def recomputeStockCombined(data, request):
+        report_date = parseReportDate((data or {}).get("date"))
+        start = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.min.time()))
+        end = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.max.time()))
+        unit_quantities = ProductUnitQuantity.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            product__stock_management="enabled",
+            product__type="materialized",
+            status__in=[0, 1],
+        ).select_related("product", "unit")
+        updated_count = 0
+        for unit_quantity in unit_quantities:
+            previous = (
+                ProductHistoryCombined.objects.filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    product_id=unit_quantity.product_id,
+                    unit_id=unit_quantity.unit_id,
+                    date__lt=report_date,
+                    status__in=[0, 1],
+                )
+                .order_by("-date")
+                .first()
+            )
+            initial_quantity = previous.final_quantity if previous else 0
+            histories = ProductHistory.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                product_id=unit_quantity.product_id,
+                unit_id=unit_quantity.unit_id,
+                created_at__gte=start,
+                created_at__lte=end,
+                status__in=[0, 1],
+            )
+            procured_quantity = histories.filter(operation_type__in=ReportService.COMBINED_PROCURED_ACTIONS).aggregate(
+                total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField())
+            )["total"]
+            sold_quantity = histories.filter(operation_type=ProductHistory.ACTION_SOLD).aggregate(
+                total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField())
+            )["total"]
+            defective_quantity = histories.filter(operation_type__in=ReportService.COMBINED_DEFECTIVE_ACTIONS).aggregate(
+                total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField())
+            )["total"]
+            final_quantity = Decimal(str(initial_quantity or 0)) + Decimal(str(procured_quantity or 0)) - Decimal(str(sold_quantity or 0)) - Decimal(str(defective_quantity or 0))
+            ProductHistoryCombined.objects.update_or_create(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                product_id=unit_quantity.product_id,
+                unit_id=unit_quantity.unit_id,
+                date=report_date,
+                defaults={
+                    "user_id": request.user.id,
+                    "name": unit_quantity.product.name,
+                    "initial_quantity": initial_quantity or 0,
+                    "procured_quantity": procured_quantity or 0,
+                    "sold_quantity": sold_quantity or 0,
+                    "defective_quantity": defective_quantity or 0,
+                    "final_quantity": final_quantity,
+                    "status": 0,
+                },
+            )
+            updated_count += 1
+        return successResponse("Stock combined report recomputed successfully.", data={"date": report_date, "updated_count": updated_count})
+
+    @staticmethod
+    def enqueueStockCombinedRefresh(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("ensure_combined_product_history", data or {}, request=request)
+        return successResponse("Stock combined refresh queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "ensure_combined_product_history": lambda data, job: ReportService.recomputeStockCombined(data, ReportService.requestFromJob(job)),
+            "compute_dashboard_day": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
+            "compute_dashboard_month": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
+        }
 
     @staticmethod
     def cashierReport(data, request):
