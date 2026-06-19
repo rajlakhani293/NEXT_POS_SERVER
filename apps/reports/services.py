@@ -12,12 +12,13 @@ from apps.common.commonQuery import commonQuery
 from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.accounting.models import TransactionAccount, TransactionHistory
+from apps.accounts.models import Role, User
 from apps.catalog.models import Product, ProductHistory, ProductHistoryCombined, ProductUnitQuantity
-from apps.accounts.models import User
 from apps.customers.models import Customer, CustomerAccountHistory
 from apps.purchases.models import Procurement, Provider
 from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
 from apps.sales.models import OrderPayment, OrdersProduct, Order
+from apps.settings.services import NotificationService
 
 
 def tenantFilter(request):
@@ -643,6 +644,34 @@ class ReportService:
         return successResponse("Low stock report retrieved successfully.", data=result)
 
     @staticmethod
+    def detectLowStockProducts(data, request):
+        low_stock_count = ProductUnitQuantity.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            status__in=[0, 1],
+            stock_alert_enabled=True,
+            low_quantity__gt=F("quantity"),
+        ).count()
+        if low_stock_count > 0:
+            NotificationService.dispatchForRoleNamespaces(
+                [Role.ADMIN, Role.STOREADMIN],
+                title="Low Stock Alert",
+                description=f"{low_stock_count} product(s) has low stock. Reorder those product(s) before it gets exhausted.",
+                identifier="low-stock-products",
+                url="/reports/low-stock",
+                source="system",
+                request=request,
+            )
+        return successResponse("Low stock products checked successfully.", data={"low_stock_count": low_stock_count})
+
+    @staticmethod
+    def enqueueLowStockDetection(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("detect_low_stock_products", data or {}, request=request)
+        return successResponse("Low stock detection queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
     def stockReport(data, request):
         queryset = ProductUnitQuantity.objects.filter(**tenantFilter(request))
         search = (data or {}).get("search")
@@ -800,6 +829,7 @@ class ReportService:
             "ensure_combined_product_history": lambda data, job: ReportService.recomputeStockCombined(data, ReportService.requestFromJob(job)),
             "compute_dashboard_day": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "compute_dashboard_month": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
+            "detect_low_stock_products": lambda data, job: ReportService.detectLowStockProducts(data or {}, ReportService.requestFromJob(job)),
         }
 
     @staticmethod

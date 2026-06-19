@@ -57,6 +57,18 @@ def deleteHeldSale(request, draft_id: int):
     return SaleService.deleteHeldCart(draft_id, request)
 
 
+@router.post("/drafts/clear-expired", response=ApiResponse)
+@permission_required("sales_update")
+def clearExpiredHeldSales(request):
+    return SaleService.enqueueClearExpiredHeldCarts({}, request)
+
+
+@router.post("/storage/purge", response=ApiResponse)
+@permission_required("sales_update")
+def purgeOrderStorage(request):
+    return SaleService.enqueuePurgeOrderStorage({}, request)
+
+
 @router.get("/{sale_order_id}", response=ApiResponse)
 @permission_required("sales_view")
 def getSale(request, sale_order_id: int):

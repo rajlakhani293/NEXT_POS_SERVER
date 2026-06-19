@@ -29,6 +29,7 @@ from apps.customers.models import (
     CustomerReward,
 )
 from apps.settings.models import PaymentType
+from apps.settings.models import Notification, Option
 from apps.settings.services import OptionSettingService, PaymentTypeService
 from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
 from apps.registers.models import Register, RegistersHistory
@@ -36,12 +37,14 @@ from apps.registers.services import RegisterService
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
     OrderInstalment,
+    OrderStorage,
     OrderPayment,
     OrdersProductsRefund,
     OrdersRefund,
     OrdersProduct,
     Order,
 )
+from apps.accounts.models import User
 
 
 def getOptionSettings(user):
@@ -1613,6 +1616,85 @@ class SaleService:
             tenant_config=True,
         )
         return successResponse("Held cart deleted successfully.")
+
+    @staticmethod
+    def heldCartExpirationDays(request):
+        option = Option.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            key="orders_quotation_expiration",
+            status__in=[0, 1],
+        ).first()
+        if option is None or option.value in [None, "", "never"]:
+            return None
+        try:
+            days = int(option.value)
+        except (TypeError, ValueError):
+            return None
+        return days if days > 0 else None
+
+    @staticmethod
+    def clearExpiredHeldCarts(data, request):
+        days = SaleService.heldCartExpirationDays(request)
+        if days is None:
+            return successResponse("Held cart expiration is disabled.", data={"deleted_count": 0})
+
+        expires_before = timezone.now() - timezone.timedelta(days=days)
+        queryset = Order.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            payment_status="hold",
+            created_at__lt=expires_before,
+            status__in=[0, 1],
+        )
+        deleted_count = queryset.update(status=2, deleted_at=timezone.now())
+        if deleted_count:
+            Notification.objects.create(
+                user_id=request.user.id,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                identifier="clear_hold_orders",
+                title="Hold Order Cleared",
+                description=f"{deleted_count} held order(s) were deleted because they expired.",
+                url="/sales",
+                source="system",
+                status=0,
+            )
+        return successResponse("Expired held carts cleared successfully.", data={"deleted_count": deleted_count})
+
+    @staticmethod
+    def purgeOrderStorage(data, request):
+        deleted_count, _ = OrderStorage.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).delete()
+        return successResponse("Order storage purged successfully.", data={"deleted_count": deleted_count})
+
+    @staticmethod
+    def enqueueClearExpiredHeldCarts(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("clear_hold_orders", data or {}, request=request)
+        return successResponse("Held cart cleanup queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
+    def enqueuePurgeOrderStorage(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("purge_order_storage", data or {}, request=request)
+        return successResponse("Order storage purge queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
+    def requestFromJob(job):
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "clear_hold_orders": lambda data, job: SaleService.clearExpiredHeldCarts(data, SaleService.requestFromJob(job)),
+            "purge_order_storage": lambda data, job: SaleService.purgeOrderStorage(data, SaleService.requestFromJob(job)),
+        }
 
     @staticmethod
     def create(data, request):

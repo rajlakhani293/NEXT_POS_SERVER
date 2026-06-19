@@ -89,6 +89,12 @@ def lowStockReport(request, payload: Optional[dict] = None):
     return ReportService.lowStockReport(payload, request)
 
 
+@router.post("/low-stock/detect", response=ApiResponse)
+@permission_required("reports_view")
+def detectLowStockProducts(request, payload: Optional[dict] = None):
+    return ReportService.enqueueLowStockDetection(payload or {}, request)
+
+
 @router.post("/stock-report", response=ApiResponse)
 @permission_required("reports_view")
 def stockReport(request, payload: Optional[dict] = None):

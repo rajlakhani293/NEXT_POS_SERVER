@@ -39,8 +39,12 @@ def updateOptionSettings(request, payload: OptionSettingIn):
 @permission_required("settings_update")
 def runNextJob(request):
     from apps.reports.services import ReportService
+    from apps.sales.services import SaleService
 
-    result = JobQueueService.runNext(ReportService.jobHandlers())
+    handlers = {}
+    handlers.update(ReportService.jobHandlers())
+    handlers.update(SaleService.jobHandlers())
+    result = JobQueueService.runNext(handlers)
     return successResponse("Job processed successfully." if result else "No pending job found.", data=result)
 
 
