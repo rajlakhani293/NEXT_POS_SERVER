@@ -157,23 +157,77 @@ class SaleStockService:
             tenant_config=True,
         )
 
-        if SaleStockService.stockEnabled(product) and unit_quantity:
-            ProductStockService.recordStockHistory(
-                ProductHistory.ACTION_SOLD,
-                {
-                    "product_id": product["id"],
-                    "order_id": sale_order["id"],
-                    "order_product_id": sale_item["id"],
-                    "unit_id": unit_quantity.get("unit_id"),
-                    "quantity": item_qty,
-                    "unit_price": unit_price,
-                    "total_price": line_total,
-                    "description": f"Sale {sale_order['code']}",
-                },
-                request,
-            )
-
         return sale_item, line_total, item_qty
+
+    @staticmethod
+    def recordSaleStock(sale_order, request):
+        if sale_order.get("payment_status") not in ["paid", "partially_paid"]:
+            return []
+
+        items = commonQuery.findAllRecords(
+            OrdersProduct,
+            {"sale_order_id": sale_order["id"]},
+            {
+                "attributes": [
+                    "id",
+                    "product_id",
+                    "unit_id",
+                    "unit_quantity_id",
+                    "quantity",
+                    "unit_price",
+                    "total",
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        histories = []
+        for item in items:
+            already_recorded = commonQuery.findOneRecord(
+                ProductHistory,
+                {
+                    "order_id": sale_order["id"],
+                    "order_product_id": item["id"],
+                    "operation_type": ProductHistory.ACTION_SOLD,
+                },
+                request=request,
+                tenant_config=True,
+            )
+            if already_recorded:
+                continue
+
+            product = commonQuery.findOneRecord(
+                Product,
+                item["product_id"],
+                request=request,
+                tenant_config=True,
+            )
+            if not product or not SaleStockService.stockEnabled(product):
+                continue
+
+            unit_quantity = SaleStockService.resolveUnitQuantity(
+                product,
+                {"unit_quantity_id": item.get("unit_quantity_id"), "unit_id": item.get("unit_id")},
+                request,
+                required=True,
+            )
+            histories.append(
+                ProductStockService.recordStockHistory(
+                    ProductHistory.ACTION_SOLD,
+                    {
+                        "product_id": product["id"],
+                        "order_id": sale_order["id"],
+                        "order_product_id": item["id"],
+                        "unit_id": unit_quantity.get("unit_id"),
+                        "quantity": item.get("quantity"),
+                        "unit_price": item.get("unit_price") or 0,
+                        "total_price": item.get("total") or 0,
+                        "description": f"Sale {sale_order['code']}",
+                    },
+                    request,
+                )
+            )
+        return histories
 
 
 class SaleValidationService:
@@ -495,7 +549,11 @@ class SaleCouponService:
                     "name": coupon.get("name") or code,
                     "type": coupon["type"],
                     "discount_value": coupon["discount_value"],
+                    "minimum_cart_value": coupon.get("minimum_cart_value") or 0,
+                    "maximum_cart_value": coupon.get("maximum_cart_value") or 0,
+                    "limit_usage": coupon.get("limit_usage") or 0,
                     "discount_amount": discount_amount,
+                    "counted": bool(issued_coupon),
                 },
                 request=request,
                 tenant_config=True,
@@ -850,6 +908,9 @@ class SaleDraftService:
 class SaleVoidService:
     @staticmethod
     def restockSale(sale_order, request):
+        if sale_order.get("payment_status") not in ["paid", "partially_paid"]:
+            return
+
         items = commonQuery.findAllRecords(
             OrdersProduct,
             {"sale_order_id": sale_order["id"]},
@@ -1646,6 +1707,7 @@ class SaleService:
                 tenant_config=True,
             )
 
+            SaleStockService.recordSaleStock(sale_order, request)
             customer = SaleCustomerService.applyCustomerImpact(sale_order, request)
             reward = SaleRewardService.processRewards(sale_order, request) if settings.enable_customer_rewards else None
             AccountingService.reflectEvent(
@@ -1673,25 +1735,26 @@ class SaleService:
                     reference_number=sale_order["code"],
                     request=request,
                 )
-            cogs_amount = sum(
-                (
-                    money(item.get("cost_price")) * quantity(item.get("quantity"))
-                    for item in sale_items
-                ),
-                Decimal("0"),
-            )
-            AccountingService.reflectEvent(
-                "order_cogs",
-                cogs_amount,
-                name=f"Order COGS {sale_order['code']}",
-                transaction_type="expense",
-                source_type="sale",
-                source_id=sale_order["id"],
-                transaction_date=timezone.now(),
-                description="Cost of goods sold",
-                reference_number=sale_order["code"],
-                request=request,
-            )
+            if payment_status == "paid":
+                cogs_amount = sum(
+                    (
+                        money(item.get("cost_price")) * quantity(item.get("quantity"))
+                        for item in sale_items
+                    ),
+                    Decimal("0"),
+                )
+                AccountingService.reflectEvent(
+                    "order_cogs",
+                    cogs_amount,
+                    name=f"Order COGS {sale_order['code']}",
+                    transaction_type="expense",
+                    source_type="sale",
+                    source_id=sale_order["id"],
+                    transaction_date=timezone.now(),
+                    description="Cost of goods sold",
+                    reference_number=sale_order["code"],
+                    request=request,
+                )
 
             if data.get("draft_id"):
                 draft = commonQuery.findOneRecord(
@@ -1837,6 +1900,35 @@ class SaleService:
                 request=request,
                 tenant_config=True,
             )
+
+            SaleStockService.recordSaleStock(updated_sale, request)
+            if sale_order.get("payment_status") != "paid" and next_status == "paid":
+                sale_items = commonQuery.findAllRecords(
+                    OrdersProduct,
+                    {"sale_order_id": sale_order_id},
+                    {"attributes": ["quantity", "cost_price"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                cogs_amount = sum(
+                    (
+                        money(item.get("cost_price")) * quantity(item.get("quantity"))
+                        for item in sale_items
+                    ),
+                    Decimal("0"),
+                )
+                AccountingService.reflectEvent(
+                    "order_cogs",
+                    cogs_amount,
+                    name=f"Order COGS {sale_order['code']}",
+                    transaction_type="expense",
+                    source_type="sale",
+                    source_id=sale_order_id,
+                    transaction_date=timezone.now(),
+                    description="Cost of goods sold",
+                    reference_number=sale_order["code"],
+                    request=request,
+                )
 
             if customer and collected_amount > 0:
                 next_owed_amount = max(money(customer.get("owed_amount")) - collected_amount, Decimal("0"))
@@ -2063,17 +2155,46 @@ class SaleService:
 
             next_due = max(saleDueAmount(sale_order) - amount, Decimal("0"))
             next_tendered = money(sale_order.get("tendered_amount")) + amount
-            commonQuery.updateRecordById(
+            next_status = "paid" if next_due == 0 else "partially_paid"
+            updated_sale = commonQuery.updateRecordById(
                 Order,
                 sale_order_id,
                 {
                     "tendered_amount": next_tendered,
-                    "payment_status": "paid" if next_due == 0 else "partially_paid",
+                    "payment_status": next_status,
                     "final_payment_date": timezone.now() if next_due == 0 else sale_order.get("final_payment_date"),
                 },
                 request=request,
                 tenant_config=True,
             )
+            SaleStockService.recordSaleStock(updated_sale, request)
+            if sale_order.get("payment_status") != "paid" and next_status == "paid":
+                sale_items = commonQuery.findAllRecords(
+                    OrdersProduct,
+                    {"sale_order_id": sale_order_id},
+                    {"attributes": ["quantity", "cost_price"]},
+                    request=request,
+                    tenant_config=True,
+                )
+                cogs_amount = sum(
+                    (
+                        money(item.get("cost_price")) * quantity(item.get("quantity"))
+                        for item in sale_items
+                    ),
+                    Decimal("0"),
+                )
+                AccountingService.reflectEvent(
+                    "order_cogs",
+                    cogs_amount,
+                    name=f"Order COGS {sale_order['code']}",
+                    transaction_type="expense",
+                    source_type="sale",
+                    source_id=sale_order_id,
+                    transaction_date=timezone.now(),
+                    description="Cost of goods sold",
+                    reference_number=sale_order["code"],
+                    request=request,
+                )
             if customer:
                 next_owed_amount = max(money(customer.get("owed_amount")) - amount, Decimal("0"))
                 commonQuery.updateRecordById(
