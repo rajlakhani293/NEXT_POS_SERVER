@@ -39,7 +39,7 @@ OPTION_KEY_MAP = {
 
 STATIC_OPTION_DEFAULTS = {
     "registration_enabled": "no",
-    "store_name": "NexoPOS",
+    "store_name": "POS",
     "store_language": "en",
     "allow_decimal_quantities": "yes",
     "quick_product": "yes",

@@ -65,7 +65,7 @@ class AccountingService:
                 defaults={
                     "name": name,
                     "category_identifier": category_identifier,
-                    "description": "Default NexoPOS accounting account.",
+                    "description": "Default accounting account.",
                 },
             )
             accounts[key] = transaction_account

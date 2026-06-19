@@ -25,11 +25,11 @@ class TransactionAccount(TenantAwareModel):
 
 
 class Transaction(TenantAwareModel):
-    TYPE_SCHEDULED = "ns.scheduled-transaction"
-    TYPE_RECURRING = "ns.recurring-transaction"
-    TYPE_ENTITY = "ns.entity-transaction"
-    TYPE_DIRECT = "ns.direct-transaction"
-    TYPE_INDIRECT = "ns.indirect-transaction"
+    TYPE_SCHEDULED = "scheduled-transaction"
+    TYPE_RECURRING = "recurring-transaction"
+    TYPE_ENTITY = "entity-transaction"
+    TYPE_DIRECT = "direct-transaction"
+    TYPE_INDIRECT = "indirect-transaction"
 
     name = models.CharField(max_length=180)
     account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, related_name="transactions")

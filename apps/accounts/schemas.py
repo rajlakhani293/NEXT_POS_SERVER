@@ -37,7 +37,7 @@ class UserOut(Schema):
 
 class RoleIn(Schema):
     name: str = Field(..., example="Branch Supervisor")
-    namespace: str = Field(..., example="nexopos.branch.supervisor")
+    namespace: str = Field(..., example="branch-supervisor")
     description: str = Field("", example="Handles branch sales and approvals.")
     reward_system_id: Optional[int] = None
     minimal_credit_payment: Decimal = Field(Decimal("0"), ge=0)

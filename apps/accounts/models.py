@@ -7,11 +7,11 @@ from apps.common.models import BaseModel, SoftDeleteModel, TenantAwareModel
 
 class Role(TenantAwareModel):
     ADMIN = "admin"
-    STOREADMIN = "nexopos.store.administrator"
-    STORECASHIER = "nexopos.store.cashier"
-    STORECUSTOMER = "nexopos.store.customer"
+    STOREADMIN = "store-administrator"
+    STORECASHIER = "store-cashier"
+    STORECUSTOMER = "store-customer"
     USER = "user"
-    DRIVER = "nexopos.driver"
+    DRIVER = "driver"
 
     name = models.CharField(max_length=150)
     namespace = models.CharField(max_length=150)

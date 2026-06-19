@@ -13,8 +13,8 @@ ROLE_CATALOG = [
     },
     {
         "name": "Store Administrator",
-        "namespace": "nexopos.store.administrator",
-        "description": "Has a control over an entire store of NexoPOS.",
+        "namespace": "store-administrator",
+        "description": "Has control over an entire store.",
         "flags": {
             "is_store_manager": True,
             "is_cashier": False,
@@ -76,7 +76,7 @@ ROLE_CATALOG = [
     },
     {
         "name": "Store Cashier",
-        "namespace": "nexopos.store.cashier",
+        "namespace": "store-cashier",
         "description": "Handles checkout, due collection, and shift activity without stock control.",
         "flags": {
             "is_store_manager": False,
@@ -114,7 +114,7 @@ ROLE_CATALOG = [
     },
     {
         "name": "Store Customer",
-        "namespace": "nexopos.store.customer",
+        "namespace": "store-customer",
         "description": "Customer-facing role without back-office access.",
         "flags": {
             "is_store_manager": False,
