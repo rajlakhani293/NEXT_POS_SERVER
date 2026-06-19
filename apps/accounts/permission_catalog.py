@@ -63,6 +63,10 @@ ROLE_CATALOG = [
             "rewards_view",
             "rewards_create",
             "rewards_update",
+            "permissions_access_view",
+            "permissions_access_create",
+            "permissions_access_update",
+            "permissions_access_delete",
             "price_override",
             "manual_discount",
             "refund_order",
@@ -138,6 +142,7 @@ PERMISSION_CATALOG = {
     "reports": ["view", "export"],
     "promotions": ["view", "create", "update", "delete"],
     "rewards": ["view", "create", "update", "delete"],
+    "permissions_access": ["view", "create", "update", "delete"],
     "special": [
         "price_override",
         "manual_discount",

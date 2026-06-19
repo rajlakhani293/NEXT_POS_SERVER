@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from apps.accounts.models import AccessToken, Role, User, UserRoleRelation
+from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserRoleRelation
 from apps.common.admin import SmartModelAdmin
 
 
@@ -62,6 +62,13 @@ class UserRoleRelationAdmin(SmartModelAdmin):
     list_display = ("id", "user", "role", "status", "created_at")
     list_filter = ("status", "role")
     search_fields = ("user__username", "user__full_name", "role__name", "role__namespace")
+
+
+@admin.register(PermissionAccess)
+class PermissionAccessAdmin(SmartModelAdmin):
+    list_display = ("id", "requester", "granter", "permission", "access_status", "status", "created_at")
+    list_filter = ("access_status", "status")
+    search_fields = ("requester__username", "granter__username", "permission", "url")
 
 
 @admin.register(AccessToken)

@@ -67,6 +67,15 @@ class BranchSwitchIn(Schema):
     branch_id: int = Field(..., example=1)
 
 
+class PermissionAccessRequestIn(Schema):
+    permission: str = Field(..., example="cart_product_discount")
+    url: Optional[str] = Field(None, example="/sales/create")
+
+
+class PermissionAccessApproveIn(Schema):
+    permission: str = Field(..., example="cart_product_discount")
+
+
 class UserIn(Schema):
     username: str = Field(..., min_length=3, example="counterstaff")
     password: str = Field(..., min_length=8, example="StrongPassword123!")

@@ -6,6 +6,13 @@ from apps.common.models import BaseModel, SoftDeleteModel, TenantAwareModel
 
 
 class Role(TenantAwareModel):
+    ADMIN = "admin"
+    STOREADMIN = "nexopos.store.administrator"
+    STORECASHIER = "nexopos.store.cashier"
+    STORECUSTOMER = "nexopos.store.customer"
+    USER = "user"
+    DRIVER = "nexopos.driver"
+
     name = models.CharField(max_length=150)
     namespace = models.CharField(max_length=150)
     description = models.TextField(blank=True, null=True)
@@ -21,6 +28,27 @@ class Role(TenantAwareModel):
 
     def __str__(self):
         return self.name
+
+    @classmethod
+    def findByNamespace(cls, namespace, company_id=None, branch_id=None):
+        queryset = cls.objects.filter(namespace=namespace, status__in=[0, 1])
+        if company_id is not None:
+            queryset = queryset.filter(company_id=company_id)
+        if branch_id is not None:
+            queryset = queryset.filter(branch_id=branch_id)
+        return queryset.first()
+
+    def addPermissions(self, permissions, silent=False):
+        if isinstance(permissions, str):
+            permissions = [permissions]
+        permission_qs = Permission.objects.filter(codename__in=list(permissions or []))
+        self.permissions.add(*permission_qs)
+
+    def removePermissions(self, permissions):
+        if isinstance(permissions, str):
+            permissions = [permissions]
+        permission_qs = Permission.objects.filter(codename__in=list(permissions or []))
+        self.permissions.remove(*permission_qs)
 
 
 class User(AbstractUser):
@@ -64,6 +92,9 @@ class User(AbstractUser):
     account_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     total_sales = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     total_sales_count = models.PositiveIntegerField(default=0)
+    activation_token = models.CharField(max_length=255, blank=True, null=True)
+    activation_expiration = models.DateTimeField(blank=True, null=True)
+    remember_token = models.CharField(max_length=100, blank=True, null=True)
     theme = models.CharField(max_length=50, default="light")
     language = models.CharField(max_length=20, default="en")
     is_cashier = models.BooleanField(default=False)
@@ -77,6 +108,38 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.full_name or self.phone or self.email or self.username
+
+    def assignRole(self, role_name):
+        role = Role.findByNamespace(role_name, self.company_id, self.branch_id)
+        if role is None:
+            return {"status": "error", "message": "Unable to identify the provided role."}
+        UserRoleRelation.objects.get_or_create(
+            user=self,
+            role=role,
+            defaults={
+                "company_id": self.company_id,
+                "branch_id": self.branch_id,
+                "status": 0,
+            },
+        )
+        return {"status": "success", "message": "The role was successfully assigned."}
+
+    def roleNamespaces(self):
+        return list(
+            self.role_relations.filter(status=0)
+            .select_related("role")
+            .values_list("role__namespace", flat=True)
+        )
+
+    def hasRoles(self, roles):
+        return bool(set(self.roleNamespaces()) & set(roles))
+
+    def allowedTo(self, permissions):
+        permissions = permissions if isinstance(permissions, list) else [permissions]
+        return self.role_relations.filter(
+            status=0,
+            role__permissions__codename__in=permissions,
+        ).exists()
 
 
 class UserRoleRelation(BaseModel):
@@ -114,6 +177,60 @@ class UserRoleRelation(BaseModel):
 
     def __str__(self):
         return f"{self.user} - {self.role}"
+
+
+class PermissionAccess(BaseModel):
+    GRANTED = "granted"
+    DENIED = "denied"
+    PENDING = "pending"
+    EXPIRED = "expired"
+    USED = "used"
+
+    ACCESS_STATUS_CHOICES = [
+        (GRANTED, "Granted"),
+        (DENIED, "Denied"),
+        (PENDING, "Pending"),
+        (EXPIRED, "Expired"),
+        (USED, "Used"),
+    ]
+
+    requester = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="permission_access_requests",
+    )
+    granter = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="permission_access_grants",
+    )
+    company = models.ForeignKey(
+        "organizations.Company",
+        on_delete=models.CASCADE,
+        related_name="permission_accesses",
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.CASCADE,
+        related_name="permission_accesses",
+    )
+    permission = models.CharField(max_length=255, db_index=True)
+    url = models.CharField(max_length=255, blank=True, null=True)
+    access_status = models.CharField(max_length=20, choices=ACCESS_STATUS_CHOICES, default=PENDING)
+    expired_at = models.DateTimeField(blank=True, null=True)
+    status = models.IntegerField(
+        choices=SoftDeleteModel.STATUS_CHOICES,
+        default=SoftDeleteModel.STATUS_ACTIVE,
+        help_text="0: Active, 1: Inactive, 2: Deleted.",
+    )
+    deleted_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        db_table = "permissions_access"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.permission} - {self.access_status}"
 
 
 class AccessToken(BaseModel):

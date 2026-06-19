@@ -5,6 +5,8 @@ from apps.accounts.auth import auth_bearer
 from apps.accounts.schemas import (
     BranchSwitchIn,
     LoginIn,
+    PermissionAccessApproveIn,
+    PermissionAccessRequestIn,
     RegisterIn,
     RoleAssignIn,
     RoleIn,
@@ -83,6 +85,31 @@ def listRoles(request):
 def listPermissions(request):
     data = AccountsService.buildPermissionDefinitions()
     return successResponse("Permissions fetched successfully.", data=data)
+
+
+@router.post("/permissions-access/request", auth=auth_bearer, response=ApiResponse)
+def requestPermissionAccess(request, payload: PermissionAccessRequestIn):
+    data = AccountsService.requestPermissionAccess(request.user, payload.dict())
+    return successResponse("Permission access request processed successfully.", data=data)
+
+
+@router.post("/permissions-access/get-transactions", auth=auth_bearer, response=ApiResponse)
+@permission_required("permissions_access_view")
+def listPermissionAccess(request, payload: Optional[dict] = None):
+    data = AccountsService.listPermissionAccess(request.user, payload)
+    return successResponse("Permission access records fetched successfully.", data=data)
+
+
+@router.post("/permissions-access/{access_id}/approve", auth=auth_bearer, response=ApiResponse)
+def approvePermissionAccess(request, access_id: int, payload: PermissionAccessApproveIn):
+    data = AccountsService.approvePermissionAccess(request.user, access_id, payload.dict())
+    return successResponse("Permission access granted successfully.", data=data)
+
+
+@router.post("/permissions-access/{access_id}/used", auth=auth_bearer, response=ApiResponse)
+def markPermissionAccessUsed(request, access_id: int):
+    data = AccountsService.markPermissionAccessUsed(request.user, access_id)
+    return successResponse("Permission access marked as used successfully.", data=data)
 
 
 @router.post("/roles", auth=auth_bearer, response=ApiResponse)

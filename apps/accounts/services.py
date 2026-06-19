@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
-from apps.accounts.models import AccessToken, Role, User, UserRoleRelation
+from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserRoleRelation
 from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
 from apps.common.authz import get_user_permission_codenames
 from apps.common.commonQuery import commonQuery
@@ -193,6 +193,119 @@ class AccountsService:
             "permissions": AccountsService.buildPermissionDefinitions(),
             "roles": ROLE_CATALOG,
         }
+
+    @staticmethod
+    def requestPermissionAccess(user: User, data):
+        permission = data.get("permission")
+        if not permission:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Permission is required.")
+        if permission in get_user_permission_codenames(user):
+            return {"has_permission": True, "access": None}
+
+        now = timezone.now()
+        approved = PermissionAccess.objects.filter(
+            requester=user,
+            company_id=user.company_id,
+            branch_id=user.branch_id,
+            permission=permission,
+            access_status=PermissionAccess.GRANTED,
+            expired_at__gte=now,
+            status=0,
+        ).first()
+        if approved:
+            return {"has_permission": True, "access": serializeModelInstance(approved)}
+
+        pending = PermissionAccess.objects.filter(
+            requester=user,
+            company_id=user.company_id,
+            branch_id=user.branch_id,
+            permission=permission,
+            access_status=PermissionAccess.PENDING,
+            expired_at__gte=now,
+            status=0,
+        ).first()
+        if pending:
+            return {"has_permission": False, "access": serializeModelInstance(pending), "type": "permission_pending"}
+
+        access = PermissionAccess.objects.create(
+            requester=user,
+            granter=user,
+            company_id=user.company_id,
+            branch_id=user.branch_id,
+            permission=permission,
+            url=data.get("url"),
+            access_status=PermissionAccess.PENDING,
+            expired_at=now + timedelta(minutes=5),
+            status=0,
+        )
+        return {"has_permission": False, "access": serializeModelInstance(access), "type": "permission_denied"}
+
+    @staticmethod
+    def listPermissionAccess(user: User, data):
+        field_config = [["permission", True, True], ["access_status", True, True], ["url", True, False]]
+        return commonQuery.fetchPaginatedData(
+            PermissionAccess,
+            data or {},
+            field_config,
+            {
+                "attributes": [
+                    "id",
+                    "requester_id",
+                    "requester__username",
+                    "granter_id",
+                    "granter__username",
+                    "permission",
+                    "url",
+                    "access_status",
+                    "expired_at",
+                    "status",
+                    "created_at",
+                ],
+                "order": ["-created_at"],
+            },
+            request=None,
+            tenant_config={},
+            custom_where={"company_id": user.company_id, "branch_id": user.branch_id},
+        )
+
+    @staticmethod
+    def approvePermissionAccess(user: User, access_id: int, data):
+        access = PermissionAccess.objects.filter(
+            id=access_id,
+            company_id=user.company_id,
+            branch_id=user.branch_id,
+            status=0,
+        ).first()
+        if access is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Permission access not found.")
+        if access.expired_at and timezone.now() > access.expired_at:
+            access.access_status = PermissionAccess.EXPIRED
+            access.save(update_fields=["access_status"])
+            raise api_error(404, ErrorCodes.NOT_FOUND, "The requested permission access has expired.")
+        if access.permission != data.get("permission"):
+            raise api_error(403, ErrorCodes.PERMISSION_DENIED, "The requested permission access is not valid.")
+        if access.permission not in get_user_permission_codenames(user):
+            raise api_error(403, ErrorCodes.PERMISSION_DENIED, "You do not have access to approve this permission.")
+        access.access_status = PermissionAccess.GRANTED
+        access.granter = user
+        access.save(update_fields=["access_status", "granter", "updated_at"])
+        return serializeModelInstance(access)
+
+    @staticmethod
+    def markPermissionAccessUsed(user: User, access_id: int):
+        access = PermissionAccess.objects.filter(
+            id=access_id,
+            requester=user,
+            company_id=user.company_id,
+            branch_id=user.branch_id,
+            access_status=PermissionAccess.GRANTED,
+            status=0,
+        ).first()
+        if access is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Permission access not found.")
+        access.access_status = PermissionAccess.USED
+        access.save(update_fields=["access_status", "updated_at"])
+        return serializeModelInstance(access)
 
     @staticmethod
     def generateUniqueCode(model, base_value: str, company_id: Optional[int] = None):
@@ -434,6 +547,7 @@ class AccountsService:
             "reports.DashboardMonth",
             "settings.Notification",
             "settings.Media",
+            "accounts.PermissionAccess",
             "accounts.Role",
             "organizations.Branch",
         ]
