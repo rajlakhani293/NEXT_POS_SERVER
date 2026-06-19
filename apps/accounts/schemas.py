@@ -29,13 +29,9 @@ class UserOut(Schema):
     full_name: str = ""
     profile_image: str = ""
     phone: str = ""
-    theme: str = "light"
-    language: str = "en"
     company_id: Optional[int] = None
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
-    is_cashier: bool
-    is_store_manager: bool
     status: int
 
 

@@ -125,10 +125,7 @@ class AccountsService:
 
         primary_role = role_list[0] if role_list else None
         user.role = primary_role
-        role_namespaces = {role.namespace for role in role_list}
-        user.is_cashier = "nexopos.store.cashier" in role_namespaces
-        user.is_store_manager = bool({"admin", "nexopos.store.administrator", "nexopos.store.manager"} & role_namespaces)
-        user.save(update_fields=["role", "is_cashier", "is_store_manager"])
+        user.save(update_fields=["role"])
 
     @staticmethod
     def getUserRoles(user: User):
@@ -410,7 +407,6 @@ class AccountsService:
                 role=role,
                 is_staff=True,
                 is_superuser=True,
-                is_store_manager=True,
                 status=0,
             )
             AccountsService.setUserRoles(user, [role])
@@ -675,8 +671,6 @@ class AccountsService:
                     "branch__name",
                     "role_id",
                     "role__name",
-                    "is_cashier",
-                    "is_store_manager",
                     "status",
                 ]
             },
@@ -746,8 +740,6 @@ class AccountsService:
             full_name=full_name,
             phone=phone,
             email=email,
-            is_cashier=role.namespace == "nexopos.store.cashier" if role else False,
-            is_store_manager=role.namespace in ["admin", "nexopos.store.administrator", "nexopos.store.manager"] if role else False,
             status=data.get("status", 0),
         )
         if role:

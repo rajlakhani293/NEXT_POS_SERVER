@@ -22,8 +22,6 @@ class UserAdmin(DjangoUserAdmin):
         "company",
         "branch",
         "role",
-        "theme",
-        "language",
         "is_active",
         "is_staff",
     )
@@ -47,10 +45,6 @@ class UserAdmin(DjangoUserAdmin):
                     "company",
                     "branch",
                     "role",
-                    "theme",
-                    "language",
-                    "is_cashier",
-                    "is_store_manager",
                 )
             },
         ),

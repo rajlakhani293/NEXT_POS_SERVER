@@ -95,10 +95,6 @@ class User(AbstractUser):
     activation_token = models.CharField(max_length=255, blank=True, null=True)
     activation_expiration = models.DateTimeField(blank=True, null=True)
     remember_token = models.CharField(max_length=100, blank=True, null=True)
-    theme = models.CharField(max_length=50, default="light")
-    language = models.CharField(max_length=20, default="en")
-    is_cashier = models.BooleanField(default=False)
-    is_store_manager = models.BooleanField(default=False)
     status = models.IntegerField(
         choices=SoftDeleteModel.STATUS_CHOICES,
         default=SoftDeleteModel.STATUS_ACTIVE,
