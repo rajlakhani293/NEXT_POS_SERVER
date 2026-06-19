@@ -23,6 +23,7 @@ class CustomerGroup(TenantAwareModel):
     reward_system = models.ForeignKey(RewardSystem, on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_groups")
 
     class Meta:
+        db_table = "customers_groups"
         ordering = ["name"]
 
     def __str__(self):
@@ -78,9 +79,10 @@ class CustomerAddress(TenantAwareModel):
     country = models.CharField(max_length=120, blank=True)
     city = models.CharField(max_length=120, blank=True)
     pobox = models.CharField(max_length=50, blank=True)
-    company_name = models.CharField(max_length=255, blank=True)
+    company_name = models.CharField(max_length=255, blank=True, db_column="company")
 
     class Meta:
+        db_table = "customers_addresses"
         constraints = [
             models.UniqueConstraint(
                 fields=["customer", "type"],
@@ -116,6 +118,7 @@ class CustomerAccountHistory(TenantAwareModel):
     description = models.TextField(blank=True)
 
     class Meta:
+        db_table = "customers_account_history"
         ordering = ["-created_at", "-id"]
 
 
