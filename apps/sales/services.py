@@ -1995,6 +1995,7 @@ class SaleService:
 
             SaleStockService.recordSaleStock(updated_sale, request)
             if sale_order.get("payment_status") != "paid" and next_status == "paid":
+                DomainActionService.afterSalePaid(updated_sale, request)
                 sale_items = commonQuery.findAllRecords(
                     OrdersProduct,
                     {"sale_order_id": sale_order_id},
@@ -2261,6 +2262,7 @@ class SaleService:
             )
             SaleStockService.recordSaleStock(updated_sale, request)
             if sale_order.get("payment_status") != "paid" and next_status == "paid":
+                DomainActionService.afterSalePaid(updated_sale, request)
                 sale_items = commonQuery.findAllRecords(
                     OrdersProduct,
                     {"sale_order_id": sale_order_id},

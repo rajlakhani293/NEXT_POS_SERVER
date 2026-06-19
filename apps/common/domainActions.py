@@ -58,10 +58,8 @@ class DomainActionService:
         from apps.reports.services import ReportService
         from apps.sales.models import Order
 
-        User.objects.filter(id=sale_order.get("user_id") or request.user.id).update(
-            total_sales=F("total_sales") + sale_order.get("total", 0),
-            total_sales_count=F("total_sales_count") + 1,
-        )
+        if sale_order.get("payment_status") == "paid":
+            DomainActionService.afterSalePaid(sale_order, request)
         order = Order.objects.get(
             id=sale_order["id"],
             company_id=request.user.company_id,
@@ -72,16 +70,26 @@ class DomainActionService:
         return order
 
     @staticmethod
+    def afterSalePaid(sale_order, request):
+        from apps.accounts.models import User
+
+        User.objects.filter(id=sale_order.get("user_id") or request.user.id).update(
+            total_sales=F("total_sales") + sale_order.get("total", 0),
+            total_sales_count=F("total_sales_count") + 1,
+        )
+
+    @staticmethod
     def afterSaleVoided(sale_order, request):
         from apps.accounts.models import User
         from apps.reports.services import ReportService
 
-        cashier_id = sale_order.get("user_id") or request.user.id
-        cashier = User.objects.filter(id=cashier_id).first()
-        if cashier:
-            cashier.total_sales = max(DomainActionService._money(cashier.total_sales) - DomainActionService._money(sale_order.get("total")), Decimal("0"))
-            cashier.total_sales_count = max(int(cashier.total_sales_count or 0) - 1, 0)
-            cashier.save(update_fields=["total_sales", "total_sales_count"])
+        if sale_order.get("payment_status") == "paid":
+            cashier_id = sale_order.get("user_id") or request.user.id
+            cashier = User.objects.filter(id=cashier_id).first()
+            if cashier:
+                cashier.total_sales = max(DomainActionService._money(cashier.total_sales) - DomainActionService._money(sale_order.get("total")), Decimal("0"))
+                cashier.total_sales_count = max(int(cashier.total_sales_count or 0) - 1, 0)
+                cashier.save(update_fields=["total_sales", "total_sales_count"])
         ReportService.refreshDashboardSnapshot({}, request)
 
     @staticmethod
