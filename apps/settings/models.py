@@ -1,8 +1,8 @@
 # type: ignore
 from django.db import models
-
 from apps.common.models import TenantAwareModel
-
+from apps.accounts.models import User
+from apps.organizations.models import Company, Branch
 
 PAYMENT_TYPES = [
     ("cash-payment", "Cash"),
@@ -34,14 +34,10 @@ class Option(TenantAwareModel):
 
 
 class Job(models.Model):
-    STATUS_ACTIVE = 0
-    STATUS_INACTIVE = 1
-    STATUS_DELETED = 2
-
-    user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="jobs")
-    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="jobs")
-    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, related_name="jobs")
-    status = models.IntegerField(default=STATUS_ACTIVE, help_text="0: Active, 1: Inactive, 2: Deleted.")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="jobs")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="jobs")
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="jobs")
+    status = models.IntegerField(default=0, help_text="0: Active, 1: Inactive, 2: Deleted.")
     deleted_at = models.DateTimeField(blank=True, null=True)
     queue = models.CharField(max_length=255, db_index=True)
     payload = models.TextField()
@@ -58,14 +54,10 @@ class Job(models.Model):
 
 
 class FailedJob(models.Model):
-    STATUS_ACTIVE = 0
-    STATUS_INACTIVE = 1
-    STATUS_DELETED = 2
-
-    user = models.ForeignKey("accounts.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="failed_jobs")
-    company = models.ForeignKey("organizations.Company", on_delete=models.CASCADE, related_name="failed_jobs")
-    branch = models.ForeignKey("organizations.Branch", on_delete=models.CASCADE, related_name="failed_jobs")
-    status = models.IntegerField(default=STATUS_ACTIVE, help_text="0: Active, 1: Inactive, 2: Deleted.")
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="failed_jobs")
+    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name="failed_jobs")
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="failed_jobs")
+    status = models.IntegerField(default=0, help_text="0: Active, 1: Inactive, 2: Deleted.")
     deleted_at = models.DateTimeField(blank=True, null=True)
     connection = models.TextField()
     queue = models.TextField()
