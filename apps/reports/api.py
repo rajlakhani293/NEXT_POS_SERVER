@@ -71,6 +71,12 @@ def paymentTypesReport(request, payload: Optional[dict] = None):
     return ReportService.paymentTypesReport(payload, request)
 
 
+@router.post("/transactions", response=ApiResponse)
+@permission_required("reports_view")
+def accountSummaryReport(request, payload: Optional[dict] = None):
+    return ReportService.accountSummaryReport(payload, request)
+
+
 @router.post("/products-report", response=ApiResponse)
 @permission_required("reports_view")
 def productsReport(request, payload: Optional[dict] = None):
@@ -87,6 +93,12 @@ def lowStockReport(request, payload: Optional[dict] = None):
 @permission_required("reports_view")
 def stockReport(request, payload: Optional[dict] = None):
     return ReportService.stockReport(payload, request)
+
+
+@router.post("/stock-combined", response=ApiResponse)
+@permission_required("reports_view")
+def stockCombinedReport(request, payload: Optional[dict] = None):
+    return ReportService.stockCombinedReport(payload, request)
 
 
 @router.post("/cashier-report", response=ApiResponse)

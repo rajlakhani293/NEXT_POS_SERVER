@@ -10,7 +10,8 @@ from django.db.models.functions import TruncDate
 from apps.common.commonQuery import commonQuery
 from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
-from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
+from apps.accounting.models import TransactionAccount, TransactionHistory
+from apps.catalog.models import Product, ProductHistory, ProductHistoryCombined, ProductUnitQuantity
 from apps.customers.models import Customer, CustomerAccountHistory
 from apps.purchases.models import Procurement, Provider
 from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
@@ -57,6 +58,13 @@ def paginatedResponse(queryset, data):
 
 
 class ReportService:
+    ACCOUNT_CATEGORY_LABELS = {
+        "assets": "Assets",
+        "liabilities": "Liabilities",
+        "revenues": "Revenues",
+        "expenses": "Expenses",
+    }
+
     @staticmethod
     def dashboardSummary(data, request):
         base = tenantFilter(request)
@@ -466,6 +474,72 @@ class ReportService:
         return successResponse("Payment types report retrieved successfully.", data=result)
 
     @staticmethod
+    def accountSummaryReport(data, request):
+        data = data or {}
+        history_filters = {
+            "histories__company_id": request.user.company_id,
+            "histories__branch_id": request.user.branch_id,
+            "histories__status__in": [0, 1],
+            **dateFilter("histories__created_at", data),
+        }
+        accounts = (
+            TransactionAccount.objects.filter(**tenantFilter(request))
+            .annotate(
+                debits=Coalesce(
+                    Sum("histories__value", filter=Q(histories__operation=TransactionHistory.OPERATION_DEBIT, **history_filters)),
+                    Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5)),
+                ),
+                credits=Coalesce(
+                    Sum("histories__value", filter=Q(histories__operation=TransactionHistory.OPERATION_CREDIT, **history_filters)),
+                    Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5)),
+                ),
+            )
+            .values(
+                "id",
+                "name",
+                "account",
+                "category_identifier",
+                "sub_category_id",
+                "sub_category__name",
+                "debits",
+                "credits",
+            )
+            .order_by("category_identifier", "account", "name")
+        )
+
+        grouped = {}
+        total_debits = Decimal("0")
+        total_credits = Decimal("0")
+        for account in accounts:
+            category = account.get("category_identifier") or "uncategorized"
+            grouped.setdefault(
+                category,
+                {
+                    "name": ReportService.ACCOUNT_CATEGORY_LABELS.get(category, category.replace("_", " ").title()),
+                    "transactions": [],
+                    "debits": Decimal("0"),
+                    "credits": Decimal("0"),
+                },
+            )
+            grouped[category]["transactions"].append(account)
+            grouped[category]["debits"] += account.get("debits") or Decimal("0")
+            grouped[category]["credits"] += account.get("credits") or Decimal("0")
+            total_debits += account.get("debits") or Decimal("0")
+            total_credits += account.get("credits") or Decimal("0")
+
+        return successResponse(
+            "Account summary report retrieved successfully.",
+            data=jsonsafe(
+                {
+                    "accounts": grouped,
+                    "debits": total_debits,
+                    "credits": total_credits,
+                    "profit": total_credits - total_debits,
+                }
+            ),
+        )
+
+    @staticmethod
     def productsReport(data, request):
         queryset = ProductUnitQuantity.objects.filter(
             **tenantFilter(request),
@@ -572,6 +646,53 @@ class ReportService:
             item["purchase_price"] = item.pop("cogs", 0)
             item["selling_price"] = item.pop("sale_price", 0)
         return successResponse("Stock report retrieved successfully.", data=result)
+
+    @staticmethod
+    def stockCombinedReport(data, request):
+        data = data or {}
+        report_date = data.get("date")
+        if report_date:
+            report_date = timezone.datetime.fromisoformat(str(report_date).replace("Z", "+00:00")).date()
+        else:
+            report_date = timezone.localdate()
+
+        queryset = ProductHistoryCombined.objects.filter(
+            **tenantFilter(request),
+            date=report_date,
+        )
+        categories = data.get("categories") or data.get("category_ids") or []
+        units = data.get("units") or data.get("unit_ids") or []
+        if categories:
+            queryset = queryset.filter(product__category_id__in=categories)
+        if units:
+            queryset = queryset.filter(unit_id__in=units)
+
+        search = data.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search))
+
+        rows = queryset.values(
+            "id",
+            "date",
+            "product_id",
+            "product__name",
+            "product__sku",
+            "product__barcode",
+            "product__category_id",
+            "product__category__name",
+            "unit_id",
+            "unit__name",
+            "name",
+            "initial_quantity",
+            "procured_quantity",
+            "sold_quantity",
+            "defective_quantity",
+            "final_quantity",
+            "status",
+        ).order_by("product__name", "unit__name")
+        result = paginatedResponse(rows, data)
+        result["date"] = report_date
+        return successResponse("Stock combined report retrieved successfully.", data=result)
 
     @staticmethod
     def cashierReport(data, request):

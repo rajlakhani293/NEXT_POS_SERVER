@@ -7,6 +7,7 @@ from apps.catalog.models import (
     Product,
     ProductGallery,
     ProductHistory,
+    ProductHistoryCombined,
     ProductUnitQuantity,
     ScaleRange,
     Tax,
@@ -696,6 +697,22 @@ class ProductStockService:
         ProductHistory.ACTION_LOST,
         ProductHistory.ACTION_SET,
     }
+    COMBINED_PROCURED_ACTIONS = {
+        ProductHistory.ACTION_ADDED,
+        ProductHistory.ACTION_STOCKED,
+        ProductHistory.ACTION_ADJUSTMENT_RETURN,
+        ProductHistory.ACTION_CONVERT_IN,
+        ProductHistory.ACTION_RETURNED,
+        ProductHistory.ACTION_TRANSFER_IN,
+        ProductHistory.ACTION_TRANSFER_CANCELED,
+        ProductHistory.ACTION_TRANSFER_REJECTED,
+    }
+    COMBINED_DEFECTIVE_ACTIONS = {
+        ProductHistory.ACTION_DELETED,
+        ProductHistory.ACTION_LOST,
+        ProductHistory.ACTION_REMOVED,
+        ProductHistory.ACTION_DEFECTIVE,
+    }
 
     @staticmethod
     def stockEnabled(product):
@@ -771,7 +788,7 @@ class ProductStockService:
             unit_quantity.cogs = float(decimalValue(data.get("cogs")))
         unit_quantity.save(update_fields=["quantity", "cogs", "updated_at"] if data.get("cogs") is not None else ["quantity", "updated_at"])
 
-        return commonQuery.createRecord(
+        history = commonQuery.createRecord(
             ProductHistory,
             {
                 "product_id": product["id"],
@@ -791,6 +808,69 @@ class ProductStockService:
             request=request,
             tenant_config=True,
         )
+        ProductStockService.combineProductHistory(history, product, request)
+        return history
+
+    @staticmethod
+    def combineProductHistory(history, product, request):
+        if not history:
+            return None
+
+        history_created_at = history.get("created_at")
+        if hasattr(history_created_at, "date"):
+            history_date = (
+                timezone.localtime(history_created_at).date()
+                if timezone.is_aware(history_created_at)
+                else history_created_at.date()
+            )
+        else:
+            history_date = timezone.localdate()
+
+        combined, created = ProductHistoryCombined.objects.get_or_create(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            product_id=history.get("product_id"),
+            unit_id=history.get("unit_id"),
+            date=history_date,
+            defaults={
+                "user_id": request.user.id,
+                "name": product.get("name") or "",
+                "initial_quantity": history.get("before_quantity") or 0,
+                "procured_quantity": 0,
+                "sold_quantity": 0,
+                "defective_quantity": 0,
+                "final_quantity": 0,
+            },
+        )
+        if not created and not combined.name:
+            combined.name = product.get("name") or combined.name
+
+        quantity = float(decimalValue(history.get("quantity")))
+        operation_type = history.get("operation_type")
+        if operation_type in ProductStockService.COMBINED_PROCURED_ACTIONS:
+            combined.procured_quantity = float(combined.procured_quantity or 0) + quantity
+        elif operation_type == ProductHistory.ACTION_SOLD:
+            combined.sold_quantity = float(combined.sold_quantity or 0) + quantity
+        elif operation_type in ProductStockService.COMBINED_DEFECTIVE_ACTIONS:
+            combined.defective_quantity = float(combined.defective_quantity or 0) + quantity
+
+        combined.final_quantity = (
+            float(combined.initial_quantity or 0)
+            + float(combined.procured_quantity or 0)
+            - float(combined.sold_quantity or 0)
+            - float(combined.defective_quantity or 0)
+        )
+        combined.save(
+            update_fields=[
+                "name",
+                "procured_quantity",
+                "sold_quantity",
+                "defective_quantity",
+                "final_quantity",
+                "updated_at",
+            ]
+        )
+        return combined
 
     @staticmethod
     def applyManualAdjustment(data, request):
