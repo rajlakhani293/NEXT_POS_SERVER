@@ -39,11 +39,15 @@ def updateOptionSettings(request, payload: OptionSettingIn):
 @permission_required("settings_update")
 def runNextJob(request):
     from apps.accounting.services import TransactionService
+    from apps.purchases.services import PurchaseOrderService
+    from apps.registers.services import RegisterService
     from apps.reports.services import ReportService
     from apps.sales.services import SaleService
 
     handlers = {}
     handlers.update(TransactionService.jobHandlers())
+    handlers.update(PurchaseOrderService.jobHandlers())
+    handlers.update(RegisterService.jobHandlers())
     handlers.update(ReportService.jobHandlers())
     handlers.update(SaleService.jobHandlers())
     result = JobQueueService.runNext(handlers)

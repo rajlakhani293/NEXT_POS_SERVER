@@ -107,6 +107,12 @@ def refreshPurchaseOrder(request, order_id: int):
     return PurchaseOrderService.refresh(order_id, request)
 
 
+@router.post("/orders/{order_id}/queue-refresh", response=ApiResponse)
+@permission_required("purchases_update")
+def queueRefreshPurchaseOrder(request, order_id: int):
+    return PurchaseOrderService.enqueueRefresh(order_id, request)
+
+
 @router.put("/orders/{order_id}", response=ApiResponse)
 @permission_required("purchases_update")
 def updatePurchaseOrder(request, order_id: int, payload: PurchaseOrderUpdateIn):
@@ -177,6 +183,12 @@ def getLowStockSuggestions(request):
 @permission_required("purchases_update")
 def stockAwaitingProcurements(request):
     return PurchaseOrderService.stockAwaitingProcurements(request)
+
+
+@router.post("/stock-awaiting/queue", response=ApiResponse)
+@permission_required("purchases_update")
+def queueStockAwaitingProcurements(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.enqueueStockAwaiting(payload, request)
 
 
 @router.post("/products/search-product", response=ApiResponse)

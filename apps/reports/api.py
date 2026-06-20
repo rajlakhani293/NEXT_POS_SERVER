@@ -23,6 +23,12 @@ def refreshDashboardSnapshot(request, payload: Optional[dict] = None):
     return ReportService.refreshDashboardSnapshot(payload or {}, request)
 
 
+@router.post("/dashboard/recompute", response=ApiResponse)
+@permission_required("settings_update")
+def recomputeDashboardReports(request, payload: Optional[dict] = None):
+    return ReportService.enqueueDashboardRecompute(payload or {}, request)
+
+
 @router.post("/customer-due", response=ApiResponse)
 @permission_required("reports_view")
 def customerDue(request, payload: Optional[dict] = None):

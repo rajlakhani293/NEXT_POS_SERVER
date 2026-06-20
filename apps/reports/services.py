@@ -298,6 +298,51 @@ class ReportService:
         return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
 
     @staticmethod
+    def recomputeDashboardRange(data, request):
+        from apps.accounting.services import AccountingService
+
+        start_date = parseReportDate((data or {}).get("from_date") or (data or {}).get("startDate"))
+        end_date = parseReportDate((data or {}).get("to_date") or (data or {}).get("endDate"))
+        if start_date > end_date:
+            start_date, end_date = end_date, start_date
+
+        DashboardDay.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            range_starts__date__gte=start_date,
+            range_starts__date__lte=end_date,
+        ).delete()
+        DashboardWeek.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            range_starts__date__lte=end_date,
+            range_ends__date__gte=start_date,
+        ).delete()
+        DashboardMonth.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            range_starts__date__lte=end_date,
+            range_ends__date__gte=start_date,
+        ).delete()
+
+        current_date = start_date
+        refreshed_days = 0
+        while current_date <= end_date:
+            ReportService.refreshDashboardSnapshot({"date": current_date.isoformat()}, request)
+            refreshed_days += 1
+            current_date += timedelta(days=1)
+
+        AccountingService.recomputeBalances(start_date.isoformat(), end_date.isoformat(), request)
+        return successResponse(
+            "Dashboard reports recomputed successfully.",
+            data={
+                "from_date": start_date,
+                "to_date": end_date,
+                "refreshed_days": refreshed_days,
+            },
+        )
+
+    @staticmethod
     def customerDue(data, request):
         result = commonQuery.fetchPaginatedData(
             Customer,
@@ -824,12 +869,20 @@ class ReportService:
         return successResponse("Stock combined refresh queued successfully.", data={"job_id": job.id})
 
     @staticmethod
+    def enqueueDashboardRecompute(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("recompute_dashboard_reports", data or {}, request=request)
+        return successResponse("Dashboard recompute queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
     def jobHandlers():
         return {
             "ensure_combined_product_history": lambda data, job: ReportService.recomputeStockCombined(data, ReportService.requestFromJob(job)),
             "compute_dashboard_day": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "compute_dashboard_month": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "detect_low_stock_products": lambda data, job: ReportService.detectLowStockProducts(data or {}, ReportService.requestFromJob(job)),
+            "recompute_dashboard_reports": lambda data, job: ReportService.recomputeDashboardRange(data or {}, ReportService.requestFromJob(job)),
         }
 
     @staticmethod

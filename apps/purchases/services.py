@@ -1,5 +1,6 @@
 # type: ignore
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import uuid4
 
 from django.core.cache import cache
@@ -8,6 +9,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.accounting.services import AccountingService
+from apps.accounts.models import User
 from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity, TaxGroup, Unit
 from apps.catalog.services import ProductStockService
 from apps.common.commonQuery import commonQuery
@@ -142,6 +144,11 @@ class SupplierService:
 
 
 class PurchaseOrderService:
+    @staticmethod
+    def requestFromJob(job):
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)
+
     @staticmethod
     def procurementName():
         last_id = Procurement.objects.order_by("-id").values_list("id", flat=True).first() or 0
@@ -562,7 +569,22 @@ class PurchaseOrderService:
 
     @staticmethod
     def refresh(order_id, request):
+        PurchaseOrderService.recalculateOrder(order_id, request)
         return successResponse("Procurement refreshed successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+    @staticmethod
+    def enqueueRefresh(order_id, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("refresh_procurement", {"procurement_id": order_id}, request=request)
+        return successResponse("Procurement refresh queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
+    def enqueueStockAwaiting(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("stock_awaiting_procurements", data or {}, request=request)
+        return successResponse("Stock awaiting procurements queued successfully.", data={"job_id": job.id})
 
     @staticmethod
     def lowStockSuggestions(request):
@@ -753,3 +775,15 @@ class PurchaseOrderService:
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
         return successResponse("Procurements deleted successfully.")
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "refresh_procurement": lambda data, job: PurchaseOrderService.refresh(
+                data.get("procurement_id") or data.get("order_id"),
+                PurchaseOrderService.requestFromJob(job),
+            ),
+            "stock_awaiting_procurements": lambda data, job: PurchaseOrderService.stockAwaitingProcurements(
+                PurchaseOrderService.requestFromJob(job),
+            ),
+        }

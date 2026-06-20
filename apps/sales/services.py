@@ -1336,6 +1336,157 @@ class SaleRefundService:
 
 class SaleService:
     @staticmethod
+    def refreshOrder(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(
+            Order,
+            sale_order_id,
+            request=request,
+            tenant_config=True,
+        )
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        if sale_order.get("payment_status") in ["hold", "void"]:
+            return successResponse("Sale order skipped from refresh.", data=sale_order)
+
+        items = commonQuery.findAllRecords(
+            OrdersProduct,
+            {"sale_order_id": sale_order_id},
+            {
+                "attributes": [
+                    "quantity",
+                    "total",
+                    "tax_amount",
+                    "cost_price",
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        payments = commonQuery.findAllRecords(
+            OrderPayment,
+            {"sale_order_id": sale_order_id},
+            {"attributes": ["value"]},
+            request=request,
+            tenant_config=True,
+        )
+        coupons = commonQuery.findAllRecords(
+            OrdersCoupon,
+            {"sale_order_id": sale_order_id},
+            {"attributes": ["discount_amount"]},
+            request=request,
+            tenant_config=True,
+        )
+
+        subtotal = sum((money(item.get("total")) for item in items), Decimal("0"))
+        tax_amount = sum((money(item.get("tax_amount")) for item in items), Decimal("0"))
+        total_cogs = sum((money(item.get("cost_price")) * quantity(item.get("quantity")) for item in items), Decimal("0"))
+        coupon_total = sum((money(coupon.get("discount_amount")) for coupon in coupons), Decimal("0"))
+        total = max(
+            subtotal
+            - money(sale_order.get("discount_amount"))
+            - coupon_total
+            + money(sale_order.get("shipping")),
+            Decimal("0"),
+        )
+        paid_amount = sum((money(payment.get("value")) for payment in payments), Decimal("0"))
+        change_amount = max(paid_amount - total, Decimal("0"))
+        due_amount = max(total - paid_amount, Decimal("0"))
+        payment_status = "paid" if due_amount == 0 else ("partially_paid" if paid_amount > 0 else "unpaid")
+
+        updated = commonQuery.updateRecordById(
+            Order,
+            sale_order_id,
+            {
+                "subtotal": subtotal,
+                "tax_amount": tax_amount,
+                "total_coupons": coupon_total,
+                "total_cogs": total_cogs,
+                "total": total,
+                "tendered_amount": paid_amount,
+                "change_amount": change_amount,
+                "payment_status": payment_status,
+                "final_payment_date": timezone.now() if payment_status == "paid" else None,
+            },
+            request=request,
+            tenant_config=True,
+        )
+        SaleDraftService.trackOrderCoupons(sale_order_id, request)
+        SaleStockService.recordSaleStock(updated, request)
+        return successResponse("Sale order refreshed successfully.", data=updated)
+
+    @staticmethod
+    def recomputeCustomerOwed(customer_id, request):
+        if not customer_id:
+            return None
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        orders = Order.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            customer_id=customer_id,
+            payment_status__in=["unpaid", "partially_paid"],
+        ).exclude(status=2).values("total", "tendered_amount", "change_amount")
+        owed_amount = sum((saleDueAmount(order) for order in orders), Decimal("0"))
+        commonQuery.updateRecordById(
+            Customer,
+            customer_id,
+            {"owed_amount": owed_amount},
+            request=request,
+            tenant_config=True,
+        )
+        return commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+
+    @staticmethod
+    def processCustomerOwedAndRewards(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        customer = SaleService.recomputeCustomerOwed(sale_order.get("customer_id"), request) if sale_order.get("customer_id") else None
+        return successResponse(
+            "Customer owed amount processed successfully.",
+            data={"customer": customer, "reward_processed": False},
+        )
+
+    @staticmethod
+    def increaseCashierStats(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        if sale_order.get("payment_status") == "paid" and sale_order.get("user_id"):
+            User.objects.filter(id=sale_order["user_id"]).update(
+                total_sales=F("total_sales") + money(sale_order.get("total")),
+                total_sales_count=F("total_sales_count") + 1,
+            )
+        return successResponse("Cashier stats increased successfully.")
+
+    @staticmethod
+    def uncountDeletedOrderForCashier(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        if sale_order.get("payment_status") == "paid" and sale_order.get("user_id"):
+            user = User.objects.filter(id=sale_order["user_id"]).first()
+            if user:
+                user.total_sales = max(money(user.total_sales) - money(sale_order.get("total")), Decimal("0"))
+                user.total_sales_count = max(int(user.total_sales_count or 0) - 1, 0)
+                user.save(update_fields=["total_sales", "total_sales_count"])
+        return successResponse("Cashier stats decreased successfully.")
+
+    @staticmethod
+    def reduceCashierStatsFromRefund(return_order_id, request):
+        refund = commonQuery.findOneRecord(OrdersRefund, return_order_id, request=request, tenant_config=True)
+        if refund is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Refund not found.")
+        sale_order = commonQuery.findOneRecord(Order, refund.get("sale_order_id"), request=request, tenant_config=True)
+        if sale_order and sale_order.get("user_id"):
+            user = User.objects.filter(id=sale_order["user_id"]).first()
+            if user:
+                user.total_sales = max(money(user.total_sales) - money(refund.get("total")), Decimal("0"))
+                user.save(update_fields=["total_sales"])
+        return successResponse("Cashier refund stats processed successfully.")
+
+    @staticmethod
     def listSales(data, request):
         field_config = [
             ["code", True, True],
@@ -1754,8 +1905,28 @@ class SaleService:
         return {
             "clear_hold_orders": lambda data, job: SaleService.clearExpiredHeldCarts(data, SaleService.requestFromJob(job)),
             "purge_order_storage": lambda data, job: SaleService.purgeOrderStorage(data, SaleService.requestFromJob(job)),
+            "refresh_order": lambda data, job: SaleService.refreshOrder(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
             "track_order_coupons": lambda data, job: SaleDraftService.trackOrderCoupons(
                 data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "process_customer_owed_and_rewards": lambda data, job: SaleService.processCustomerOwedAndRewards(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "increase_cashier_stats": lambda data, job: SaleService.increaseCashierStats(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "uncount_deleted_order_for_cashier": lambda data, job: SaleService.uncountDeletedOrderForCashier(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "reduce_cashier_stats_from_refund": lambda data, job: SaleService.reduceCashierStatsFromRefund(
+                data.get("return_order_id") or data.get("refund_id"),
                 SaleService.requestFromJob(job),
             ),
         }
