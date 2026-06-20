@@ -38,10 +38,12 @@ def updateOptionSettings(request, payload: OptionSettingIn):
 @router.post("/jobs/run-next", response=ApiResponse)
 @permission_required("settings_update")
 def runNextJob(request):
+    from apps.accounting.services import TransactionService
     from apps.reports.services import ReportService
     from apps.sales.services import SaleService
 
     handlers = {}
+    handlers.update(TransactionService.jobHandlers())
     handlers.update(ReportService.jobHandlers())
     handlers.update(SaleService.jobHandlers())
     result = JobQueueService.runNext(handlers)

@@ -1,4 +1,6 @@
 # type:ignore
+from types import SimpleNamespace
+from datetime import timedelta
 from django.db import transaction
 from django.db.models import F
 from django.utils.dateparse import parse_date, parse_datetime
@@ -601,6 +603,13 @@ class TransactionRuleService:
 
 class TransactionService:
     @staticmethod
+    def requestFromJob(job):
+        from apps.accounts.models import User
+
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)
+
+    @staticmethod
     def createManual(data, request):
         record = AccountingService.record(
             account_id=data.get("account_id"),
@@ -682,3 +691,216 @@ class TransactionService:
             tenant_config=True,
         )
         return successResponse("Transaction history retrieved successfully.", data=result)
+
+    @staticmethod
+    def _buildHistory(transaction_record, request, *, status=None, trigger_date=None):
+        tx_date = normalizeTransactionDate(trigger_date or transaction_record.get("scheduled_date") or timezone.now())
+        return commonQuery.createRecord(
+            TransactionHistory,
+            {
+                "transaction_id": transaction_record["id"],
+                "operation": "credit",
+                "transaction_account_id": transaction_record["account_id"],
+                "name": transaction_record["name"],
+                "type": transaction_record.get("type") or Transaction.TYPE_DIRECT,
+                "value": transaction_record.get("value") or 0,
+                "trigger_date": tx_date,
+                "transaction_status": status or TransactionHistory.STATUS_ACTIVE_TEXT,
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+    @staticmethod
+    def prepareTransactionHistory(transaction_id, request):
+        transaction_record = commonQuery.findOneRecord(
+            Transaction,
+            transaction_id,
+            request=request,
+            tenant_config=True,
+        )
+        if transaction_record is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
+        history = TransactionService._buildHistory(
+            transaction_record,
+            request,
+            status=TransactionHistory.STATUS_PENDING_TEXT,
+            trigger_date=transaction_record.get("scheduled_date"),
+        )
+        return successResponse("Transaction history prepared successfully.", data=history)
+
+    @staticmethod
+    def executeDelayedTransaction(history_id, request):
+        history = commonQuery.findOneRecord(
+            TransactionHistory,
+            history_id,
+            request=request,
+            tenant_config=True,
+        )
+        if history is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction history not found.")
+        if history.get("transaction_status") == TransactionHistory.STATUS_ACTIVE_TEXT:
+            return successResponse("Transaction history already executed.", data=history)
+
+        tx_date = normalizeTransactionDate(history.get("trigger_date") or timezone.now())
+        AccountingService.updateBalances(
+            history["transaction_account_id"],
+            history.get("value") or 0,
+            history.get("operation") or "credit",
+            tx_date,
+            request,
+        )
+        updated = commonQuery.updateRecordById(
+            TransactionHistory,
+            history_id,
+            {
+                "transaction_status": TransactionHistory.STATUS_ACTIVE_TEXT,
+                "trigger_date": tx_date,
+            },
+            request=request,
+            tenant_config=True,
+        )
+        from apps.settings.models import Notification
+
+        Notification.objects.create(
+            user_id=request.user.id,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            identifier=f"scheduled-transaction-{history_id}",
+            title="Scheduled Transaction",
+            description=f'Transaction "{history.get("name")}" was executed as scheduled.',
+            url="/reports/accounting",
+            source="system",
+            status=0,
+        )
+        return successResponse("Scheduled transaction executed successfully.", data=updated)
+
+    @staticmethod
+    def detectScheduledTransactions(data, request):
+        from apps.settings.services import JobQueueService
+
+        now = timezone.now()
+        histories = TransactionHistory.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            transaction_status=TransactionHistory.STATUS_PENDING_TEXT,
+            trigger_date__lte=now,
+            status=0,
+        ).values("id")
+        queued_count = 0
+        for history in histories:
+            JobQueueService.enqueue(
+                "execute_delayed_transaction",
+                {"history_id": history["id"]},
+                request=request,
+            )
+            queued_count += 1
+        return successResponse("Scheduled transaction detection completed.", data={"queued_count": queued_count})
+
+    @staticmethod
+    def _recurringDueDate(transaction_record, base_date):
+        occurrence = transaction_record.get("occurrence") or ""
+        try:
+            occurrence_value = int(transaction_record.get("occurrence_value") or 0)
+        except (TypeError, ValueError):
+            occurrence_value = 0
+
+        if occurrence == "month_starts":
+            return base_date.replace(day=1)
+        if occurrence == "month_mid":
+            return base_date.replace(day=15)
+        if occurrence == "month_ends":
+            next_month = (base_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+            return next_month - timedelta(days=1)
+        if occurrence == "x_before_month_ends":
+            next_month = (base_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+            return (next_month - timedelta(days=1)) - timedelta(days=occurrence_value)
+        if occurrence == "x_after_month_starts":
+            return base_date.replace(day=1) + timedelta(days=occurrence_value)
+        if occurrence == "on_specific_day" and occurrence_value > 0:
+            try:
+                return base_date.replace(day=occurrence_value)
+            except ValueError:
+                return None
+        if occurrence in ["every_x_minutes", "every_x_hours", "every_x_days"]:
+            return base_date
+        return None
+
+    @staticmethod
+    def triggerRecurringTransactions(data, request):
+        base_datetime = normalizeTransactionDate((data or {}).get("date") or timezone.now())
+        base_date = base_datetime.date()
+        transactions = commonQuery.findAllRecords(
+            Transaction,
+            {"recurring": True, "active": True},
+            {
+                "attributes": [
+                    "id",
+                    "account_id",
+                    "name",
+                    "value",
+                    "type",
+                    "occurrence",
+                    "occurrence_value",
+                    "scheduled_date",
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        processed = []
+        skipped = []
+        for transaction_record in transactions:
+            due_date = TransactionService._recurringDueDate(transaction_record, base_date)
+            if due_date != base_date:
+                skipped.append(transaction_record["id"])
+                continue
+            exists = TransactionHistory.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                transaction_id=transaction_record["id"],
+                trigger_date__date=base_date,
+                status=0,
+            ).exists()
+            if exists:
+                skipped.append(transaction_record["id"])
+                continue
+            history = TransactionService._buildHistory(
+                transaction_record,
+                request,
+                status=TransactionHistory.STATUS_ACTIVE_TEXT,
+                trigger_date=base_datetime,
+            )
+            AccountingService.updateBalances(
+                transaction_record["account_id"],
+                transaction_record.get("value") or 0,
+                history.get("operation") or "credit",
+                base_datetime,
+                request,
+            )
+            processed.append(history)
+        return successResponse(
+            "Recurring transactions processed successfully.",
+            data={"processed_count": len(processed), "skipped_count": len(skipped), "items": processed},
+        )
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "prepare_transaction_history": lambda data, job: TransactionService.prepareTransactionHistory(
+                data.get("transaction_id"),
+                TransactionService.requestFromJob(job),
+            ),
+            "detect_scheduled_transactions": lambda data, job: TransactionService.detectScheduledTransactions(
+                data,
+                TransactionService.requestFromJob(job),
+            ),
+            "execute_delayed_transaction": lambda data, job: TransactionService.executeDelayedTransaction(
+                data.get("history_id"),
+                TransactionService.requestFromJob(job),
+            ),
+            "trigger_recurring_transactions": lambda data, job: TransactionService.triggerRecurringTransactions(
+                data,
+                TransactionService.requestFromJob(job),
+            ),
+        }
