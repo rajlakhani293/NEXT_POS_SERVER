@@ -564,25 +564,11 @@ class SaleCouponService:
                     "maximum_cart_value": coupon.get("maximum_cart_value") or 0,
                     "limit_usage": coupon.get("limit_usage") or 0,
                     "discount_amount": discount_amount,
-                    "counted": bool(issued_coupon),
+                    "counted": False,
                 },
                 request=request,
                 tenant_config=True,
             )
-
-            if issued_coupon:
-                usage_count = int(issued_coupon.get("usage") or 0) + 1
-                update_data = {"usage": usage_count}
-                limit_usage = int(coupon.get("limit_usage") or 0)
-                if limit_usage > 0 and usage_count >= limit_usage:
-                    update_data["status"] = 1
-                commonQuery.updateRecordById(
-                    CustomerCoupon,
-                    issued_coupon["id"],
-                    update_data,
-                    request=request,
-                    tenant_config=True,
-                )
 
             total_discount += discount_amount
             applied_coupons.append(applied)
@@ -835,12 +821,15 @@ class SaleDraftService:
                     "id",
                     "coupon_id",
                     "customer_coupon_id",
+                    "counted",
                 ],
             },
             request=request,
             tenant_config=True,
         )
         for applied in applied_coupons:
+            if not applied.get("counted"):
+                continue
             customer_coupon_id = applied.get("customer_coupon_id")
             if not customer_coupon_id:
                 continue
@@ -870,6 +859,69 @@ class SaleDraftService:
                 CustomerCoupon,
                 customer_coupon_id,
                 update_data,
+                request=request,
+                tenant_config=True,
+            )
+            commonQuery.updateRecordById(
+                OrdersCoupon,
+                applied["id"],
+                {"counted": False},
+                request=request,
+                tenant_config=True,
+            )
+
+    @staticmethod
+    def trackOrderCoupons(sale_order_id, request):
+        if not sale_order_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Sale order id is required to track coupons.")
+        applied_coupons = commonQuery.findAllRecords(
+            OrdersCoupon,
+            {"sale_order_id": sale_order_id, "counted": False},
+            {
+                "attributes": [
+                    "id",
+                    "customer_coupon_id",
+                    "name",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for applied in applied_coupons:
+            customer_coupon_id = applied.get("customer_coupon_id")
+            if not customer_coupon_id:
+                commonQuery.updateRecordById(
+                    OrdersCoupon,
+                    applied["id"],
+                    {"counted": True},
+                    request=request,
+                    tenant_config=True,
+                )
+                continue
+            issued_coupon = commonQuery.findOneRecord(
+                CustomerCoupon,
+                customer_coupon_id,
+                request=request,
+                tenant_config=True,
+            )
+            if issued_coupon is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, f"Customer coupon reference not found for {applied.get('name')}.")
+            usage_count = int(issued_coupon.get("usage") or 0) + 1
+            update_data = {"usage": usage_count}
+            limit_usage = int(issued_coupon.get("limit_usage") or 0)
+            if limit_usage > 0 and usage_count >= limit_usage:
+                update_data["status"] = 1
+            commonQuery.updateRecordById(
+                CustomerCoupon,
+                customer_coupon_id,
+                update_data,
+                request=request,
+                tenant_config=True,
+            )
+            commonQuery.updateRecordById(
+                OrdersCoupon,
+                applied["id"],
+                {"counted": True},
                 request=request,
                 tenant_config=True,
             )
@@ -1685,6 +1737,13 @@ class SaleService:
         return successResponse("Order storage purge queued successfully.", data={"job_id": job.id})
 
     @staticmethod
+    def enqueueTrackOrderCoupons(sale_order_id, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("track_order_coupons", {"sale_order_id": sale_order_id}, request=request)
+        return successResponse("Order coupon tracking queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
     def requestFromJob(job):
         user = User.objects.select_related("company", "branch").get(id=job.user_id)
         return SimpleNamespace(user=user)
@@ -1694,6 +1753,10 @@ class SaleService:
         return {
             "clear_hold_orders": lambda data, job: SaleService.clearExpiredHeldCarts(data, SaleService.requestFromJob(job)),
             "purge_order_storage": lambda data, job: SaleService.purgeOrderStorage(data, SaleService.requestFromJob(job)),
+            "track_order_coupons": lambda data, job: SaleDraftService.trackOrderCoupons(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
         }
 
     @staticmethod
@@ -1799,6 +1862,7 @@ class SaleService:
                 tenant_config=True,
             )
 
+            SaleDraftService.trackOrderCoupons(sale_order["id"], request)
             SaleStockService.recordSaleStock(sale_order, request)
             customer = SaleCustomerService.applyCustomerImpact(sale_order, request)
             reward = SaleRewardService.processRewards(sale_order, request) if settings.enable_customer_rewards else None
