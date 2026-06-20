@@ -1487,6 +1487,27 @@ class SaleService:
         return successResponse("Cashier refund stats processed successfully.")
 
     @staticmethod
+    def decreaseCustomerPurchasesFromRefund(return_order_id, request):
+        refund = commonQuery.findOneRecord(OrdersRefund, return_order_id, request=request, tenant_config=True)
+        if refund is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Refund not found.")
+        sale_order = commonQuery.findOneRecord(Order, refund.get("sale_order_id"), request=request, tenant_config=True)
+        customer_id = sale_order.get("customer_id") if sale_order else None
+        if customer_id:
+            customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+            if customer:
+                commonQuery.updateRecordById(
+                    Customer,
+                    customer_id,
+                    {
+                        "purchases_amount": max(money(customer.get("purchases_amount")) - money(refund.get("total")), Decimal("0")),
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+        return successResponse("Customer purchases reduced successfully.")
+
+    @staticmethod
     def listSales(data, request):
         field_config = [
             ["code", True, True],
@@ -1926,6 +1947,10 @@ class SaleService:
                 SaleService.requestFromJob(job),
             ),
             "reduce_cashier_stats_from_refund": lambda data, job: SaleService.reduceCashierStatsFromRefund(
+                data.get("return_order_id") or data.get("refund_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "decrease_customer_purchases_from_refund": lambda data, job: SaleService.decreaseCustomerPurchasesFromRefund(
                 data.get("return_order_id") or data.get("refund_id"),
                 SaleService.requestFromJob(job),
             ),
@@ -2642,6 +2667,8 @@ class SaleService:
                 reference_number=sale_order["code"],
                 request=request,
             )
+            SaleService.reduceCashierStatsFromRefund(return_order["id"], request)
+            SaleService.decreaseCustomerPurchasesFromRefund(return_order["id"], request)
             DomainActionService.afterSaleRefunded(sale_order, return_order, request)
 
             return successResponse(

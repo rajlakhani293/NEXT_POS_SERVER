@@ -481,6 +481,132 @@ class AccountingService:
         return records
 
     @staticmethod
+    def reflectTransactionFromRule(history_id, request):
+        history = commonQuery.findOneRecord(
+            TransactionHistory,
+            history_id,
+            request=request,
+            tenant_config=True,
+        )
+        if history is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction history not found.")
+        if history.get("is_reflection"):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Transaction history is already a reflection.")
+
+        existing = commonQuery.findOneRecord(
+            TransactionHistory,
+            {"reflection_source_id": history["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        if existing:
+            return successResponse("Accounting reflection already exists.", data=existing)
+
+        rule_id = history.get("rule_id")
+        if not rule_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Transaction history has no accounting rule.")
+        rule = commonQuery.findOneRecord(
+            TransactionActionRule,
+            rule_id,
+            request=request,
+            tenant_config=True,
+        )
+        if rule is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
+
+        record = AccountingService.record(
+            account_id=rule["offset_account_id"],
+            action_type=rule.get("do") or ("decrease" if history.get("operation") == "credit" else "increase"),
+            name=history.get("name") or "Accounting reflection",
+            transaction_type=history.get("type") or "reflection",
+            amount=history.get("value"),
+            source_type="reflection",
+            source_id=history["id"],
+            transaction_date=history.get("trigger_date") or timezone.now(),
+            event_key=history.get("type") or "",
+            rule_id=rule["id"],
+            procurement_id=history.get("procurement_id"),
+            order_refund_id=history.get("order_refund_id"),
+            order_refund_product_id=history.get("order_refund_product_id"),
+            order_id=history.get("order_id"),
+            order_product_id=history.get("order_product_id"),
+            order_payment_id=history.get("order_payment_id"),
+            register_history_id=history.get("register_history_id"),
+            customer_account_history_id=history.get("customer_account_history_id"),
+            is_reflection=True,
+            reflection_source_id=history["id"],
+            request=request,
+        )
+        return successResponse("Accounting reflection created successfully.", data=record)
+
+    @staticmethod
+    def deleteTransactionReflection(history_id, request):
+        history = commonQuery.findOneRecord(
+            TransactionHistory,
+            history_id,
+            request=request,
+            tenant_config=True,
+        )
+        if history is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction history not found.")
+
+        reflections = TransactionHistory.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            reflection_source_id=history["id"],
+        ).exclude(status=2)
+        reflection_dates = list(reflections.values_list("trigger_date", flat=True))
+        deleted_count = reflections.delete()[0]
+        if deleted_count:
+            target_date = next((value for value in reflection_dates if value), history.get("trigger_date") or timezone.now())
+            target_date = normalizeTransactionDate(target_date).date().isoformat()
+            AccountingService.recomputeBalances(target_date, target_date, request)
+        return successResponse("Accounting reflection deleted successfully.", data={"deleted_count": deleted_count})
+
+    @staticmethod
+    def recordRefundShipping(return_order_id, request):
+        from apps.sales.models import Order, OrdersRefund
+
+        refund = (
+            OrdersRefund.objects.filter(
+                id=return_order_id,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            )
+            .exclude(status=2)
+            .first()
+        )
+        if refund is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Refund not found.")
+        shipping_amount = money(refund.shipping)
+        if shipping_amount <= 0:
+            return successResponse("Refund has no shipping amount to record.", data=[])
+
+        sale_order = (
+            Order.objects.filter(
+                id=refund.sale_order_id,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            )
+            .exclude(status=2)
+            .first()
+        )
+        reference_number = sale_order.code if sale_order else str(return_order_id)
+        records = AccountingService.reflectEvent(
+            "order_refunded",
+            shipping_amount,
+            name=f"Refunded shipping {reference_number}",
+            transaction_type="adjustment",
+            source_type="refund",
+            source_id=refund.id,
+            transaction_date=refund.created_at,
+            description="Shipping refunded from sale return",
+            reference_number=reference_number,
+            request=request,
+        )
+        return successResponse("Refund shipping transaction recorded successfully.", data=records)
+
+    @staticmethod
     def bootstrapSystemAccounts(request):
         accounts = AccountingService.ensureForRequest(request)
         return successResponse(
@@ -1016,6 +1142,18 @@ class TransactionService:
     @staticmethod
     def jobHandlers():
         return {
+            "accounting_reflection": lambda data, job: AccountingService.reflectTransactionFromRule(
+                data.get("history_id") or data.get("transaction_history_id"),
+                TransactionService.requestFromJob(job),
+            ),
+            "delete_accounting_reflection": lambda data, job: AccountingService.deleteTransactionReflection(
+                data.get("history_id") or data.get("transaction_history_id"),
+                TransactionService.requestFromJob(job),
+            ),
+            "record_refund_shipping_transaction": lambda data, job: AccountingService.recordRefundShipping(
+                data.get("return_order_id") or data.get("refund_id") or data.get("order_refund_id"),
+                TransactionService.requestFromJob(job),
+            ),
             "prepare_transaction_history": lambda data, job: TransactionService.prepareTransactionHistory(
                 data.get("transaction_id"),
                 TransactionService.requestFromJob(job),
