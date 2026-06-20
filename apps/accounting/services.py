@@ -236,8 +236,11 @@ class AccountingService:
         order_refund_product_id=None,
         order_id=None,
         order_product_id=None,
+        order_payment_id=None,
         register_history_id=None,
         customer_account_history_id=None,
+        is_reflection=False,
+        reflection_source_id=None,
         request=None,
     ):
         amount = money(amount)
@@ -285,12 +288,16 @@ class AccountingService:
                     "order_refund_product_id": order_refund_product_id,
                     "order_id": source_id if source_type == "sale" else order_id,
                     "order_product_id": order_product_id,
+                    "order_payment_id": source_id if source_type == "order_payment" else order_payment_id,
                     "register_history_id": source_id if source_type == "cash_register" else register_history_id,
                     "customer_account_history_id": source_id if source_type == "customer_credit" else customer_account_history_id,
                     "name": name,
                     "type": event_key or transaction_type or source_type,
                     "value": amount,
                     "trigger_date": tx_date,
+                    "transaction_status": TransactionHistory.STATUS_ACTIVE_TEXT,
+                    "is_reflection": is_reflection,
+                    "reflection_source_id": reflection_source_id,
                 },
                 request=request,
                 tenant_config=True,
@@ -339,17 +346,19 @@ class AccountingService:
                     "rule_id": rule.id,
                     "request": request,
                 }
-                records.append(
-                    AccountingService.record(
-                        account_id=rule.account_id,
-                        action_type=rule.action,
-                        **common,
-                    )
+                primary_record = AccountingService.record(
+                    account_id=rule.account_id,
+                    action_type=rule.action,
+                    **common,
                 )
+                records.append(primary_record)
+                primary_history_id = (primary_record or {}).get("history", {}).get("id")
                 records.append(
                     AccountingService.record(
                         account_id=rule.offset_account_id,
                         action_type=rule.do,
+                        is_reflection=True,
+                        reflection_source_id=primary_history_id,
                         **common,
                     )
                 )

@@ -79,6 +79,7 @@ class TransactionHistory(TenantAwareModel):
     order_refund_product_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_id = models.PositiveBigIntegerField(blank=True, null=True)
     order_product_id = models.PositiveBigIntegerField(blank=True, null=True)
+    order_payment_id = models.PositiveBigIntegerField(blank=True, null=True)
     register_history_id = models.PositiveBigIntegerField(blank=True, null=True)
     customer_account_history_id = models.PositiveBigIntegerField(blank=True, null=True)
     name = models.CharField(max_length=180)
@@ -86,6 +87,8 @@ class TransactionHistory(TenantAwareModel):
     transaction_status = models.CharField(max_length=30, default=STATUS_PENDING_TEXT, db_column="transaction_status")
     value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     trigger_date = models.DateTimeField(blank=True, null=True)
+    is_reflection = models.BooleanField(default=False)
+    reflection_source_id = models.PositiveBigIntegerField(blank=True, null=True)
 
     class Meta:
         db_table = "transactions_histories"
