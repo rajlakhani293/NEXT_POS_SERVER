@@ -28,6 +28,7 @@ from apps.customers.models import (
     CustomerGroup,
     CustomerReward,
 )
+from apps.customers.services import CustomerAccountService
 from apps.settings.models import PaymentType
 from apps.settings.models import Notification, Option
 from apps.settings.services import OptionSettingService, PaymentTypeService
@@ -338,25 +339,13 @@ class SaleRegisterService:
 class SaleCustomerAccountService:
     @staticmethod
     def applyAccountPayment(customer, sale_order, amount, payment_note, request):
-        balance_before = money(customer.get("account_amount"))
-        if balance_before < amount:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer account balance is not enough for this payment.")
-        balance_after = balance_before - amount
-        Customer.objects.filter(id=customer["id"]).update(account_amount=balance_after)
-        customer["account_amount"] = balance_after
-        commonQuery.createRecord(
-            CustomerAccountHistory,
-            {
-                "customer_id": customer["id"],
-                "amount": amount,
-                "previous_amount": balance_before,
-                "next_amount": balance_after,
-                "operation": "payment",
-                "order_id": sale_order["id"],
-                "description": payment_note or f"Sale payment for {sale_order['code']}",
-            },
+        CustomerAccountService.saveTransaction(
+            customer["id"],
+            "payment",
+            amount,
             request=request,
-            tenant_config=True,
+            description=payment_note or f"Sale payment for {sale_order['code']}",
+            order_id=sale_order["id"],
         )
 
 
@@ -1259,22 +1248,13 @@ class SaleRefundService:
 
     @staticmethod
     def creditCustomerAccount(customer, sale_order, amount, note, request):
-        balance_before = money(customer.get("account_amount"))
-        balance_after = balance_before + amount
-        Customer.objects.filter(id=customer["id"]).update(account_amount=balance_after)
-        commonQuery.createRecord(
-            CustomerAccountHistory,
-            {
-                "customer_id": customer["id"],
-                "amount": amount,
-                "previous_amount": balance_before,
-                "next_amount": balance_after,
-                "operation": "refund",
-                "order_id": sale_order["id"],
-                "description": note or f"Refund for sale {sale_order['code']}",
-            },
+        CustomerAccountService.saveTransaction(
+            customer["id"],
+            "refund",
+            amount,
             request=request,
-            tenant_config=True,
+            description=note or f"Refund for sale {sale_order['code']}",
+            order_id=sale_order["id"],
         )
 
     @staticmethod

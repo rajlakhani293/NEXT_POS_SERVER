@@ -39,6 +39,8 @@ def updateOptionSettings(request, payload: OptionSettingIn):
 @permission_required("settings_update")
 def runNextJob(request):
     from apps.accounting.services import TransactionService
+    from apps.catalog.services import CategoryService, ProductStockService
+    from apps.customers.services import CustomerAccountService
     from apps.purchases.services import PurchaseOrderService
     from apps.registers.services import RegisterService
     from apps.reports.services import ReportService
@@ -46,6 +48,9 @@ def runNextJob(request):
 
     handlers = {}
     handlers.update(TransactionService.jobHandlers())
+    handlers.update(CategoryService.jobHandlers())
+    handlers.update(ProductStockService.jobHandlers())
+    handlers.update(CustomerAccountService.jobHandlers())
     handlers.update(PurchaseOrderService.jobHandlers())
     handlers.update(RegisterService.jobHandlers())
     handlers.update(ReportService.jobHandlers())

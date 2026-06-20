@@ -1,5 +1,6 @@
 # type: ignore
 from django.db import transaction
+from django.db.models import Sum
 from django.utils import timezone
 
 from apps.catalog.models import (
@@ -179,6 +180,34 @@ class CategoryService:
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
         return successResponse("Category status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def computeProducts(category_id, request):
+        category = Category.objects.filter(
+            id=category_id,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).exclude(status=2).first()
+        if category is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
+        total_items = Product.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            category_id=category.id,
+            status__in=[0, 1],
+        ).count()
+        category.total_items = total_items
+        category.save(update_fields=["total_items", "updated_at"])
+        return successResponse("Category products recomputed successfully.", data={"category_id": category.id, "total_items": total_items})
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "compute_category_products": lambda data, job: CategoryService.computeProducts(
+                data.get("category_id") or data.get("product_category_id"),
+                ProductStockService.requestFromJob(job),
+            ),
+        }
 
 
 class UnitGroupService:
@@ -669,6 +698,14 @@ class ProductService:
 
 
 class ProductStockService:
+    @staticmethod
+    def requestFromJob(job):
+        from types import SimpleNamespace
+        from apps.accounts.models import User
+
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)
+
     STOCK_REDUCE_ACTIONS = {
         ProductHistory.ACTION_TRANSFER_OUT,
         ProductHistory.ACTION_REMOVED,
@@ -808,8 +845,78 @@ class ProductStockService:
             request=request,
             tenant_config=True,
         )
+        ProductStockService.computeCogsIfNecessary(history, request)
         ProductStockService.combineProductHistory(history, product, request)
         return history
+
+    @staticmethod
+    def computeCogsIfNecessary(history, request):
+        if not history:
+            return None
+        product = commonQuery.findOneRecord(
+            Product,
+            history.get("product_id"),
+            request=request,
+            tenant_config=True,
+        )
+        if not product or not product.get("auto_cogs"):
+            return None
+        unit_id = history.get("unit_id")
+        if not unit_id:
+            return None
+        totals = ProductHistory.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            product_id=product["id"],
+            unit_id=unit_id,
+            operation_type__in=[ProductHistory.ACTION_CONVERT_IN, ProductHistory.ACTION_STOCKED],
+            status__in=[0, 1],
+        ).aggregate(total_quantity=Sum("quantity"), total_price=Sum("total_price"))
+        total_quantity = decimalValue(totals.get("total_quantity") or 0)
+        total_price = decimalValue(totals.get("total_price") or 0)
+        if total_quantity <= 0 or total_price <= 0:
+            return None
+        cogs = total_price / total_quantity
+        ProductUnitQuantity.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            product_id=product["id"],
+            unit_id=unit_id,
+        ).exclude(status=2).update(cogs=float(cogs), updated_at=timezone.now())
+        return cogs
+
+    @staticmethod
+    def handleStockHistoryJob(history_id, request):
+        history = commonQuery.findOneRecord(
+            ProductHistory,
+            history_id,
+            request=request,
+            tenant_config=True,
+        )
+        if history is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product history not found.")
+        cogs = ProductStockService.computeCogsIfNecessary(history, request)
+        from apps.reports.services import ReportService
+
+        history_created_at = history.get("created_at")
+        report_date = (
+            timezone.localtime(history_created_at).date()
+            if hasattr(history_created_at, "date") and timezone.is_aware(history_created_at)
+            else history_created_at.date()
+            if hasattr(history_created_at, "date")
+            else timezone.localdate()
+        )
+        ReportService.recomputeStockCombined({"date": report_date.isoformat()}, request)
+        return successResponse("Product history processed successfully.", data={"history_id": history_id, "cogs": cogs, "date": report_date})
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "process_product_history": lambda data, job: ProductStockService.handleStockHistoryJob(
+                data.get("history_id") or data.get("product_history_id"),
+                ProductStockService.requestFromJob(job),
+            ),
+        }
 
     @staticmethod
     def combineProductHistory(history, product, request):

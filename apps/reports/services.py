@@ -9,6 +9,8 @@ from django.utils import timezone
 from django.db.models.functions import TruncDate
 
 from apps.common.commonQuery import commonQuery
+from apps.common.error_codes import ErrorCodes
+from apps.common.exceptions import api_error
 from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.accounting.models import TransactionAccount, TransactionHistory
@@ -862,6 +864,71 @@ class ReportService:
         return successResponse("Stock combined report recomputed successfully.", data={"date": report_date, "updated_count": updated_count})
 
     @staticmethod
+    def handleStockAdjustment(data, request):
+        data = data or {}
+        history = None
+        if data.get("history_id") or data.get("product_history_id"):
+            history = ProductHistory.objects.filter(
+                id=data.get("history_id") or data.get("product_history_id"),
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            ).exclude(status=2).first()
+            if history is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Product history not found.")
+            report_date = parseReportDate(history.created_at)
+        else:
+            report_date = parseReportDate(data.get("date"))
+
+        start = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.min.time()))
+        end = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.max.time()))
+        histories = ProductHistory.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            operation_type__in=ReportService.COMBINED_DEFECTIVE_ACTIONS,
+            created_at__gte=start,
+            created_at__lte=end,
+            status__in=[0, 1],
+        )
+        day_wasted_goods_count = histories.aggregate(total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField()))["total"] or 0
+        day_wasted_goods = histories.aggregate(total=Coalesce(Sum("total_price"), Value(0.0), output_field=FloatField()))["total"] or 0
+
+        ReportService.refreshDashboardSnapshot({"date": report_date.isoformat()}, request)
+        day = DashboardDay.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            range_starts=start,
+            range_ends=end,
+        ).first()
+        if day is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Dashboard day not found.")
+        previous_day = DashboardDay.objects.filter(
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            range_starts__lt=start,
+        ).order_by("-range_starts").first()
+        day.day_wasted_goods_count = Decimal(str(day_wasted_goods_count or 0))
+        day.day_wasted_goods = Decimal(str(day_wasted_goods or 0))
+        day.total_wasted_goods_count = Decimal(str(previous_day.total_wasted_goods_count if previous_day else 0)) + day.day_wasted_goods_count
+        day.total_wasted_goods = Decimal(str(previous_day.total_wasted_goods if previous_day else 0)) + day.day_wasted_goods
+        day.save(
+            update_fields=[
+                "day_wasted_goods_count",
+                "day_wasted_goods",
+                "total_wasted_goods_count",
+                "total_wasted_goods",
+                "updated_at",
+            ]
+        )
+        return successResponse(
+            "Stock adjustment report updated successfully.",
+            data={
+                "date": report_date,
+                "day_wasted_goods_count": day.day_wasted_goods_count,
+                "day_wasted_goods": day.day_wasted_goods,
+            },
+        )
+
+    @staticmethod
     def enqueueStockCombinedRefresh(data, request):
         from apps.settings.services import JobQueueService
 
@@ -883,6 +950,7 @@ class ReportService:
             "compute_dashboard_month": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "detect_low_stock_products": lambda data, job: ReportService.detectLowStockProducts(data or {}, ReportService.requestFromJob(job)),
             "recompute_dashboard_reports": lambda data, job: ReportService.recomputeDashboardRange(data or {}, ReportService.requestFromJob(job)),
+            "handle_stock_adjustment": lambda data, job: ReportService.handleStockAdjustment(data or {}, ReportService.requestFromJob(job)),
         }
 
     @staticmethod

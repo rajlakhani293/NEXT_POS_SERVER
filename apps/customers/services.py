@@ -1,4 +1,7 @@
 # type: ignore
+from decimal import Decimal
+from types import SimpleNamespace
+
 from django.db import transaction
 from django.utils.text import slugify
 
@@ -408,6 +411,156 @@ class CustomerService:
             custom_where={"customer_id": customer_id},
         )
         return successResponse("Customer credit ledger retrieved successfully.", data=result)
+
+
+class CustomerAccountService:
+    DEDUCT_OPERATIONS = ["deduct", "payment"]
+    ADD_OPERATIONS = ["add", "refund"]
+    OPERATIONS = DEDUCT_OPERATIONS + ADD_OPERATIONS
+
+    @staticmethod
+    def requestFromJob(job):
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)
+
+    @staticmethod
+    def decimalAmount(value):
+        return Decimal(str(value or 0))
+
+    @staticmethod
+    def canReduceCustomerAccount(customer_id, amount, request):
+        amount = CustomerAccountService.decimalAmount(amount)
+        customer = commonQuery.findOneRecord(
+            Customer,
+            customer_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        if CustomerAccountService.decimalAmount(customer.get("account_amount")) - amount < 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer account balance is not enough for this payment.")
+        return successResponse("Customer account can be used for this payment.", data={"allowed": True})
+
+    @staticmethod
+    def saveTransaction(customer_id, operation, amount, request, description="", order_id=None):
+        amount = CustomerAccountService.decimalAmount(amount)
+        if operation not in CustomerAccountService.OPERATIONS:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid customer account operation.")
+        if amount <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Amount must be greater than 0.")
+
+        with transaction.atomic():
+            customer = (
+                Customer.objects.select_for_update()
+                .filter(
+                    id=customer_id,
+                    company_id=getattr(request.user, "company_id", None),
+                    branch_id=getattr(request.user, "branch_id", None),
+                )
+                .first()
+            )
+            if customer is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+
+            latest_history = (
+                CustomerAccountHistory.objects.select_for_update()
+                .filter(
+                    customer_id=customer_id,
+                    company_id=getattr(request.user, "company_id", None),
+                    branch_id=getattr(request.user, "branch_id", None),
+                    status=0,
+                )
+                .order_by("-id")
+                .first()
+            )
+            previous_amount = (
+                CustomerAccountService.decimalAmount(latest_history.next_amount)
+                if latest_history
+                else CustomerAccountService.decimalAmount(customer.account_amount)
+            )
+            if operation in CustomerAccountService.DEDUCT_OPERATIONS:
+                next_amount = previous_amount - amount
+                if next_amount < 0:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer account balance is not enough for this payment.")
+            else:
+                next_amount = previous_amount + amount
+
+            history = commonQuery.createRecord(
+                CustomerAccountHistory,
+                {
+                    "customer_id": customer_id,
+                    "amount": amount,
+                    "previous_amount": previous_amount,
+                    "next_amount": next_amount,
+                    "operation": operation,
+                    "order_id": order_id,
+                    "description": description or "",
+                },
+                request=request,
+                tenant_config=True,
+            )
+            customer.account_amount = next_amount
+            customer.save(update_fields=["account_amount"])
+        return successResponse("Customer account history stored successfully.", data=history)
+
+    @staticmethod
+    def storePaymentHistory(payment_id, request):
+        from apps.sales.models import OrderPayment
+
+        if not payment_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment ID is required.")
+        payment = (
+            OrderPayment.objects.select_related("sale_order")
+            .filter(
+                id=payment_id,
+                company_id=getattr(request.user, "company_id", None),
+                branch_id=getattr(request.user, "branch_id", None),
+                status=0,
+            )
+            .first()
+        )
+        if payment is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Order payment not found.")
+        if payment.identifier != "account-payment":
+            return successResponse("Payment does not use customer account.", data={"skipped": True})
+        sale_order = payment.sale_order
+        if not sale_order.customer_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required for account payment.")
+
+        existing = CustomerAccountHistory.objects.filter(
+            customer_id=sale_order.customer_id,
+            order_id=sale_order.id,
+            operation="payment",
+            amount=payment.value,
+            company_id=getattr(request.user, "company_id", None),
+            branch_id=getattr(request.user, "branch_id", None),
+            status=0,
+        ).first()
+        if existing:
+            return successResponse("Customer account payment history already exists.", data={"id": existing.id})
+        return CustomerAccountService.saveTransaction(
+            sale_order.customer_id,
+            "payment",
+            payment.value,
+            request,
+            f"Order payment for {sale_order.code}",
+            order_id=sale_order.id,
+        )
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "check_customer_account": lambda data, job: CustomerAccountService.canReduceCustomerAccount(
+                data.get("customer_id"),
+                data.get("amount") or data.get("value"),
+                CustomerAccountService.requestFromJob(job),
+            ),
+            "store_customer_payment_history": lambda data, job: CustomerAccountService.storePaymentHistory(
+                data.get("payment_id") or data.get("order_payment_id"),
+                CustomerAccountService.requestFromJob(job),
+            ),
+        }
 
 
 class CustomerGroupService:
