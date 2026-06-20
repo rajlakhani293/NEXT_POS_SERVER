@@ -111,6 +111,12 @@ def getTransactionHistory(request, payload: Optional[dict] = None):
     return TransactionService.history(payload, request)
 
 
+@router.post("/balances/recompute", response=ApiResponse)
+@permission_required("settings_update")
+def recomputeAccountingBalances(request, payload: Optional[dict] = None):
+    return TransactionService.enqueueBalanceRecompute(payload or {}, request)
+
+
 @router.post("/bootstrap", response=ApiResponse)
 @permission_required("settings_update")
 def bootstrapAccounting(request):

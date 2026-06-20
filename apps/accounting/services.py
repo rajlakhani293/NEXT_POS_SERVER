@@ -2,7 +2,7 @@
 from types import SimpleNamespace
 from datetime import timedelta
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q, Sum
 from django.utils.dateparse import parse_date, parse_datetime
 from django.utils import timezone
 
@@ -212,6 +212,120 @@ class AccountingService:
         month.save(update_fields=["closing_balance", "updated_at"])
 
         return day.opening_balance, day.closing_balance
+
+    @staticmethod
+    def recomputeBalances(from_date, to_date, request):
+        start = normalizeTransactionDate(from_date).date()
+        end = normalizeTransactionDate(to_date).date()
+        if start > end:
+            start, end = end, start
+
+        with transaction.atomic():
+            TransactionBalanceDay.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                date__gte=start,
+                date__lte=end,
+            ).delete()
+            TransactionBalanceMonth.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                date__gte=start.replace(day=1),
+                date__lte=end.replace(day=1),
+            ).delete()
+
+            current_day = start
+            previous_day = (
+                TransactionBalanceDay.objects.filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    date__lt=start,
+                )
+                .order_by("-date")
+                .first()
+            )
+            opening_balance = money(previous_day.closing_balance if previous_day else 0)
+            rebuilt_days = 0
+            while current_day <= end:
+                totals = TransactionHistory.objects.filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    status=0,
+                    transaction_status=TransactionHistory.STATUS_ACTIVE_TEXT,
+                    trigger_date__date=current_day,
+                ).aggregate(
+                    income=Sum("value", filter=Q(operation=TransactionHistory.OPERATION_CREDIT)),
+                    expense=Sum("value", filter=Q(operation=TransactionHistory.OPERATION_DEBIT)),
+                )
+                income = money(totals.get("income") or 0)
+                expense = money(totals.get("expense") or 0)
+                closing_balance = opening_balance + income - expense
+                TransactionBalanceDay.objects.create(
+                    user=request.user,
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    date=current_day,
+                    opening_balance=opening_balance,
+                    income=income,
+                    expense=expense,
+                    closing_balance=closing_balance,
+                    status=0,
+                )
+                rebuilt_days += 1
+                opening_balance = closing_balance
+                current_day += timedelta(days=1)
+
+            current_month = start.replace(day=1)
+            end_month = end.replace(day=1)
+            previous_month = (
+                TransactionBalanceMonth.objects.filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    date__lt=current_month,
+                )
+                .order_by("-date")
+                .first()
+            )
+            month_opening_balance = money(previous_month.closing_balance if previous_month else 0)
+            rebuilt_months = 0
+            while current_month <= end_month:
+                next_month = (current_month.replace(day=28) + timedelta(days=4)).replace(day=1)
+                totals = TransactionBalanceDay.objects.filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    date__gte=current_month,
+                    date__lt=next_month,
+                ).aggregate(
+                    income=Sum("income"),
+                    expense=Sum("expense"),
+                )
+                income = money(totals.get("income") or 0)
+                expense = money(totals.get("expense") or 0)
+                month_closing_balance = month_opening_balance + income - expense
+                TransactionBalanceMonth.objects.create(
+                    user=request.user,
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    date=current_month,
+                    opening_balance=month_opening_balance,
+                    income=income,
+                    expense=expense,
+                    closing_balance=month_closing_balance,
+                    status=0,
+                )
+                rebuilt_months += 1
+                month_opening_balance = month_closing_balance
+                current_month = next_month
+
+        return successResponse(
+            "Accounting balances recomputed successfully.",
+            data={
+                "from_date": start,
+                "to_date": end,
+                "rebuilt_days": rebuilt_days,
+                "rebuilt_months": rebuilt_months,
+            },
+        )
 
     @staticmethod
     def record(
@@ -885,6 +999,21 @@ class TransactionService:
         )
 
     @staticmethod
+    def enqueueBalanceRecompute(data, request):
+        from apps.settings.services import JobQueueService
+
+        payload = data or {}
+        job = JobQueueService.enqueue(
+            "recompute_accounting_balances",
+            {
+                "from_date": payload.get("from_date") or payload.get("startDate") or timezone.now().date().isoformat(),
+                "to_date": payload.get("to_date") or payload.get("endDate") or timezone.now().date().isoformat(),
+            },
+            request=request,
+        )
+        return successResponse("Accounting balance recompute queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
     def jobHandlers():
         return {
             "prepare_transaction_history": lambda data, job: TransactionService.prepareTransactionHistory(
@@ -901,6 +1030,11 @@ class TransactionService:
             ),
             "trigger_recurring_transactions": lambda data, job: TransactionService.triggerRecurringTransactions(
                 data,
+                TransactionService.requestFromJob(job),
+            ),
+            "recompute_accounting_balances": lambda data, job: AccountingService.recomputeBalances(
+                data.get("from_date") or data.get("startDate"),
+                data.get("to_date") or data.get("endDate"),
                 TransactionService.requestFromJob(job),
             ),
         }
