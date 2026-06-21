@@ -60,23 +60,29 @@ class AccountingService:
     @staticmethod
     def ensureDefaultAccounting(company, branch):
         accounts = {}
+        account_names = {item[0]: item[1] for item in ACCOUNT_BLUEPRINTS}
         for key, name, account, category_identifier, parent_key in ACCOUNT_BLUEPRINTS:
-            transaction_account, _created = TransactionAccount.objects.get_or_create(
-                company_id=company.id,
-                branch_id=branch.id,
-                account=account,
+            transaction_account, _created = commonQuery.getOrCreateRecord(
+                TransactionAccount,
+                {
+                    "company_id": company.id,
+                    "branch_id": branch.id,
+                    "account": account,
+                },
                 defaults={
                     "name": name,
                     "category_identifier": category_identifier,
                     "description": "Default accounting account.",
                 },
+                tenant_config={},
+                return_plain=False,
             )
             accounts[key] = transaction_account
 
         for key, _name, account, category_identifier, parent_key in ACCOUNT_BLUEPRINTS:
             update_fields = []
-            if accounts[key].name != dict((item[0], item[1]) for item in ACCOUNT_BLUEPRINTS)[key]:
-                accounts[key].name = dict((item[0], item[1]) for item in ACCOUNT_BLUEPRINTS)[key]
+            if accounts[key].name != account_names[key]:
+                accounts[key].name = account_names[key]
                 update_fields.append("name")
             if accounts[key].account != account:
                 accounts[key].account = account
@@ -90,25 +96,31 @@ class AccountingService:
             if update_fields:
                 accounts[key].save(update_fields=[*update_fields, "updated_at"])
 
-        if not TransactionActionRule.objects.filter(
-            company_id=company.id,
-            branch_id=branch.id,
-            status__in=[0, 1],
-        ).exists():
-            TransactionActionRule.objects.bulk_create(
+        if not commonQuery.existsRecord(
+            TransactionActionRule,
+            {
+                "company_id": company.id,
+                "branch_id": branch.id,
+                "status__in": [0, 1],
+            },
+            tenant_config={},
+        ):
+            commonQuery.bulkCreate(
+                TransactionActionRule,
                 [
-                    TransactionActionRule(
-                        company_id=company.id,
-                        branch_id=branch.id,
-                        on=event_key,
-                        action=action,
-                        account=accounts[account_key],
-                        do=offset_action,
-                        offset_account=accounts[offset_key],
-                        locked=True,
-                    )
+                    {
+                        "company_id": company.id,
+                        "branch_id": branch.id,
+                        "on": event_key,
+                        "action": action,
+                        "account_id": accounts[account_key].id,
+                        "do": offset_action,
+                        "offset_account_id": accounts[offset_key].id,
+                        "locked": True,
+                    }
                     for event_key, action, account_key, offset_action, offset_key in DEFAULT_ACCOUNT_RULES
-                ]
+                ],
+                tenant_config={},
             )
 
         from apps.common.tenantDefaults import ensureOptionValue
@@ -147,12 +159,15 @@ class AccountingService:
         if not account_key:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid accounting account.")
         AccountingService.ensureForRequest(request)
-        account = TransactionAccount.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            account=ACCOUNT_CODES[account_key],
-            status__in=[0, 1],
-        ).values().first()
+        account = commonQuery.firstValueRecord(
+            TransactionAccount,
+            {
+                "account": ACCOUNT_CODES[account_key],
+                "status__in": [0, 1],
+            },
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         if not account:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting account not found.")
         return account
@@ -737,31 +752,31 @@ class TransactionAccountService:
     @staticmethod
     def create(data, request):
         parent_id = data.get("sub_category_id")
-        if parent_id and not TransactionAccount.objects.filter(
-            id=parent_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-        ).exists():
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Parent account not found.")
+        parent = None
         if parent_id:
-            parent = TransactionAccount.objects.filter(
-                id=parent_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status__in=[0, 1],
-            ).first()
-            if parent and parent.sub_category_id:
+            parent = commonQuery.findOneInstance(
+                TransactionAccount,
+                {
+                    "id": parent_id,
+                    "status__in": [0, 1],
+                },
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
+            if parent is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Parent account not found.")
+            if parent.sub_category_id:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Three level of accounts is not allowed.")
 
         if not data.get("category_identifier"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Accounting category is required.")
         if not data.get("account"):
-            siblings = TransactionAccount.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                category_identifier=data.get("category_identifier"),
-            ).count()
+            siblings = commonQuery.countRecords(
+                TransactionAccount,
+                {"category_identifier": data.get("category_identifier")},
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
             data["account"] = f"{str(siblings + 1).zfill(4)}-{data['category_identifier']}-{data['name'].lower().replace(' ', '-')}"
         account = commonQuery.createRecord(
             TransactionAccount,
@@ -833,12 +848,15 @@ class TransactionAccountService:
 
     @staticmethod
     def update(account_id, data, request):
-        account = TransactionAccount.objects.filter(
-            id=account_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-        ).first()
+        account = commonQuery.findOneRecord(
+            TransactionAccount,
+            {
+                "id": account_id,
+                "status__in": [0, 1],
+            },
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         if account is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         updated = commonQuery.updateRecordById(
@@ -890,25 +908,27 @@ class TransactionRuleService:
     @staticmethod
     def getAll(request):
         AccountingService.ensureForRequest(request)
-        rules = TransactionActionRule.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-        ).select_related("account", "offset_account")
+        rules = commonQuery.findAllRecords(
+            TransactionActionRule,
+            {"status__in": [0, 1]},
+            {"include": [{"path": "account"}, {"path": "offset_account"}]},
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         labels = dict(EVENT_OPTIONS)
         data = [
             {
-                "id": rule.id,
-                "on": rule.on,
-                "event_label": labels.get(rule.on, rule.on.replace("_", " ").title()),
-                "action": rule.action,
-                "account_id": rule.account_id,
-                "account_name": rule.account.name,
-                "do": rule.do,
-                "offset_account_id": rule.offset_account_id,
-                "offset_account_name": rule.offset_account.name,
-                "locked": rule.locked,
-                "status": rule.status,
+                "id": rule["id"],
+                "on": rule["on"],
+                "event_label": labels.get(rule["on"], rule["on"].replace("_", " ").title()),
+                "action": rule["action"],
+                "account_id": rule["account_id"],
+                "account_name": (rule.get("account") or {}).get("name"),
+                "do": rule["do"],
+                "offset_account_id": rule["offset_account_id"],
+                "offset_account_name": (rule.get("offset_account") or {}).get("name"),
+                "locked": rule["locked"],
+                "status": rule["status"],
             }
             for rule in rules
         ]
@@ -918,12 +938,17 @@ class TransactionRuleService:
     def validateAccounts(data, request):
         account_ids = {data.get("account_id"), data.get("offset_account_id")} - {None}
         found = set(
-            TransactionAccount.objects.filter(
-                id__in=account_ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status__in=[0, 1],
-            ).values_list("id", flat=True)
+            row["id"]
+            for row in commonQuery.findAllRecords(
+                TransactionAccount,
+                {
+                    "id__in": list(account_ids),
+                    "status__in": [0, 1],
+                },
+                {"attributes": ["id"]},
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
         )
         if found != account_ids:
             raise api_error(404, ErrorCodes.NOT_FOUND, "One or more transaction accounts were not found.")
@@ -975,10 +1000,12 @@ class TransactionRuleService:
 
     @staticmethod
     def reset(request):
-        TransactionActionRule.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).delete()
+        commonQuery.hardDeleteRecords(
+            TransactionActionRule,
+            {},
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         AccountingService.ensureForRequest(request)
         return TransactionRuleService.getAll(request)
 

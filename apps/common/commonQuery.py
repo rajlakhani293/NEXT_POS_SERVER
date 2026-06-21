@@ -91,7 +91,7 @@ def buildWhere(model, where_input=None, tenant_config=True, request=None):
 class commonQuery:
 
     @staticmethod
-    def createRecord(model, data, request=None, tenant_config=True):
+    def enrichTenantData(model, data=None, request=None, tenant_config=True):
         enriched = dict(data or {})
         model_fields = modelFieldNames(model)
 
@@ -119,6 +119,11 @@ class commonQuery:
             if tenant_config.get("user_id"):
                 _inject("user", "user_id")
 
+        return enriched
+
+    @staticmethod
+    def createRecord(model, data, request=None, tenant_config=True):
+        enriched = commonQuery.enrichTenantData(model, data, request, tenant_config)
         instance = model.objects.create(**enriched)
         return serializeModelInstance(instance)
 
@@ -376,6 +381,50 @@ class commonQuery:
             obj.refresh_from_db()
 
         return jsonsafe(commonQuery.serializeWithInclude(obj, include_specs, base_fields)) if obj else None
+
+    @staticmethod
+    def findOneInstance(model, where_input=None, options=None, request=None, tenant_config=True, for_update=False):
+        options = options or {}
+        q = buildWhere(model, where_input, tenant_config, request)
+        queryset = model.objects
+        if for_update:
+            queryset = queryset.select_for_update()
+        queryset = queryset.filter(q)
+
+        if options.get("select_related"):
+            queryset = queryset.select_related(*options["select_related"])
+        if options.get("prefetch_related"):
+            queryset = queryset.prefetch_related(*options["prefetch_related"])
+        if options.get("order"):
+            order = options["order"]
+            queryset = queryset.order_by(*order) if isinstance(order, list) else queryset.order_by(order)
+
+        return queryset.first()
+
+    @staticmethod
+    def existsRecord(model, where_input=None, request=None, tenant_config=True):
+        q = buildWhere(model, where_input, tenant_config, request)
+        return model.objects.filter(q).exists()
+
+    @staticmethod
+    def getOrCreateRecord(model, where_input=None, defaults=None, request=None, tenant_config=True, return_plain=True):
+        filters = commonQuery.enrichTenantData(model, where_input, request, tenant_config)
+        default_values = commonQuery.enrichTenantData(model, defaults or {}, request, tenant_config)
+        instance, created = model.objects.get_or_create(**filters, defaults=default_values)
+        return (serializeModelInstance(instance) if return_plain else instance), created
+
+    @staticmethod
+    def firstValueRecord(model, where_input=None, options=None, request=None, tenant_config=True):
+        options = options or {}
+        q = buildWhere(model, where_input, tenant_config, request)
+        queryset = model.objects.filter(q)
+        order = options.get("order")
+        if order:
+            queryset = queryset.order_by(*order) if isinstance(order, list) else queryset.order_by(order)
+        attributes = options.get("attributes")
+        if attributes:
+            return queryset.values(*attributes).first()
+        return queryset.values().first()
 
     @staticmethod
     def countRecords(model, filters=None, request=None, tenant_config=True):

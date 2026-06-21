@@ -251,23 +251,32 @@ def ensureOptionValue(company, branch, key, value, user=None, overwrite=True):
 def defaultOptionRows(company, branch):
     from apps.settings.models import PaymentType
     from apps.accounting.models import TransactionAccount
+    from apps.common.commonQuery import commonQuery
 
-    payment_type = PaymentType.objects.filter(
-        company_id=company.id,
-        branch_id=branch.id,
-        identifier="cash-payment",
-        status=0,
-    ).first()
-    expense_cash = TransactionAccount.objects.filter(
-        company_id=company.id,
-        branch_id=branch.id,
-        account="1004-assets-expenses-cash",
-        status=0,
-    ).first()
+    payment_type = commonQuery.findOneRecord(
+        PaymentType,
+        {
+            "company_id": company.id,
+            "branch_id": branch.id,
+            "identifier": "cash-payment",
+            "status": 0,
+        },
+        tenant_config={},
+    )
+    expense_cash = commonQuery.findOneRecord(
+        TransactionAccount,
+        {
+            "company_id": company.id,
+            "branch_id": branch.id,
+            "account": "1004-assets-expenses-cash",
+            "status": 0,
+        },
+        tenant_config={},
+    )
     return {
         **STATIC_OPTION_DEFAULTS,
-        "registers_default_change_payment_type": payment_type.id if payment_type else 1,
-        "accounting_default_paid_expense_offset_account": expense_cash.id if expense_cash else "",
+        "registers_default_change_payment_type": payment_type["id"] if payment_type else 1,
+        "accounting_default_paid_expense_offset_account": expense_cash["id"] if expense_cash else "",
     }
 
 
