@@ -609,12 +609,22 @@ class AccountingService:
 
     @staticmethod
     def deleteOrderTransactionsHistory(sale_order_id, request):
+        from apps.sales.models import OrdersRefund
+
+        refund_ids = list(
+            OrdersRefund.objects.filter(
+                sale_order_id=sale_order_id,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            )
+            .exclude(status=2)
+            .values_list("id", flat=True)
+        )
         histories = TransactionHistory.objects.filter(
-            order_id=sale_order_id,
             company_id=request.user.company_id,
             branch_id=request.user.branch_id,
             is_reflection=False,
-        )
+        ).filter(Q(order_id=sale_order_id) | Q(order_refund_id__in=refund_ids))
         reflection_source_ids = list(histories.values_list("id", flat=True))
         reflection_result = {"history_deleted_count": 0, "transaction_deleted_count": 0}
         if reflection_source_ids:

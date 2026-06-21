@@ -64,7 +64,15 @@ class RegisterService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Cash register must be open.")
             if action == RegistersHistory.ACTION_CASHOUT and balance_before - amount < 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Not enough fund to cash out.")
-            if action in RegistersHistory.IN_ACTIONS:
+            if action == RegistersHistory.ACTION_CLOSING:
+                balance_after = balance_before - amount
+                if balance_before == amount:
+                    transaction_type = "unchanged"
+                elif balance_before < amount:
+                    transaction_type = "positive"
+                else:
+                    transaction_type = "negative"
+            elif action in RegistersHistory.IN_ACTIONS:
                 balance_after = balance_before + amount
                 transaction_type = "positive" if amount > 0 else "unchanged"
             elif action in RegistersHistory.OUT_ACTIONS:

@@ -5,6 +5,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.db import transaction
+from django.db import connection
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -694,8 +695,11 @@ class JobQueueService:
     def reserveNext(*, queue=None, now=None):
         current_time = JobQueueService.timestamp(now)
         with transaction.atomic():
+            queryset = Job.objects.select_for_update(
+                skip_locked=connection.features.has_select_for_update_skip_locked
+            )
             job = (
-                Job.objects.select_for_update(skip_locked=True)
+                queryset
                 .filter(
                     queue=queue or JobQueueService.DEFAULT_QUEUE,
                     reserved_at__isnull=True,
@@ -741,15 +745,16 @@ class JobQueueService:
         job = JobQueueService.reserveNext(queue=queue)
         if job is None:
             return None
+        job_id = job.id
         payload = JobQueueService.decodePayload(job.payload)
         handler = handlers.get(payload.get("job"))
         if handler is None:
             JobQueueService.fail(job, f"Missing job handler: {payload.get('job')}")
-            return {"status": "failed", "job_id": job.id, "reason": "missing_handler"}
+            return {"status": "failed", "job_id": job_id, "reason": "missing_handler"}
         try:
             handler(payload.get("data") or {}, job)
         except Exception as exc:
             JobQueueService.fail(job, exc)
-            return {"status": "failed", "job_id": job.id, "reason": str(exc)}
+            return {"status": "failed", "job_id": job_id, "reason": str(exc)}
         JobQueueService.complete(job)
-        return {"status": "completed", "job_id": job.id}
+        return {"status": "completed", "job_id": job_id}

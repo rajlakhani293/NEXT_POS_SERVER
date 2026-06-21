@@ -523,6 +523,81 @@ class PurchaseOrderService:
                     },
                     request,
                 )
+
+                # Check if unit conversion is defined
+                convert_unit_id = item.get("convert_unit_id")
+                if convert_unit_id:
+                    from_unit = commonQuery.findOneRecord(Unit, item["unit_id"], request=request, tenant_config=True)
+                    to_unit = commonQuery.findOneRecord(Unit, convert_unit_id, request=request, tenant_config=True)
+                    
+                    if not from_unit or not to_unit:
+                        raise api_error(404, ErrorCodes.NOT_FOUND, "Source or destination unit not found for conversion.")
+                    
+                    if from_unit.get("group_id") != to_unit.get("group_id"):
+                        raise api_error(400, ErrorCodes.BAD_REQUEST, "Source and destination units do not belong to the same unit group.")
+                    
+                    # Ensure the destination ProductUnitQuantity exists in catalog
+                    dest_uq = ProductUnitQuantity.objects.filter(
+                        product_id=item["product_id"],
+                        unit_id=convert_unit_id,
+                        company_id=request.user.company_id,
+                        branch_id=request.user.branch_id,
+                        status__in=[0, 1]
+                    ).first()
+                    
+                    if not dest_uq:
+                        commonQuery.createRecord(
+                            ProductUnitQuantity,
+                            {
+                                "product_id": item["product_id"],
+                                "unit_id": convert_unit_id,
+                                "quantity": 0.0,
+                                "visible": False,
+                            },
+                            request=request,
+                            tenant_config=True
+                        )
+                    
+                    # Conversion calculations
+                    from_val = Decimal(str(from_unit.get("value") or 1.0))
+                    to_val = Decimal(str(to_unit.get("value") or 1.0))
+                    converted_qty = (from_val * receive_qty) / to_val
+                    
+                    source_price = Decimal(str(item.get("purchase_price") or 0.0))
+                    converted_price = (source_price * to_val) / from_val
+                    
+                    # 1. Convert OUT from source unit
+                    ProductStockService.recordStockHistory(
+                        ProductHistory.ACTION_CONVERT_OUT,
+                        {
+                            "product_id": item["product_id"],
+                            "procurement_id": order_id,
+                            "procurement_product_id": item["id"],
+                            "quantity": receive_qty,
+                            "unit_id": item["unit_id"],
+                            "unit_price": float(source_price),
+                            "total_price": float(source_price * receive_qty),
+                            "description": f"Unit conversion out during receive of procurement #{order_id}",
+                        },
+                        request,
+                    )
+                    
+                    # 2. Convert IN to destination unit
+                    ProductStockService.recordStockHistory(
+                        ProductHistory.ACTION_CONVERT_IN,
+                        {
+                            "product_id": item["product_id"],
+                            "procurement_id": order_id,
+                            "procurement_product_id": item["id"],
+                            "quantity": float(converted_qty),
+                            "unit_id": convert_unit_id,
+                            "unit_price": float(converted_price),
+                            "total_price": float(source_price * receive_qty),
+                            "description": f"Unit conversion in during receive of procurement #{order_id}",
+                        },
+                        request,
+                    )
+
                 latest_unit_quantity = commonQuery.findOneRecord(ProductUnitQuantity, unit_quantity["id"], request=request, tenant_config=True)
                 if latest_unit_quantity and latest_unit_quantity.get("stock_alert_enabled") and qty(latest_unit_quantity.get("quantity")) <= qty(latest_unit_quantity.get("low_quantity")):
                     NotificationService.push(
