@@ -151,10 +151,13 @@ class PaymentTypeService:
     def ensureDefaultPaymentTypes(company, branch):
         seeded = []
         for item in DEFAULT_PAYMENT_TYPES:
-            payment_type, created = PaymentType.objects.get_or_create(
-                company_id=company.id,
-                branch_id=branch.id,
-                identifier=item["identifier"],
+            payment_type, created = commonQuery.getOrCreateRecord(
+                PaymentType,
+                {
+                    "company_id": company.id,
+                    "branch_id": branch.id,
+                    "identifier": item["identifier"],
+                },
                 defaults={
                     "label": item["label"],
                     "description": item["description"],
@@ -162,6 +165,8 @@ class PaymentTypeService:
                     "priority": item["priority"],
                     "status": 0,
                 },
+                tenant_config={},
+                return_plain=False,
             )
             update_fields = []
             if not payment_type.readonly:
@@ -184,11 +189,10 @@ class PaymentTypeService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment type is required.")
             return ""
 
-        payment_type = PaymentType.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            identifier=normalized,
-            status=0,
+        payment_type = commonQuery.branchScopedQueryset(
+            PaymentType,
+            {"identifier": normalized, "status": 0},
+            request,
         ).first()
         if payment_type is None:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid payment type.")
@@ -197,11 +201,7 @@ class PaymentTypeService:
     @staticmethod
     def dropdownList(request):
         items = (
-            PaymentType.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status=0,
-            )
+            commonQuery.branchScopedQueryset(PaymentType, {"status": 0}, request)
             .order_by("priority", "label")
             .values("identifier", "label")
         )
@@ -272,11 +272,10 @@ class PaymentTypeService:
     @staticmethod
     def updatePaymentType(payment_type_id, data, request):
         with transaction.atomic():
-            payment_type = PaymentType.objects.filter(
-                id=payment_type_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status__in=[0, 1],
+            payment_type = commonQuery.branchScopedQueryset(
+                PaymentType,
+                {"id": payment_type_id, "status__in": [0, 1]},
+                request,
             ).first()
             if payment_type is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Payment type not found.")
@@ -336,12 +335,7 @@ class PaymentTypeService:
     def deletePaymentTypes(data, request):
         ids = data.get("ids") or []
         ids = ids if isinstance(ids, list) else [ids]
-        if PaymentType.objects.filter(
-            id__in=ids,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            readonly=True,
-        ).exists():
+        if commonQuery.branchScopedQueryset(PaymentType, {"id__in": ids, "readonly": True}, request).exists():
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Default payment types cannot be deleted.")
         count = commonQuery.softDeleteById(
             PaymentType,
@@ -358,12 +352,7 @@ class PaymentTypeService:
         status = data.get("status")
         ids = data.get("ids") or []
         ids = ids if isinstance(ids, list) else [ids]
-        if PaymentType.objects.filter(
-            id__in=ids,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            readonly=True,
-        ).exists():
+        if commonQuery.branchScopedQueryset(PaymentType, {"id__in": ids, "readonly": True}, request).exists():
             raise api_error(
                 400,
                 ErrorCodes.BAD_REQUEST,
@@ -469,12 +458,7 @@ class MediaService:
     def delete(data, request):
         ids = data.get("ids")
         ids = ids if isinstance(ids, list) else [ids]
-        media_items = Media.objects.filter(
-            id__in=ids,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-        )
+        media_items = commonQuery.branchScopedQueryset(Media, {"id__in": ids, "status__in": [0, 1]}, request)
         storage = FileSystemStorage(location=settings.UPLOAD_ROOT, base_url=settings.UPLOAD_URL)
         for media in media_items:
             storage.delete(f"{media.slug}.{media.extension}")
@@ -493,12 +477,14 @@ class NotificationService:
     @staticmethod
     def upsertForUser(*, user_id, title, description, url="#", identifier=None, source="system", dismissable=True, actions=None, request=None):
         identifier = identifier or NotificationService.generateIdentifier()
-        notification = Notification.objects.filter(
-            user_id=user_id,
-            identifier=identifier,
-            company_id=request.user.company_id if request else None,
-            branch_id=request.user.branch_id if request else None,
-            status__in=[0, 1],
+        notification = commonQuery.branchScopedQueryset(
+            Notification,
+            {
+                "user_id": user_id,
+                "identifier": identifier,
+                "status__in": [0, 1],
+            },
+            request,
         ).first()
         payload = {
             "user_id": user_id,
@@ -566,13 +552,8 @@ class NotificationService:
 
     @staticmethod
     def dispatchForRoleNamespaces(namespaces, *, title, description="", url="#", identifier=None, source="system", dismissable=True, actions=None, request=None):
-        roles = Role.objects.filter(
-            namespace__in=namespaces,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status=0,
-        )
-        users = User.objects.filter(role__in=roles, company_id=request.user.company_id, branch_id=request.user.branch_id, status=0)
+        roles = commonQuery.branchScopedQueryset(Role, {"namespace__in": namespaces, "status": 0}, request)
+        users = commonQuery.branchScopedQueryset(User, {"role__in": roles, "status": 0}, request)
         return NotificationService.dispatchForUsers(
             users,
             title=title,
@@ -614,10 +595,10 @@ class NotificationService:
 
     @staticmethod
     def unreadCount(request):
-        count = Notification.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
+        count = commonQuery.branchScopedQueryset(
+            Notification,
+            {"status__in": [0, 1]},
+            request,
         ).filter(user_id__in=[request.user.id, None]).count()
         return successResponse("Unread notification count retrieved successfully.", data={"count": count})
 
@@ -626,11 +607,10 @@ class NotificationService:
         ids = data.get("ids")
         if not isinstance(ids, list):
             ids = [ids]
-        count = Notification.objects.filter(
-            id__in=ids,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
+        count = commonQuery.branchScopedQueryset(
+            Notification,
+            {"id__in": ids, "status__in": [0, 1]},
+            request,
         ).update(status=1)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Notification not found.")
@@ -680,15 +660,19 @@ class JobQueueService:
         if request is None:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Request context is required to enqueue a tenant job.")
         return Job.objects.create(
-            user=request.user,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            queue=queue or JobQueueService.DEFAULT_QUEUE,
-            payload=JobQueueService.encodePayload(job_name, data),
-            attempts=0,
-            reserved_at=None,
-            available_at=JobQueueService.timestamp(available_at),
-            created_at=JobQueueService.timestamp(),
+            **commonQuery.enrichTenantData(
+                Job,
+                {
+                    "queue": queue or JobQueueService.DEFAULT_QUEUE,
+                    "payload": JobQueueService.encodePayload(job_name, data),
+                    "attempts": 0,
+                    "reserved_at": None,
+                    "available_at": JobQueueService.timestamp(available_at),
+                    "created_at": JobQueueService.timestamp(),
+                },
+                request,
+                tenant_config=True,
+            )
         )
 
     @staticmethod

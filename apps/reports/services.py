@@ -244,21 +244,31 @@ class ReportService:
             "total_expenses": expense_total,
         }
         day, _ = DashboardDay.objects.update_or_create(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts=start,
-            range_ends=end,
-            day_of_year=target_date.timetuple().tm_yday,
+            **commonQuery.enrichTenantData(
+                DashboardDay,
+                {
+                    "range_starts": start,
+                    "range_ends": end,
+                    "day_of_year": target_date.timetuple().tm_yday,
+                },
+                request,
+                tenant_config=True,
+            ),
             defaults=defaults,
         )
         week_start = start - timedelta(days=target_date.weekday())
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
         DashboardWeek.objects.update_or_create(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts=week_start,
-            range_ends=week_end,
-            week_number=int(target_date.strftime("%U")),
+            **commonQuery.enrichTenantData(
+                DashboardWeek,
+                {
+                    "range_starts": week_start,
+                    "range_ends": week_end,
+                    "week_number": int(target_date.strftime("%U")),
+                },
+                request,
+                tenant_config=True,
+            ),
             defaults={
                 "total_gross_income": income,
                 "total_taxes": tax_total,
@@ -270,11 +280,16 @@ class ReportService:
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
         month_end = next_month - timedelta(seconds=1)
         DashboardMonth.objects.update_or_create(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts=month_start,
-            range_ends=month_end,
-            month_of_year=target_date.month,
+            **commonQuery.enrichTenantData(
+                DashboardMonth,
+                {
+                    "range_starts": month_start,
+                    "range_ends": month_end,
+                    "month_of_year": target_date.month,
+                },
+                request,
+                tenant_config=True,
+            ),
             defaults={
                 "month_paid_orders": total_paid,
                 "total_paid_orders": total_paid,
@@ -309,23 +324,20 @@ class ReportService:
         if start_date > end_date:
             start_date, end_date = end_date, start_date
 
-        DashboardDay.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts__date__gte=start_date,
-            range_starts__date__lte=end_date,
+        commonQuery.branchScopedQueryset(
+            DashboardDay,
+            {"range_starts__date__gte": start_date, "range_starts__date__lte": end_date},
+            request,
         ).delete()
-        DashboardWeek.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts__date__lte=end_date,
-            range_ends__date__gte=start_date,
+        commonQuery.branchScopedQueryset(
+            DashboardWeek,
+            {"range_starts__date__lte": end_date, "range_ends__date__gte": start_date},
+            request,
         ).delete()
-        DashboardMonth.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts__date__lte=end_date,
-            range_ends__date__gte=start_date,
+        commonQuery.branchScopedQueryset(
+            DashboardMonth,
+            {"range_starts__date__lte": end_date, "range_ends__date__gte": start_date},
+            request,
         ).delete()
 
         current_date = start_date
@@ -693,12 +705,10 @@ class ReportService:
 
     @staticmethod
     def detectLowStockProducts(data, request):
-        low_stock_count = ProductUnitQuantity.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-            stock_alert_enabled=True,
-            low_quantity__gt=F("quantity"),
+        low_stock_count = commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {"status__in": [0, 1], "stock_alert_enabled": True, "low_quantity__gt": F("quantity")},
+            request,
         ).count()
         if low_stock_count > 0:
             NotificationService.dispatchForRoleNamespaces(
@@ -803,36 +813,42 @@ class ReportService:
         report_date = parseReportDate((data or {}).get("date"))
         start = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.min.time()))
         end = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.max.time()))
-        unit_quantities = ProductUnitQuantity.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            product__stock_management="enabled",
-            product__type="materialized",
-            status__in=[0, 1],
+        unit_quantities = commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {
+                "product__stock_management": "enabled",
+                "product__type": "materialized",
+                "status__in": [0, 1],
+            },
+            request,
         ).select_related("product", "unit")
         updated_count = 0
         for unit_quantity in unit_quantities:
             previous = (
-                ProductHistoryCombined.objects.filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    product_id=unit_quantity.product_id,
-                    unit_id=unit_quantity.unit_id,
-                    date__lt=report_date,
-                    status__in=[0, 1],
+                commonQuery.branchScopedQueryset(
+                    ProductHistoryCombined,
+                    {
+                        "product_id": unit_quantity.product_id,
+                        "unit_id": unit_quantity.unit_id,
+                        "date__lt": report_date,
+                        "status__in": [0, 1],
+                    },
+                    request,
                 )
                 .order_by("-date")
                 .first()
             )
             initial_quantity = previous.final_quantity if previous else 0
-            histories = ProductHistory.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                product_id=unit_quantity.product_id,
-                unit_id=unit_quantity.unit_id,
-                created_at__gte=start,
-                created_at__lte=end,
-                status__in=[0, 1],
+            histories = commonQuery.branchScopedQueryset(
+                ProductHistory,
+                {
+                    "product_id": unit_quantity.product_id,
+                    "unit_id": unit_quantity.unit_id,
+                    "created_at__gte": start,
+                    "created_at__lte": end,
+                    "status__in": [0, 1],
+                },
+                request,
             )
             procured_quantity = histories.filter(operation_type__in=ReportService.COMBINED_PROCURED_ACTIONS).aggregate(
                 total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField())
@@ -845,11 +861,16 @@ class ReportService:
             )["total"]
             final_quantity = Decimal(str(initial_quantity or 0)) + Decimal(str(procured_quantity or 0)) - Decimal(str(sold_quantity or 0)) - Decimal(str(defective_quantity or 0))
             ProductHistoryCombined.objects.update_or_create(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                product_id=unit_quantity.product_id,
-                unit_id=unit_quantity.unit_id,
-                date=report_date,
+                **commonQuery.enrichTenantData(
+                    ProductHistoryCombined,
+                    {
+                        "product_id": unit_quantity.product_id,
+                        "unit_id": unit_quantity.unit_id,
+                        "date": report_date,
+                    },
+                    request,
+                    tenant_config=True,
+                ),
                 defaults={
                     "user_id": request.user.id,
                     "name": unit_quantity.product.name,
@@ -869,10 +890,10 @@ class ReportService:
         data = data or {}
         history = None
         if data.get("history_id") or data.get("product_history_id"):
-            history = ProductHistory.objects.filter(
-                id=data.get("history_id") or data.get("product_history_id"),
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
+            history = commonQuery.branchScopedQueryset(
+                ProductHistory,
+                {"id": data.get("history_id") or data.get("product_history_id")},
+                request,
             ).exclude(status=2).first()
             if history is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product history not found.")
@@ -882,30 +903,31 @@ class ReportService:
 
         start = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.min.time()))
         end = timezone.make_aware(timezone.datetime.combine(report_date, timezone.datetime.max.time()))
-        histories = ProductHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            operation_type__in=ReportService.COMBINED_DEFECTIVE_ACTIONS,
-            created_at__gte=start,
-            created_at__lte=end,
-            status__in=[0, 1],
+        histories = commonQuery.branchScopedQueryset(
+            ProductHistory,
+            {
+                "operation_type__in": ReportService.COMBINED_DEFECTIVE_ACTIONS,
+                "created_at__gte": start,
+                "created_at__lte": end,
+                "status__in": [0, 1],
+            },
+            request,
         )
         day_wasted_goods_count = histories.aggregate(total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField()))["total"] or 0
         day_wasted_goods = histories.aggregate(total=Coalesce(Sum("total_price"), Value(0.0), output_field=FloatField()))["total"] or 0
 
         ReportService.refreshDashboardSnapshot({"date": report_date.isoformat()}, request)
-        day = DashboardDay.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts=start,
-            range_ends=end,
+        day = commonQuery.branchScopedQueryset(
+            DashboardDay,
+            {"range_starts": start, "range_ends": end},
+            request,
         ).first()
         if day is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Dashboard day not found.")
-        previous_day = DashboardDay.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            range_starts__lt=start,
+        previous_day = commonQuery.branchScopedQueryset(
+            DashboardDay,
+            {"range_starts__lt": start},
+            request,
         ).order_by("-range_starts").first()
         day.day_wasted_goods_count = Decimal(str(day_wasted_goods_count or 0))
         day.day_wasted_goods = Decimal(str(day_wasted_goods or 0))

@@ -185,18 +185,13 @@ class CategoryService:
 
     @staticmethod
     def computeProducts(category_id, request):
-        category = Category.objects.filter(
-            id=category_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).exclude(status=2).first()
+        category = commonQuery.branchScopedQueryset(Category, {"id": category_id}, request).exclude(status=2).first()
         if category is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
-        total_items = Product.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            category_id=category.id,
-            status__in=[0, 1],
+        total_items = commonQuery.branchScopedQueryset(
+            Product,
+            {"category_id": category.id, "status__in": [0, 1]},
+            request,
         ).count()
         category.total_items = total_items
         category.save(update_fields=["total_items", "updated_at"])
@@ -680,23 +675,19 @@ class ProductService:
         if not isinstance(ids, list):
             ids = [ids]
         products = list(
-            Product.objects.filter(
-                id__in=ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(Product, {"id__in": ids}, request)
             .exclude(status=2)
             .values("id", "category_id")
         )
         affected_category_ids = list({product["category_id"] for product in products if product.get("category_id")})
         for product in products:
-            ProductSubItem.objects.filter(parent_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
-            ProductSubItem.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
-            ProductGallery.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
-            ProductTax.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
-            ProductUnitQuantity.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
-            ProductHistoryCombined.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
-            ProductHistory.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            commonQuery.branchScopedQueryset(ProductSubItem, {"parent_id": product["id"]}, request).delete()
+            commonQuery.branchScopedQueryset(ProductSubItem, {"product_id": product["id"]}, request).delete()
+            commonQuery.branchScopedQueryset(ProductGallery, {"product_id": product["id"]}, request).delete()
+            commonQuery.branchScopedQueryset(ProductTax, {"product_id": product["id"]}, request).delete()
+            commonQuery.branchScopedQueryset(ProductUnitQuantity, {"product_id": product["id"]}, request).delete()
+            commonQuery.branchScopedQueryset(ProductHistoryCombined, {"product_id": product["id"]}, request).delete()
+            commonQuery.branchScopedQueryset(ProductHistory, {"product_id": product["id"]}, request).delete()
         count = commonQuery.softDeleteById(Product, ids, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
@@ -792,13 +783,11 @@ class ProductStockService:
             if required:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Unit is required for stock movement.")
             return None
-        unit_quantity = ProductUnitQuantity.objects.select_for_update().filter(
-            product_id=product_id,
-            unit_id=unit_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-        ).first()
+        unit_quantity = commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {"product_id": product_id, "unit_id": unit_id, "status__in": [0, 1]},
+            request,
+        ).select_for_update().first()
         if unit_quantity is None and required:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")
         return unit_quantity
@@ -895,24 +884,25 @@ class ProductStockService:
         unit_id = history.get("unit_id")
         if not unit_id:
             return None
-        totals = ProductHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            product_id=product["id"],
-            unit_id=unit_id,
-            operation_type__in=[ProductHistory.ACTION_CONVERT_IN, ProductHistory.ACTION_STOCKED],
-            status__in=[0, 1],
+        totals = commonQuery.branchScopedQueryset(
+            ProductHistory,
+            {
+                "product_id": product["id"],
+                "unit_id": unit_id,
+                "operation_type__in": [ProductHistory.ACTION_CONVERT_IN, ProductHistory.ACTION_STOCKED],
+                "status__in": [0, 1],
+            },
+            request,
         ).aggregate(total_quantity=Sum("quantity"), total_price=Sum("total_price"))
         total_quantity = decimalValue(totals.get("total_quantity") or 0)
         total_price = decimalValue(totals.get("total_price") or 0)
         if total_quantity <= 0 or total_price <= 0:
             return None
         cogs = total_price / total_quantity
-        ProductUnitQuantity.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            product_id=product["id"],
-            unit_id=unit_id,
+        commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {"product_id": product["id"], "unit_id": unit_id},
+            request,
         ).exclude(status=2).update(cogs=float(cogs), updated_at=timezone.now())
         return cogs
 
@@ -964,12 +954,18 @@ class ProductStockService:
         else:
             history_date = timezone.localdate()
 
+        combined_filters = commonQuery.enrichTenantData(
+            ProductHistoryCombined,
+            {
+                "product_id": history.get("product_id"),
+                "unit_id": history.get("unit_id"),
+                "date": history_date,
+            },
+            request,
+            tenant_config=True,
+        )
         combined, created = ProductHistoryCombined.objects.get_or_create(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            product_id=history.get("product_id"),
-            unit_id=history.get("unit_id"),
-            date=history_date,
+            **combined_filters,
             defaults={
                 "user_id": request.user.id,
                 "name": product.get("name") or "",

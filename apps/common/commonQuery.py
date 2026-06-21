@@ -307,12 +307,25 @@ class commonQuery:
         return model.objects.filter(q).delete()
 
     @staticmethod
+    def scopedQueryset(model, filters=None, request=None, tenant_config=True):
+        q = buildWhere(model, filters or {}, tenant_config, request)
+        return model.objects.filter(q)
+
+    @staticmethod
+    def branchScopedQueryset(model, filters=None, request=None):
+        return commonQuery.scopedQueryset(
+            model,
+            filters or {},
+            request=request,
+            tenant_config={"company_id": True, "branch_id": True},
+        )
+
+    @staticmethod
     def findAllRecords(model, filters=None, options=None, request=None, tenant_config=True):
         filters = filters or {}
         options = options or {}
 
-        q = buildWhere(model, filters, tenant_config, request)
-        queryset = model.objects.filter(q)
+        queryset = commonQuery.scopedQueryset(model, filters, request, tenant_config)
 
         # Ordering
         order = options.get("order")

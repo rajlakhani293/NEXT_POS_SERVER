@@ -310,11 +310,10 @@ class SaleValidationService:
 class SaleRegisterService:
     @staticmethod
     def recordCashOrderPayment(sale_order, order_payment, register_context, amount, request):
-        payment_type = PaymentType.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            identifier=order_payment.get("identifier"),
-            status__in=[0, 1],
+        payment_type = commonQuery.branchScopedQueryset(
+            PaymentType,
+            {"identifier": order_payment.get("identifier"), "status__in": [0, 1]},
+            request,
         ).values("id").first()
         return RegisterService.recordHistory(
             register_context["register_id"],
@@ -1421,11 +1420,10 @@ class SaleService:
         customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
         if customer is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
-        orders = Order.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            customer_id=customer_id,
-            payment_status__in=["unpaid", "partially_paid"],
+        orders = commonQuery.branchScopedQueryset(
+            Order,
+            {"customer_id": customer_id, "payment_status__in": ["unpaid", "partially_paid"]},
+            request,
         ).exclude(status=2).values("total", "tendered_amount", "change_amount")
         owed_amount = sum((saleDueAmount(order) for order in orders), Decimal("0"))
         commonQuery.updateRecordById(
@@ -1478,11 +1476,10 @@ class SaleService:
 
         option_rows = {
             option.key: option.value
-            for option in Option.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status=0,
-                key__in=["pos_preferred_price", "pos_vat"],
+            for option in commonQuery.branchScopedQueryset(
+                Option,
+                {"status": 0, "key__in": ["pos_preferred_price", "pos_vat"]},
+                request,
             )
         }
         settings_payload = [
@@ -1490,11 +1487,7 @@ class SaleService:
             ("pos_vat", option_rows.get("pos_vat", "disabled")),
         ]
         with transaction.atomic():
-            OrderSetting.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                sale_order_id=sale_order_id,
-            ).delete()
+            commonQuery.branchScopedQueryset(OrderSetting, {"sale_order_id": sale_order_id}, request).delete()
             created = [
                 commonQuery.createRecord(
                     OrderSetting,
@@ -1518,16 +1511,18 @@ class SaleService:
         today_end = today_start.replace(hour=23, minute=59, second=59, microsecond=999999)
         with transaction.atomic():
             instalments = list(
-                OrderInstalment.objects.select_for_update()
-                .filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    sale_order_id=sale_order_id,
-                    paid=False,
-                    date__gte=today_start,
-                    date__lte=today_end,
-                    status=0,
+                commonQuery.branchScopedQueryset(
+                    OrderInstalment,
+                    {
+                        "sale_order_id": sale_order_id,
+                        "paid": False,
+                        "date__gte": today_start,
+                        "date__lte": today_end,
+                        "status": 0,
+                    },
+                    request,
                 )
+                .select_for_update()
                 .order_by("date", "id")
             )
             if not instalments:
@@ -1536,12 +1531,10 @@ class SaleService:
             paid_instalments = sum(
                 (
                     money(item.amount)
-                    for item in OrderInstalment.objects.filter(
-                        company_id=request.user.company_id,
-                        branch_id=request.user.branch_id,
-                        sale_order_id=sale_order_id,
-                        paid=True,
-                        status=0,
+                    for item in commonQuery.branchScopedQueryset(
+                        OrderInstalment,
+                        {"sale_order_id": sale_order_id, "paid": True, "status": 0},
+                        request,
                     )
                 ),
                 Decimal("0"),
@@ -1985,11 +1978,10 @@ class SaleService:
 
     @staticmethod
     def heldCartExpirationDays(request):
-        option = Option.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            key="orders_quotation_expiration",
-            status__in=[0, 1],
+        option = commonQuery.branchScopedQueryset(
+            Option,
+            {"key": "orders_quotation_expiration", "status__in": [0, 1]},
+            request,
         ).first()
         if option is None or option.value in [None, "", "never"]:
             return None
@@ -2006,34 +1998,31 @@ class SaleService:
             return successResponse("Held cart expiration is disabled.", data={"deleted_count": 0})
 
         expires_before = timezone.now() - timezone.timedelta(days=days)
-        queryset = Order.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            payment_status="hold",
-            created_at__lt=expires_before,
-            status__in=[0, 1],
+        queryset = commonQuery.branchScopedQueryset(
+            Order,
+            {"payment_status": "hold", "created_at__lt": expires_before, "status__in": [0, 1]},
+            request,
         )
         deleted_count = queryset.update(status=2, deleted_at=timezone.now())
         if deleted_count:
-            Notification.objects.create(
-                user_id=request.user.id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                identifier="clear_hold_orders",
-                title="Hold Order Cleared",
-                description=f"{deleted_count} held order(s) were deleted because they expired.",
-                url="/sales",
-                source="system",
-                status=0,
+            commonQuery.createRecord(
+                Notification,
+                {
+                    "identifier": "clear_hold_orders",
+                    "title": "Hold Order Cleared",
+                    "description": f"{deleted_count} held order(s) were deleted because they expired.",
+                    "url": "/sales",
+                    "source": "system",
+                    "status": 0,
+                },
+                request=request,
+                tenant_config=True,
             )
         return successResponse("Expired held carts cleared successfully.", data={"deleted_count": deleted_count})
 
     @staticmethod
     def purgeOrderStorage(data, request):
-        deleted_count, _ = OrderStorage.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).delete()
+        deleted_count, _ = commonQuery.branchScopedQueryset(OrderStorage, {}, request).delete()
         return successResponse("Order storage purged successfully.", data={"deleted_count": deleted_count})
 
     @staticmethod
@@ -2373,11 +2362,7 @@ class SaleService:
                     continue
 
                 AccountingService.deleteOrderTransactionsHistory(sale_order_id, request)
-                OrderSetting.objects.filter(
-                    sale_order_id=sale_order_id,
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                ).delete()
+                commonQuery.branchScopedQueryset(OrderSetting, {"sale_order_id": sale_order_id}, request).delete()
 
                 if sale_order.get("payment_status") != "void":
                     sale_items = commonQuery.findAllRecords(
@@ -2419,11 +2404,11 @@ class SaleService:
                                 request,
                             )
 
-                OrdersProduct.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
-                OrderPayment.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
-                OrderTax.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
-                OrdersCoupon.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
-                OrderInstalment.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
+                commonQuery.branchScopedQueryset(OrdersProduct, {"sale_order_id": sale_order_id}, request).delete()
+                commonQuery.branchScopedQueryset(OrderPayment, {"sale_order_id": sale_order_id}, request).delete()
+                commonQuery.branchScopedQueryset(OrderTax, {"sale_order_id": sale_order_id}, request).delete()
+                commonQuery.branchScopedQueryset(OrdersCoupon, {"sale_order_id": sale_order_id}, request).delete()
+                commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
                 RegisterService.deleteRegisterHistoryUsingOrder(sale_order_id, request)
                 SaleService.uncountDeletedOrderForCashier(sale_order_id, request)
                 SaleService.uncountDeletedOrderForCustomer(sale_order_id, request)
@@ -2610,11 +2595,7 @@ class SaleService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
 
         with transaction.atomic():
-            OrderInstalment.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                sale_order_id=sale_order_id,
-            ).delete()
+            commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
 
             for line in lines:
                 commonQuery.createRecord(
@@ -2679,11 +2660,10 @@ class SaleService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Installment not found.")
         if installment.get("paid"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid installment cannot be deleted.")
-        OrderInstalment.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            id=installment_id,
-            sale_order_id=sale_order_id,
+        commonQuery.branchScopedQueryset(
+            OrderInstalment,
+            {"id": installment_id, "sale_order_id": sale_order_id},
+            request,
         ).delete()
         return successResponse("Installment deleted successfully.")
 

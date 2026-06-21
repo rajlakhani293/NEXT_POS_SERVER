@@ -21,15 +21,11 @@ class RegisterService:
 
     @staticmethod
     def _getRegister(register_id, request, for_update=False):
-        queryset = Register.objects
+        queryset = commonQuery.branchScopedQueryset(Register, {"id": register_id}, request)
         if for_update:
             queryset = queryset.select_for_update()
         register = (
-            queryset.filter(
-                id=register_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            queryset
             .exclude(status=2)
             .first()
         )
@@ -260,11 +256,10 @@ class RegisterService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to refresh a closed cash register.")
 
         last_opening = (
-            RegistersHistory.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                register_id=register.id,
-                entry_type=RegistersHistory.ACTION_OPENING,
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {"register_id": register.id, "entry_type": RegistersHistory.ACTION_OPENING},
+                request,
             )
             .exclude(status=2)
             .order_by("-id")
@@ -273,11 +268,10 @@ class RegisterService:
         if last_opening is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Register opening history not found.")
 
-        base_queryset = RegistersHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            register_id=register.id,
-            created_at__gte=last_opening.created_at,
+        base_queryset = commonQuery.branchScopedQueryset(
+            RegistersHistory,
+            {"register_id": register.id, "created_at__gte": last_opening.created_at},
+            request,
         ).exclude(status=2)
         total_in = base_queryset.filter(entry_type__in=RegistersHistory.IN_ACTIONS).aggregate(total=Sum("amount"))["total"] or 0
         total_out = base_queryset.filter(entry_type__in=RegistersHistory.OUT_ACTIONS).aggregate(total=Sum("amount"))["total"] or 0
@@ -290,12 +284,8 @@ class RegisterService:
         from apps.sales.models import OrderPayment
 
         payment = (
-            OrderPayment.objects.select_related("sale_order")
-            .filter(
-                id=payment_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(OrderPayment, {"id": payment_id}, request)
+            .select_related("sale_order")
             .exclude(status=2)
             .first()
         )
@@ -330,11 +320,7 @@ class RegisterService:
         from apps.sales.models import Order
 
         sale_order = (
-            Order.objects.filter(
-                id=order_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(Order, {"id": order_id}, request)
             .exclude(status=2)
             .first()
         )
@@ -364,19 +350,11 @@ class RegisterService:
 
     @staticmethod
     def deleteRegisterHistoryUsingOrder(order_id, request):
-        histories = RegistersHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            order_id=order_id,
-        ).exclude(status=2)
+        histories = commonQuery.branchScopedQueryset(RegistersHistory, {"order_id": order_id}, request).exclude(status=2)
         register_ids = list(histories.values_list("register_id", flat=True).distinct())
         deleted_count = histories.delete()[0]
         for register_id in register_ids:
-            register = Register.objects.filter(
-                id=register_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            ).first()
+            register = commonQuery.branchScopedQueryset(Register, {"id": register_id}, request).first()
             if register and register.register_status != Register.STATUS_CLOSED:
                 RegisterService.refreshCashRegister(register_id, request)
         return successResponse("Register history deleted successfully.", data={"deleted_count": deleted_count})

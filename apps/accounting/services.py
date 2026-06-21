@@ -177,19 +177,19 @@ class AccountingService:
         amount = money(amount)
         balance_date = transaction_date.date()
         previous_day = (
-            TransactionBalanceDay.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                date__lt=balance_date,
-            )
+            commonQuery.branchScopedQueryset(TransactionBalanceDay, {"date__lt": balance_date}, request)
             .order_by("-date")
             .first()
         )
         opening_balance = money(previous_day.closing_balance if previous_day else 0)
+        day_filters = commonQuery.enrichTenantData(
+            TransactionBalanceDay,
+            {"date": balance_date},
+            request,
+            BRANCH_TENANT_CONFIG,
+        )
         day, _ = TransactionBalanceDay.objects.select_for_update().get_or_create(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            date=balance_date,
+            **day_filters,
             defaults={"opening_balance": opening_balance, "closing_balance": opening_balance},
         )
         if operation == "credit":
@@ -203,19 +203,19 @@ class AccountingService:
 
         month_date = balance_date.replace(day=1)
         previous_month = (
-            TransactionBalanceMonth.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                date__lt=month_date,
-            )
+            commonQuery.branchScopedQueryset(TransactionBalanceMonth, {"date__lt": month_date}, request)
             .order_by("-date")
             .first()
         )
         month_opening_balance = money(previous_month.closing_balance if previous_month else 0)
+        month_filters = commonQuery.enrichTenantData(
+            TransactionBalanceMonth,
+            {"date": month_date},
+            request,
+            BRANCH_TENANT_CONFIG,
+        )
         month, _ = TransactionBalanceMonth.objects.select_for_update().get_or_create(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            date=month_date,
+            **month_filters,
             defaults={"opening_balance": month_opening_balance, "closing_balance": month_opening_balance},
         )
         if operation == "credit":
@@ -237,38 +237,34 @@ class AccountingService:
             start, end = end, start
 
         with transaction.atomic():
-            TransactionBalanceDay.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                date__gte=start,
-                date__lte=end,
+            commonQuery.branchScopedQueryset(
+                TransactionBalanceDay,
+                {"date__gte": start, "date__lte": end},
+                request,
             ).delete()
-            TransactionBalanceMonth.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                date__gte=start.replace(day=1),
-                date__lte=end.replace(day=1),
+            commonQuery.branchScopedQueryset(
+                TransactionBalanceMonth,
+                {"date__gte": start.replace(day=1), "date__lte": end.replace(day=1)},
+                request,
             ).delete()
 
             current_day = start
             previous_day = (
-                TransactionBalanceDay.objects.filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    date__lt=start,
-                )
+                commonQuery.branchScopedQueryset(TransactionBalanceDay, {"date__lt": start}, request)
                 .order_by("-date")
                 .first()
             )
             opening_balance = money(previous_day.closing_balance if previous_day else 0)
             rebuilt_days = 0
             while current_day <= end:
-                totals = TransactionHistory.objects.filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    status=0,
-                    transaction_status=TransactionHistory.STATUS_ACTIVE_TEXT,
-                    trigger_date__date=current_day,
+                totals = commonQuery.branchScopedQueryset(
+                    TransactionHistory,
+                    {
+                        "status": 0,
+                        "transaction_status": TransactionHistory.STATUS_ACTIVE_TEXT,
+                        "trigger_date__date": current_day,
+                    },
+                    request,
                 ).aggregate(
                     income=Sum("value", filter=Q(operation=TransactionHistory.OPERATION_CREDIT)),
                     expense=Sum("value", filter=Q(operation=TransactionHistory.OPERATION_DEBIT)),
@@ -276,16 +272,18 @@ class AccountingService:
                 income = money(totals.get("income") or 0)
                 expense = money(totals.get("expense") or 0)
                 closing_balance = opening_balance + income - expense
-                TransactionBalanceDay.objects.create(
-                    user=request.user,
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    date=current_day,
-                    opening_balance=opening_balance,
-                    income=income,
-                    expense=expense,
-                    closing_balance=closing_balance,
-                    status=0,
+                commonQuery.createRecord(
+                    TransactionBalanceDay,
+                    {
+                        "date": current_day,
+                        "opening_balance": opening_balance,
+                        "income": income,
+                        "expense": expense,
+                        "closing_balance": closing_balance,
+                        "status": 0,
+                    },
+                    request=request,
+                    tenant_config=True,
                 )
                 rebuilt_days += 1
                 opening_balance = closing_balance
@@ -294,11 +292,7 @@ class AccountingService:
             current_month = start.replace(day=1)
             end_month = end.replace(day=1)
             previous_month = (
-                TransactionBalanceMonth.objects.filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    date__lt=current_month,
-                )
+                commonQuery.branchScopedQueryset(TransactionBalanceMonth, {"date__lt": current_month}, request)
                 .order_by("-date")
                 .first()
             )
@@ -306,11 +300,10 @@ class AccountingService:
             rebuilt_months = 0
             while current_month <= end_month:
                 next_month = (current_month.replace(day=28) + timedelta(days=4)).replace(day=1)
-                totals = TransactionBalanceDay.objects.filter(
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    date__gte=current_month,
-                    date__lt=next_month,
+                totals = commonQuery.branchScopedQueryset(
+                    TransactionBalanceDay,
+                    {"date__gte": current_month, "date__lt": next_month},
+                    request,
                 ).aggregate(
                     income=Sum("income"),
                     expense=Sum("expense"),
@@ -318,16 +311,18 @@ class AccountingService:
                 income = money(totals.get("income") or 0)
                 expense = money(totals.get("expense") or 0)
                 month_closing_balance = month_opening_balance + income - expense
-                TransactionBalanceMonth.objects.create(
-                    user=request.user,
-                    company_id=request.user.company_id,
-                    branch_id=request.user.branch_id,
-                    date=current_month,
-                    opening_balance=month_opening_balance,
-                    income=income,
-                    expense=expense,
-                    closing_balance=month_closing_balance,
-                    status=0,
+                commonQuery.createRecord(
+                    TransactionBalanceMonth,
+                    {
+                        "date": current_month,
+                        "opening_balance": month_opening_balance,
+                        "income": income,
+                        "expense": expense,
+                        "closing_balance": month_closing_balance,
+                        "status": 0,
+                    },
+                    request=request,
+                    tenant_config=True,
                 )
                 rebuilt_months += 1
                 month_opening_balance = month_closing_balance
@@ -459,11 +454,10 @@ class AccountingService:
         if amount <= 0:
             return []
         AccountingService.ensureForRequest(request)
-        rules = TransactionActionRule.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            on=event_key,
-            status=0,
+        rules = commonQuery.branchScopedQueryset(
+            TransactionActionRule,
+            {"on": event_key, "status": 0},
+            request,
         ).order_by("id")
         group_code = f"{event_key}:{source_type}:{source_id or 'manual'}:{timezone.now().timestamp()}"
         records = []
@@ -571,10 +565,10 @@ class AccountingService:
         if history is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction history not found.")
 
-        reflections = TransactionHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            reflection_source_id=history["id"],
+        reflections = commonQuery.branchScopedQueryset(
+            TransactionHistory,
+            {"reflection_source_id": history["id"]},
+            request,
         ).exclude(status=2)
         delete_result = AccountingService.deleteHistoriesAndTransactions(reflections, request)
         return successResponse(
@@ -595,18 +589,18 @@ class AccountingService:
         transaction_ids = [row["transaction_id"] for row in history_rows if row.get("transaction_id")]
         trigger_dates = [row["trigger_date"] for row in history_rows if row.get("trigger_date")]
 
-        deleted_count = TransactionHistory.objects.filter(
-            id__in=history_ids,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
+        deleted_count = commonQuery.branchScopedQueryset(
+            TransactionHistory,
+            {"id__in": history_ids},
+            request,
         ).delete()[0]
 
         transaction_deleted_count = 0
         if transaction_ids:
-            transaction_deleted_count = Transaction.objects.filter(
-                id__in=transaction_ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
+            transaction_deleted_count = commonQuery.branchScopedQueryset(
+                Transaction,
+                {"id__in": transaction_ids},
+                request,
             ).delete()[0]
 
         if trigger_dates:
@@ -627,26 +621,22 @@ class AccountingService:
         from apps.sales.models import OrdersRefund
 
         refund_ids = list(
-            OrdersRefund.objects.filter(
-                sale_order_id=sale_order_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(OrdersRefund, {"sale_order_id": sale_order_id}, request)
             .exclude(status=2)
             .values_list("id", flat=True)
         )
-        histories = TransactionHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            is_reflection=False,
+        histories = commonQuery.branchScopedQueryset(
+            TransactionHistory,
+            {"is_reflection": False},
+            request,
         ).filter(Q(order_id=sale_order_id) | Q(order_refund_id__in=refund_ids))
         reflection_source_ids = list(histories.values_list("id", flat=True))
         reflection_result = {"history_deleted_count": 0, "transaction_deleted_count": 0}
         if reflection_source_ids:
-            reflections = TransactionHistory.objects.filter(
-                reflection_source_id__in=reflection_source_ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
+            reflections = commonQuery.branchScopedQueryset(
+                TransactionHistory,
+                {"reflection_source_id__in": reflection_source_ids},
+                request,
             )
             reflection_result = AccountingService.deleteHistoriesAndTransactions(reflections, request)
         delete_result = AccountingService.deleteHistoriesAndTransactions(histories, request)
@@ -662,19 +652,18 @@ class AccountingService:
 
     @staticmethod
     def deleteProcurementTransactions(procurement_id, request):
-        histories = TransactionHistory.objects.filter(
-            procurement_id=procurement_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            is_reflection=False,
+        histories = commonQuery.branchScopedQueryset(
+            TransactionHistory,
+            {"procurement_id": procurement_id, "is_reflection": False},
+            request,
         )
         reflection_source_ids = list(histories.values_list("id", flat=True))
         reflection_result = {"history_deleted_count": 0, "transaction_deleted_count": 0}
         if reflection_source_ids:
-            reflections = TransactionHistory.objects.filter(
-                reflection_source_id__in=reflection_source_ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
+            reflections = commonQuery.branchScopedQueryset(
+                TransactionHistory,
+                {"reflection_source_id__in": reflection_source_ids},
+                request,
             )
             reflection_result = AccountingService.deleteHistoriesAndTransactions(reflections, request)
         delete_result = AccountingService.deleteHistoriesAndTransactions(histories, request)
@@ -693,11 +682,7 @@ class AccountingService:
         from apps.sales.models import Order, OrdersRefund
 
         refund = (
-            OrdersRefund.objects.filter(
-                id=return_order_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(OrdersRefund, {"id": return_order_id}, request)
             .exclude(status=2)
             .first()
         )
@@ -708,11 +693,7 @@ class AccountingService:
             return successResponse("Refund has no shipping amount to record.", data=[])
 
         sale_order = (
-            Order.objects.filter(
-                id=refund.sale_order_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(Order, {"id": refund.sale_order_id}, request)
             .exclude(status=2)
             .first()
         )
@@ -1171,16 +1152,18 @@ class TransactionService:
         )
         from apps.settings.models import Notification
 
-        Notification.objects.create(
-            user_id=request.user.id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            identifier=f"scheduled-transaction-{history_id}",
-            title="Scheduled Transaction",
-            description=f'Transaction "{history.get("name")}" was executed as scheduled.',
-            url="/reports/accounting",
-            source="system",
-            status=0,
+        commonQuery.createRecord(
+            Notification,
+            {
+                "identifier": f"scheduled-transaction-{history_id}",
+                "title": "Scheduled Transaction",
+                "description": f'Transaction "{history.get("name")}" was executed as scheduled.',
+                "url": "/reports/accounting",
+                "source": "system",
+                "status": 0,
+            },
+            request=request,
+            tenant_config=True,
         )
         return successResponse("Scheduled transaction executed successfully.", data=updated)
 
@@ -1189,12 +1172,14 @@ class TransactionService:
         from apps.settings.services import JobQueueService
 
         now = timezone.now()
-        histories = TransactionHistory.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            transaction_status=TransactionHistory.STATUS_PENDING_TEXT,
-            trigger_date__lte=now,
-            status=0,
+        histories = commonQuery.branchScopedQueryset(
+            TransactionHistory,
+            {
+                "transaction_status": TransactionHistory.STATUS_PENDING_TEXT,
+                "trigger_date__lte": now,
+                "status": 0,
+            },
+            request,
         ).values("id")
         queued_count = 0
         for history in histories:
@@ -1264,12 +1249,14 @@ class TransactionService:
             if due_date != base_date:
                 skipped.append(transaction_record["id"])
                 continue
-            exists = TransactionHistory.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                transaction_id=transaction_record["id"],
-                trigger_date__date=base_date,
-                status=0,
+            exists = commonQuery.branchScopedQueryset(
+                TransactionHistory,
+                {
+                    "transaction_id": transaction_record["id"],
+                    "trigger_date__date": base_date,
+                    "status": 0,
+                },
+                request,
             ).exists()
             if exists:
                 skipped.append(transaction_record["id"])

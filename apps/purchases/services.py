@@ -107,11 +107,7 @@ class SupplierService:
         provider = commonQuery.findOneRecord(Provider, provider_id, request=request, tenant_config=True)
         if provider is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
-        rows = Procurement.objects.filter(
-            provider_id=provider_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).exclude(status=2)
+        rows = commonQuery.branchScopedQueryset(Procurement, {"provider_id": provider_id}, request).exclude(status=2)
         amount_paid = Decimal("0")
         amount_due = Decimal("0")
         for row in rows.values("value", "payment_status"):
@@ -537,12 +533,10 @@ class PurchaseOrderService:
                         raise api_error(400, ErrorCodes.BAD_REQUEST, "Source and destination units do not belong to the same unit group.")
                     
                     # Ensure the destination ProductUnitQuantity exists in catalog
-                    dest_uq = ProductUnitQuantity.objects.filter(
-                        product_id=item["product_id"],
-                        unit_id=convert_unit_id,
-                        company_id=request.user.company_id,
-                        branch_id=request.user.branch_id,
-                        status__in=[0, 1]
+                    dest_uq = commonQuery.branchScopedQueryset(
+                        ProductUnitQuantity,
+                        {"product_id": item["product_id"], "unit_id": convert_unit_id, "status__in": [0, 1]},
+                        request,
                     ).first()
                     
                     if not dest_uq:
@@ -610,12 +604,10 @@ class PurchaseOrderService:
                         request=request,
                     )
                 received_now += receive_qty
-            has_available = ProcurementsProduct.objects.filter(
-                procurement_id=order_id,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                available_quantity__gt=0,
-                status__in=[0, 1],
+            has_available = commonQuery.branchScopedQueryset(
+                ProcurementsProduct,
+                {"procurement_id": order_id, "available_quantity__gt": 0, "status__in": [0, 1]},
+                request,
             ).exists()
             updated = commonQuery.updateRecordById(
                 Procurement,
@@ -629,13 +621,15 @@ class PurchaseOrderService:
     @staticmethod
     def stockAwaitingProcurements(request):
         due_procurements = list(
-            Procurement.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                status__in=[0, 1],
-                automatic_approval=True,
-                delivery_status="pending",
-                delivery_time__lte=timezone.now(),
+            commonQuery.branchScopedQueryset(
+                Procurement,
+                {
+                    "status__in": [0, 1],
+                    "automatic_approval": True,
+                    "delivery_status": "pending",
+                    "delivery_time__lte": timezone.now(),
+                },
+                request,
             ).values("id")
         )
         stocked_count = 0
@@ -698,12 +692,10 @@ class PurchaseOrderService:
 
     @staticmethod
     def lowStockSuggestions(request):
-        rows = ProductUnitQuantity.objects.filter(
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-            status__in=[0, 1],
-            stock_alert_enabled=True,
-            quantity__lte=F("low_quantity"),
+        rows = commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {"status__in": [0, 1], "stock_alert_enabled": True, "quantity__lte": F("low_quantity")},
+            request,
         ).values("id", "product_id", "product__name", "product__sku", "product__barcode", "quantity", "low_quantity", "cogs", "unit_id", "unit__name").order_by("quantity", "product__name")[:100]
         products = []
         for row in rows:
@@ -844,19 +836,27 @@ class PurchaseOrderService:
             )
         elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement product cannot be deleted. Please use stock adjustment.")
-        ProcurementsProduct.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, id=purchase_item_id, procurement_id=order_id).delete()
+        commonQuery.branchScopedQueryset(
+            ProcurementsProduct,
+            {"id": purchase_item_id, "procurement_id": order_id},
+            request,
+        ).delete()
         PurchaseOrderService.recalculateOrder(order_id, request)
         return successResponse("Procurement product deleted successfully.")
 
     @staticmethod
     def searchProduct(data, request):
         search = (data or {}).get("search") or ""
-        queryset = Product.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, status__in=[0, 1])
+        queryset = commonQuery.branchScopedQueryset(Product, {"status__in": [0, 1]}, request)
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
         rows = list(queryset.values("id", "name", "sku", "barcode").order_by("name")[:25])
         for row in rows:
-            unit_quantity = ProductUnitQuantity.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, product_id=row["id"], status__in=[0, 1]).values("id", "quantity", "cogs", "unit_id", "unit__name").order_by("id").first()
+            unit_quantity = commonQuery.branchScopedQueryset(
+                ProductUnitQuantity,
+                {"product_id": row["id"], "status__in": [0, 1]},
+                request,
+            ).values("id", "quantity", "cogs", "unit_id", "unit__name").order_by("id").first()
             row["unit_quantity_id"] = unit_quantity.get("id") if unit_quantity else None
             row["current_stock"] = unit_quantity.get("quantity") if unit_quantity else 0
             row["purchase_price"] = unit_quantity.get("cogs") if unit_quantity else 0
@@ -867,7 +867,7 @@ class PurchaseOrderService:
     @staticmethod
     def searchProcurementProduct(data, request):
         search = (data or {}).get("search") or ""
-        queryset = ProcurementsProduct.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, status__in=[0, 1])
+        queryset = commonQuery.branchScopedQueryset(ProcurementsProduct, {"status__in": [0, 1]}, request)
         if search:
             queryset = queryset.filter(Q(product__name__icontains=search) | Q(procurement__name__icontains=search) | Q(barcode__icontains=search))
         rows = list(queryset.values("id", "procurement_id", "procurement__name", "product_id", "product__name", "name", "quantity", "available_quantity", "purchase_price", "barcode").order_by("-id")[:25])
@@ -885,11 +885,7 @@ class PurchaseOrderService:
         if not isinstance(ids, list):
             ids = [ids]
         procurements = list(
-            Procurement.objects.filter(
-                id__in=ids,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-            )
+            commonQuery.branchScopedQueryset(Procurement, {"id__in": ids}, request)
             .exclude(status=2)
             .values("id", "name", "provider_id", "delivery_status")
         )
@@ -929,10 +925,10 @@ class PurchaseOrderService:
                     )
                 elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement cannot be deleted. Please use stock adjustment.")
-            ProcurementsProduct.objects.filter(
-                procurement_id=procurement["id"],
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
+            commonQuery.branchScopedQueryset(
+                ProcurementsProduct,
+                {"procurement_id": procurement["id"]},
+                request,
             ).delete()
             AccountingService.deleteProcurementTransactions(procurement["id"], request)
 

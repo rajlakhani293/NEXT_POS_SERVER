@@ -3,13 +3,7 @@ from decimal import Decimal
 
 from django.db.models import Count, F
 
-
-def _tenantFilters(request):
-    return {
-        "company_id": request.user.company_id,
-        "branch_id": request.user.branch_id,
-        "status__in": [0, 1],
-    }
+from apps.common.commonQuery import commonQuery
 
 
 class DomainActionService:
@@ -24,19 +18,12 @@ class DomainActionService:
         from apps.catalog.models import Category, Product
 
         total_items = (
-            Product.objects.filter(
-                category_id=category_id,
-                **_tenantFilters(request),
-            )
+            commonQuery.branchScopedQueryset(Product, {"category_id": category_id, "status__in": [0, 1]}, request)
             .aggregate(total=Count("id"))
             .get("total")
             or 0
         )
-        Category.objects.filter(
-            id=category_id,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).update(total_items=total_items)
+        commonQuery.branchScopedQueryset(Category, {"id": category_id}, request).update(total_items=total_items)
         return total_items
 
     @staticmethod
@@ -60,11 +47,7 @@ class DomainActionService:
 
         if sale_order.get("payment_status") == "paid":
             DomainActionService.afterSalePaid(sale_order, request)
-        order = Order.objects.get(
-            id=sale_order["id"],
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        )
+        order = commonQuery.branchScopedQueryset(Order, {"id": sale_order["id"]}, request).get()
         ensureOrderSettings(order, request)
         ReportService.refreshDashboardSnapshot({}, request)
         return order
