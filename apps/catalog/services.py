@@ -9,6 +9,8 @@ from apps.catalog.models import (
     ProductGallery,
     ProductHistory,
     ProductHistoryCombined,
+    ProductSubItem,
+    ProductTax,
     ProductUnitQuantity,
     ScaleRange,
     Tax,
@@ -583,6 +585,12 @@ class ProductService:
                     tenant_config=True,
                 )
             DomainActionService.afterProductUpdated(product, updated, request)
+            old_category_id = product.get("category_id")
+            new_category_id = updated.get("category_id")
+            if old_category_id and old_category_id != new_category_id:
+                CategoryService.computeProducts(old_category_id, request)
+            if new_category_id:
+                CategoryService.computeProducts(new_category_id, request)
             updated = ProductService.attachDisplayData(dict(updated), request)
             return successResponse("Product updated successfully.", data=updated)
 
@@ -668,9 +676,32 @@ class ProductService:
 
     @staticmethod
     def delete(data, request):
-        count = commonQuery.softDeleteById(Product, data.get("ids"), request=request, tenant_config=True)
+        ids = data.get("ids")
+        if not isinstance(ids, list):
+            ids = [ids]
+        products = list(
+            Product.objects.filter(
+                id__in=ids,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            )
+            .exclude(status=2)
+            .values("id", "category_id")
+        )
+        affected_category_ids = list({product["category_id"] for product in products if product.get("category_id")})
+        for product in products:
+            ProductSubItem.objects.filter(parent_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            ProductSubItem.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            ProductGallery.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            ProductTax.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            ProductUnitQuantity.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            ProductHistoryCombined.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+            ProductHistory.objects.filter(product_id=product["id"], company_id=request.user.company_id, branch_id=request.user.branch_id).delete()
+        count = commonQuery.softDeleteById(Product, ids, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        for category_id in affected_category_ids:
+            CategoryService.computeProducts(category_id, request)
         return successResponse("Products deleted successfully.")
 
     @staticmethod

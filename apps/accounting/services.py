@@ -564,6 +564,50 @@ class AccountingService:
         return successResponse("Accounting reflection deleted successfully.", data={"deleted_count": deleted_count})
 
     @staticmethod
+    def deleteOrderTransactionsHistory(sale_order_id, request):
+        histories = TransactionHistory.objects.filter(
+            order_id=sale_order_id,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            is_reflection=False,
+        )
+        reflection_source_ids = list(histories.values_list("id", flat=True))
+        reflection_count = 0
+        if reflection_source_ids:
+            reflection_count = TransactionHistory.objects.filter(
+                reflection_source_id__in=reflection_source_ids,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            ).delete()[0]
+        deleted_count = histories.delete()[0]
+        return successResponse(
+            "Order transaction history deleted successfully.",
+            data={"deleted_count": deleted_count, "reflection_deleted_count": reflection_count},
+        )
+
+    @staticmethod
+    def deleteProcurementTransactions(procurement_id, request):
+        histories = TransactionHistory.objects.filter(
+            procurement_id=procurement_id,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+            is_reflection=False,
+        )
+        reflection_source_ids = list(histories.values_list("id", flat=True))
+        reflection_count = 0
+        if reflection_source_ids:
+            reflection_count = TransactionHistory.objects.filter(
+                reflection_source_id__in=reflection_source_ids,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            ).delete()[0]
+        deleted_count = histories.delete()[0]
+        return successResponse(
+            "Procurement transaction history deleted successfully.",
+            data={"deleted_count": deleted_count, "reflection_deleted_count": reflection_count},
+        )
+
+    @staticmethod
     def recordRefundShipping(return_order_id, request):
         from apps.sales.models import Order, OrdersRefund
 
@@ -1152,6 +1196,14 @@ class TransactionService:
             ),
             "record_refund_shipping_transaction": lambda data, job: AccountingService.recordRefundShipping(
                 data.get("return_order_id") or data.get("refund_id") or data.get("order_refund_id"),
+                TransactionService.requestFromJob(job),
+            ),
+            "delete_order_transactions_history": lambda data, job: AccountingService.deleteOrderTransactionsHistory(
+                data.get("sale_order_id") or data.get("order_id"),
+                TransactionService.requestFromJob(job),
+            ),
+            "delete_procurement_transactions": lambda data, job: AccountingService.deleteProcurementTransactions(
+                data.get("procurement_id") or data.get("order_id"),
                 TransactionService.requestFromJob(job),
             ),
             "prepare_transaction_history": lambda data, job: TransactionService.prepareTransactionHistory(

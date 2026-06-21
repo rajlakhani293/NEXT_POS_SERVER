@@ -946,6 +946,9 @@ class ReportService:
     def jobHandlers():
         return {
             "ensure_combined_product_history": lambda data, job: ReportService.recomputeStockCombined(data, ReportService.requestFromJob(job)),
+            "initialize_daily_report": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
+            "compute_day_report": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
+            "refresh_report": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "compute_dashboard_day": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "compute_dashboard_month": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "detect_low_stock_products": lambda data, job: ReportService.detectLowStockProducts(data or {}, ReportService.requestFromJob(job)),

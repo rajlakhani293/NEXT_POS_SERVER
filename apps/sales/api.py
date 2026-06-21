@@ -3,6 +3,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
+from apps.common.schemas import BulkIdsSchema
 from apps.sales.schemas import (
     InstallmentPayIn,
     OrderInstalmentUpdateIn,
@@ -37,6 +38,12 @@ def holdSale(request, payload: SaleHoldIn):
 @permission_required("sales_view")
 def listSales(request, payload: SaleListIn):
     return SaleService.listSales(payload.dict(), request)
+
+
+@router.delete("/delete", response=ApiResponse)
+@permission_required("sales_delete")
+def deleteSales(request, payload: BulkIdsSchema):
+    return SaleService.delete(payload.dict(), request)
 
 
 @router.post("/drafts/get-transactions", response=ApiResponse)

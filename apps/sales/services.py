@@ -35,12 +35,14 @@ from apps.settings.services import OptionSettingService, PaymentTypeService
 from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
 from apps.registers.models import Register, RegistersHistory
 from apps.registers.services import RegisterService
+from apps.reports.services import ReportService
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
     OrderInstalment,
     OrderStorage,
     OrderPayment,
     OrderSetting,
+    OrderTax,
     OrdersProductsRefund,
     OrdersRefund,
     OrdersProduct,
@@ -2058,6 +2060,10 @@ class SaleService:
                 data.get("sale_order_id") or data.get("order_id"),
                 SaleService.requestFromJob(job),
             ),
+            "delete_sales": lambda data, job: SaleService.delete(
+                {"ids": data.get("ids") or data.get("sale_order_ids") or data.get("order_ids") or data.get("sale_order_id") or data.get("order_id")},
+                SaleService.requestFromJob(job),
+            ),
             "increase_cashier_stats": lambda data, job: SaleService.increaseCashierStats(
                 data.get("sale_order_id") or data.get("order_id"),
                 SaleService.requestFromJob(job),
@@ -2326,6 +2332,81 @@ class SaleService:
             )
             DomainActionService.afterSaleVoided(sale_order, request)
             return successResponse("Sale voided successfully.", data=updated)
+
+    @staticmethod
+    def delete(data, request):
+        ids = data.get("ids")
+        if not isinstance(ids, list):
+            ids = [ids]
+        deleted_count = 0
+        for sale_order_id in ids:
+            with transaction.atomic():
+                sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+                if sale_order is None:
+                    continue
+
+                AccountingService.deleteOrderTransactionsHistory(sale_order_id, request)
+                OrderSetting.objects.filter(
+                    sale_order_id=sale_order_id,
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                ).delete()
+
+                if sale_order.get("payment_status") != "void":
+                    sale_items = commonQuery.findAllRecords(
+                        OrdersProduct,
+                        {"sale_order_id": sale_order_id},
+                        {
+                            "attributes": [
+                                "id",
+                                "product_id",
+                                "unit_id",
+                                "quantity",
+                                "unit_price",
+                                "total",
+                                "item_status",
+                            ]
+                        },
+                        request=request,
+                        tenant_config=True,
+                    )
+                    for item in sale_items:
+                        if item.get("product_id") and sale_order.get("payment_status") in [
+                            "paid",
+                            "partially_paid",
+                            "unpaid",
+                            "partially_refunded",
+                        ]:
+                            ProductStockService.recordStockHistory(
+                                ProductHistory.ACTION_RETURNED,
+                                {
+                                    "product_id": item["product_id"],
+                                    "order_id": sale_order_id,
+                                    "order_product_id": item["id"],
+                                    "quantity": item.get("quantity"),
+                                    "unit_id": item.get("unit_id"),
+                                    "unit_price": item.get("unit_price") or 0,
+                                    "total_price": item.get("total") or 0,
+                                    "description": f"Sale deleted {sale_order.get('code')}",
+                                },
+                                request,
+                            )
+
+                OrdersProduct.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
+                OrderPayment.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
+                OrderTax.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
+                OrdersCoupon.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
+                OrderInstalment.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, sale_order_id=sale_order_id).delete()
+                RegisterService.deleteRegisterHistoryUsingOrder(sale_order_id, request)
+                SaleService.uncountDeletedOrderForCashier(sale_order_id, request)
+                SaleService.uncountDeletedOrderForCustomer(sale_order_id, request)
+                count = commonQuery.softDeleteById(Order, sale_order_id, request=request, tenant_config=True)
+                deleted_count += count
+                ReportService.recomputeDashboardRange({}, request)
+
+        if deleted_count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        return successResponse("Sales deleted successfully.", data={"deleted_count": deleted_count})
 
     @staticmethod
     def collectDue(sale_order_id, data, request):

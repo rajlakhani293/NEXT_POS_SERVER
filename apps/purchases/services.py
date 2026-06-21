@@ -103,6 +103,36 @@ class SupplierService:
         return successResponse("Provider retrieved successfully.", data=provider)
 
     @staticmethod
+    def computeSummary(provider_id, request):
+        provider = commonQuery.findOneRecord(Provider, provider_id, request=request, tenant_config=True)
+        if provider is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
+        rows = Procurement.objects.filter(
+            provider_id=provider_id,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).exclude(status=2)
+        amount_paid = Decimal("0")
+        amount_due = Decimal("0")
+        for row in rows.values("value", "payment_status"):
+            value = money(row.get("value"))
+            if row.get("payment_status") == "paid":
+                amount_paid += value
+            else:
+                amount_due += value
+        updated = commonQuery.updateRecordById(
+            Provider,
+            provider_id,
+            {"amount_paid": amount_paid, "amount_due": amount_due},
+            request=request,
+            tenant_config=True,
+        )
+        if updated:
+            updated["name"] = SupplierService.displayName(updated)
+            updated["payable_amount"] = updated.get("amount_due")
+        return successResponse("Provider summary computed successfully.", data=updated)
+
+    @staticmethod
     def update(supplier_id, data, request):
         if data.get("email"):
             validateUniqueFields(
@@ -354,6 +384,7 @@ class PurchaseOrderService:
                 reference_number=procurement.get("invoice_reference") or procurement["name"],
                 request=request,
             )
+            SupplierService.computeSummary(provider["id"], request)
             procurement["products"] = created_products
             procurement["items"] = created_products
             return successResponse("Procurement created successfully.", data=procurement)
@@ -453,6 +484,10 @@ class PurchaseOrderService:
         updated = commonQuery.updateRecordById(Procurement, order_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+        if procurement.get("provider_id"):
+            SupplierService.computeSummary(procurement["provider_id"], request)
+        if updated.get("provider_id") and updated.get("provider_id") != procurement.get("provider_id"):
+            SupplierService.computeSummary(updated["provider_id"], request)
         return successResponse("Procurement updated successfully.", data=updated)
 
     @staticmethod
@@ -771,9 +806,66 @@ class PurchaseOrderService:
 
     @staticmethod
     def delete(data, request):
-        count = commonQuery.softDeleteById(Procurement, data.get("ids"), request=request, tenant_config=True)
+        ids = data.get("ids")
+        if not isinstance(ids, list):
+            ids = [ids]
+        procurements = list(
+            Procurement.objects.filter(
+                id__in=ids,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            )
+            .exclude(status=2)
+            .values("id", "name", "provider_id", "delivery_status")
+        )
+        for procurement in procurements:
+            products = commonQuery.findAllRecords(
+                ProcurementsProduct,
+                {"procurement_id": procurement["id"]},
+                {
+                    "attributes": [
+                        "id",
+                        "product_id",
+                        "quantity",
+                        "available_quantity",
+                        "unit_id",
+                        "purchase_price",
+                        "total_purchase_price",
+                    ]
+                },
+                request=request,
+                tenant_config=True,
+            )
+            for item in products:
+                if procurement.get("delivery_status") == "stocked":
+                    ProductStockService.recordStockHistory(
+                        ProductHistory.ACTION_DELETED,
+                        {
+                            "product_id": item["product_id"],
+                            "procurement_id": procurement["id"],
+                            "procurement_product_id": item["id"],
+                            "quantity": item.get("quantity"),
+                            "unit_id": item["unit_id"],
+                            "unit_price": item.get("purchase_price") or 0,
+                            "total_price": item.get("total_purchase_price") or 0,
+                            "description": f"Procurement deleted {procurement['name']}",
+                        },
+                        request,
+                    )
+                elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement cannot be deleted. Please use stock adjustment.")
+            ProcurementsProduct.objects.filter(
+                procurement_id=procurement["id"],
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            ).delete()
+            AccountingService.deleteProcurementTransactions(procurement["id"], request)
+
+        count = commonQuery.softDeleteById(Procurement, ids, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+        for provider_id in {procurement["provider_id"] for procurement in procurements if procurement.get("provider_id")}:
+            SupplierService.computeSummary(provider_id, request)
         return successResponse("Procurements deleted successfully.")
 
     @staticmethod
@@ -784,6 +876,10 @@ class PurchaseOrderService:
                 PurchaseOrderService.requestFromJob(job),
             ),
             "stock_awaiting_procurements": lambda data, job: PurchaseOrderService.stockAwaitingProcurements(
+                PurchaseOrderService.requestFromJob(job),
+            ),
+            "compute_provider_summary": lambda data, job: SupplierService.computeSummary(
+                data.get("provider_id") or data.get("supplier_id"),
                 PurchaseOrderService.requestFromJob(job),
             ),
         }
