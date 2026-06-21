@@ -27,3 +27,21 @@ class RegisterStatusIn(Schema):
     action: Literal["open", "close"]
     amount: Decimal = Decimal("0")
     note: Optional[str] = None
+
+
+class ShiftOpenIn(Schema):
+    register_id: int
+    amount: Decimal = Decimal("0")
+    note: Optional[str] = None
+
+
+class ShiftCloseIn(Schema):
+    shift_id: int
+    declared_cash: Decimal = Decimal("0")
+    note: Optional[str] = None
+
+
+class ShiftMoneyActionIn(Schema):
+    shift_id: int
+    amount: Decimal = Decimal("0")
+    note: Optional[str] = None

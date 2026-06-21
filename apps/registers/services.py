@@ -379,3 +379,247 @@ class RegisterService:
                 RegisterService.requestFromJob(job),
             ),
         }
+
+    @staticmethod
+    def getCurrentShift(request):
+        register = commonQuery.findOneInstance(
+            Register,
+            {"used_by_id": request.user.id, "register_status": Register.STATUS_OPENED},
+            request=request,
+            tenant_config=True,
+        )
+        if not register:
+            return successResponse("No active register shift found.", data=None)
+
+        last_opening = (
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {"register_id": register.id, "entry_type": RegistersHistory.ACTION_OPENING},
+                request,
+            )
+            .exclude(status=2)
+            .order_by("-id")
+            .first()
+        )
+        opened_at = last_opening.created_at if last_opening else register.created_at
+        opening_cash = last_opening.amount if last_opening else 0
+
+        return successResponse(
+            "Current active shift retrieved.",
+            data={
+                "id": register.id,
+                "register_id": register.id,
+                "register_name": register.name,
+                "cashier_name": request.user.full_name or request.user.username,
+                "shift_status": "active",
+                "opened_at": opened_at,
+                "opening_cash": float(opening_cash),
+                "expected_cash": float(register.balance),
+                "declared_cash": None,
+                "difference_amount": 0,
+            },
+        )
+
+    @staticmethod
+    def getShiftsData(data, request):
+        register_id = (data or {}).get("filter", {}).get("register_id")
+        if not register_id:
+            register_id = (data or {}).get("register_id")
+        if not register_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "register_id is required.")
+
+        openings_qs = commonQuery.branchScopedQueryset(
+            RegistersHistory,
+            {"register_id": register_id, "entry_type": RegistersHistory.ACTION_OPENING},
+            request,
+        ).exclude(status=2).order_by("-created_at")
+
+        page = max(int((data or {}).get("page", 1)), 1)
+        limit = int((data or {}).get("limit", 10))
+        offset = (page - 1) * limit
+
+        total_shifts = openings_qs.count()
+        paginated_openings = openings_qs[offset : offset + limit]
+
+        shifts = []
+        for opening in paginated_openings:
+            closing = (
+                commonQuery.branchScopedQueryset(
+                    RegistersHistory,
+                    {
+                        "register_id": register_id,
+                        "entry_type": RegistersHistory.ACTION_CLOSING,
+                        "created_at__gt": opening.created_at,
+                    },
+                    request,
+                )
+                .exclude(status=2)
+                .order_by("created_at")
+                .first()
+            )
+
+            if closing:
+                status = "closed"
+                closed_at = closing.created_at
+                declared_cash = closing.amount
+                expected_cash = closing.balance_before
+                difference_amount = closing.amount - closing.balance_before
+            else:
+                status = "active"
+                closed_at = None
+                declared_cash = None
+                reg = Register.objects.filter(id=register_id).first()
+                expected_cash = reg.balance if reg else 0
+                difference_amount = 0
+
+            shifts.append(
+                {
+                    "id": opening.id,
+                    "cashier_name": opening.user.full_name or opening.user.username if opening.user else "System",
+                    "shift_status": status,
+                    "opened_at": opening.created_at,
+                    "closed_at": closed_at,
+                    "opening_cash": float(opening.amount),
+                    "expected_cash": float(expected_cash),
+                    "declared_cash": float(declared_cash) if declared_cash is not None else None,
+                    "difference_amount": float(difference_amount),
+                }
+            )
+
+        return successResponse(
+            "Register shifts retrieved successfully.",
+            data={
+                "items": shifts,
+                "total": total_shifts,
+                "currentPage": page,
+                "pageSize": limit,
+                "totalPages": (total_shifts + (limit - 1)) // limit if limit else 1,
+                "hasNextPage": (offset + limit) < total_shifts,
+                "hasPreviousPage": page > 1,
+                "register": RegisterService._serialize(RegisterService._getRegister(register_id, request)),
+            },
+        )
+
+    @staticmethod
+    def getShiftById(shift_id, request):
+        opening = (
+            commonQuery.branchScopedQueryset(RegistersHistory, {"id": shift_id}, request)
+            .exclude(status=2)
+            .first()
+        )
+        if not opening or opening.entry_type != RegistersHistory.ACTION_OPENING:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Shift not found.")
+
+        register_id = opening.register_id
+
+        closing = (
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {
+                    "register_id": register_id,
+                    "entry_type": RegistersHistory.ACTION_CLOSING,
+                    "created_at__gt": opening.created_at,
+                },
+                request,
+            )
+            .exclude(status=2)
+            .order_by("created_at")
+            .first()
+        )
+
+        if closing:
+            status = "closed"
+            closed_at = closing.created_at
+            declared_cash = closing.amount
+            expected_cash = closing.balance_before
+            difference_amount = closing.amount - closing.balance_before
+            entries_qs = commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {
+                    "register_id": register_id,
+                    "created_at__gte": opening.created_at,
+                    "created_at__lte": closing.created_at,
+                },
+                request,
+            ).exclude(status=2).order_by("created_at")
+        else:
+            status = "active"
+            closed_at = None
+            declared_cash = None
+            reg = Register.objects.filter(id=register_id).first()
+            expected_cash = reg.balance if reg else 0
+            difference_amount = 0
+            entries_qs = commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {
+                    "register_id": register_id,
+                    "created_at__gte": opening.created_at,
+                },
+                request,
+            ).exclude(status=2).order_by("created_at")
+
+        entries = []
+        for entry in entries_qs:
+            payment_type = "Cash"
+            if entry.entry_type == RegistersHistory.ACTION_ORDER_PAYMENT and entry.payment_id:
+                from apps.sales.models import OrderPayment
+
+                pmt = OrderPayment.objects.filter(id=entry.payment_id).first()
+                if pmt:
+                    payment_type = pmt.identifier.replace("-payment", "").title()
+
+            entries.append(
+                {
+                    "id": entry.id,
+                    "entry_type": entry.get_entry_type_display(),
+                    "payment_type": payment_type,
+                    "amount": float(entry.amount),
+                    "balance_before": float(entry.balance_before),
+                    "balance_after": float(entry.balance_after),
+                    "reference_type": entry.entry_type,
+                    "note": entry.note or "",
+                    "created_at": entry.created_at,
+                }
+            )
+
+        totals_by_type = []
+        from django.db.models import Sum
+
+        summed = entries_qs.values("entry_type").annotate(total=Sum("amount"))
+        for item in summed:
+            totals_by_type.append(
+                {
+                    "entry_type": item["entry_type"].replace("-", "_").replace("register_", ""),
+                    "total": float(item["total"] or 0),
+                }
+            )
+
+        sales_collected = entries_qs.filter(entry_type=RegistersHistory.ACTION_ORDER_PAYMENT).aggregate(total=Sum("amount"))["total"] or 0
+        refund_out = entries_qs.filter(entry_type=RegistersHistory.ACTION_REFUND).aggregate(total=Sum("amount"))["total"] or 0
+        cash_in = entries_qs.filter(entry_type=RegistersHistory.ACTION_CASHING).aggregate(total=Sum("amount"))["total"] or 0
+        cash_out = entries_qs.filter(entry_type=RegistersHistory.ACTION_CASHOUT).aggregate(total=Sum("amount"))["total"] or 0
+
+        return successResponse(
+            "Shift details retrieved.",
+            data={
+                "id": opening.id,
+                "register_name": opening.register.name,
+                "cashier_name": opening.user.full_name or opening.user.username if opening.user else "System",
+                "shift_status": status,
+                "opened_at": opening.created_at,
+                "closed_at": closed_at,
+                "entry_count": len(entries),
+                "z_report": {
+                    "opening_cash": float(opening.amount),
+                    "expected_cash": float(expected_cash),
+                    "declared_cash": float(declared_cash) if declared_cash is not None else None,
+                    "difference_amount": float(difference_amount),
+                    "sales_collected": float(sales_collected),
+                    "refund_out": float(refund_out),
+                    "cash_in": float(cash_in),
+                    "cash_out": float(cash_out),
+                    "totals_by_type": totals_by_type,
+                },
+                "entries": entries,
+            },
+        )

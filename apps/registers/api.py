@@ -9,6 +9,9 @@ from apps.registers.schemas import (
     CashRegisterUpdateIn,
     RegisterMoneyActionIn,
     RegisterStatusIn,
+    ShiftOpenIn,
+    ShiftCloseIn,
+    ShiftMoneyActionIn,
 )
 from apps.registers.services import RegisterService
 
@@ -89,3 +92,61 @@ def getRegisterById(request, register_id: int):
 @permission_required("cash_register_close")
 def updateRegister(request, register_id: int, payload: CashRegisterUpdateIn):
     return RegisterService.update(register_id, payload.dict(exclude_none=True), request)
+
+
+@router.get("/shifts/current", response=ApiResponse)
+@permission_required("cash_register_view")
+def getCurrentShift(request):
+    return RegisterService.getCurrentShift(request)
+
+
+@router.post("/shifts/open", response=ApiResponse)
+@permission_required("cash_register_open")
+def openShift(request, payload: ShiftOpenIn):
+    return RegisterService.openRegister({
+        "register_id": payload.register_id,
+        "amount": payload.amount,
+        "note": payload.note or "Register opening",
+    }, request)
+
+
+@router.post("/shifts/close", response=ApiResponse)
+@permission_required("cash_register_close")
+def closeShift(request, payload: ShiftCloseIn):
+    return RegisterService.closeRegister({
+        "register_id": payload.shift_id,
+        "amount": payload.declared_cash,
+        "note": payload.note or "Register closing",
+    }, request)
+
+
+@router.post("/shifts/cash-in", response=ApiResponse)
+@permission_required("cash_register_open")
+def cashInShift(request, payload: ShiftMoneyActionIn):
+    return RegisterService.cashIn({
+        "register_id": payload.shift_id,
+        "amount": payload.amount,
+        "note": payload.note or "Cash in",
+    }, request)
+
+
+@router.post("/shifts/cash-out", response=ApiResponse)
+@permission_required("cash_register_close")
+def cashOutShift(request, payload: ShiftMoneyActionIn):
+    return RegisterService.cashOut({
+        "register_id": payload.shift_id,
+        "amount": payload.amount,
+        "note": payload.note or "Cash out",
+    }, request)
+
+
+@router.post("/shifts/get-transactions", response=ApiResponse)
+@permission_required("cash_register_view")
+def getShiftsData(request, payload: dict = None):
+    return RegisterService.getShiftsData(payload, request)
+
+
+@router.get("/shifts/{shift_id}", response=ApiResponse)
+@permission_required("cash_register_view")
+def getShiftById(request, shift_id: int):
+    return RegisterService.getShiftById(shift_id, request)
