@@ -35,9 +35,21 @@ def customerDue(request, payload: Optional[dict] = None):
     return ReportService.customerDue(payload, request)
 
 
+@router.post("/provider-payable", response=ApiResponse)
+@permission_required("reports_view")
+def providerPayable(request, payload: Optional[dict] = None):
+    return ReportService.supplierPayable(payload, request)
+
+
+@router.post("/supplier-payable", response=ApiResponse)
+@permission_required("reports_view")
+def supplierPayableAlias(request, payload: Optional[dict] = None):
+    return ReportService.supplierPayable(payload, request)
+
+
 @router.post("/Provider-payable", response=ApiResponse)
 @permission_required("reports_view")
-def supplierPayable(request, payload: Optional[dict] = None):
+def providerPayableLegacy(request, payload: Optional[dict] = None):
     return ReportService.supplierPayable(payload, request)
 
 
