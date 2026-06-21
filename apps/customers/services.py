@@ -43,38 +43,42 @@ def buildUniqueCustomerUsername(data):
     ) or "customer"
     username = base
     counter = 1
-    while User.objects.filter(username=username).exists():
+    while commonQuery.existsRecord(User, {"username": username}, tenant_config={}):
         counter += 1
         username = f"{base}-{counter}"
     return username
 
 
 def getOrCreateCustomerRole(request):
-    company_id = getattr(request.user, "company_id", None)
-    branch_id = getattr(request.user, "branch_id", None)
-    role = Role.objects.filter(company_id=company_id, branch_id=branch_id, namespace=CUSTOMER_ROLE_CODE).first()
-    if role:
-        return role
-    return Role.objects.create(
-        company_id=company_id,
-        branch_id=branch_id,
-        user_id=getattr(request.user, "id", None),
-        name="Store Customer",
-        namespace=CUSTOMER_ROLE_CODE,
-        locked=True,
-        description="Customer account used for POS orders, rewards, coupons, and account history.",
+    role, _created = commonQuery.getOrCreateRecord(
+        Role,
+        {"namespace": CUSTOMER_ROLE_CODE},
+        defaults={
+            "name": "Store Customer",
+            "locked": True,
+            "description": "Customer account used for POS orders, rewards, coupons, and account history.",
+        },
+        request=request,
+        tenant_config=True,
+        return_plain=False,
     )
+    return role
 
 
 def assignCustomerRole(user, role):
-    relation, _created = UserRoleRelation.objects.get_or_create(
-        user_id=user.id,
-        role_id=role.id,
+    relation, _created = commonQuery.getOrCreateRecord(
+        UserRoleRelation,
+        {
+            "user_id": user.id,
+            "role_id": role.id,
+        },
         defaults={
             "company_id": user.company_id,
             "branch_id": user.branch_id,
             "status": 0,
         },
+        tenant_config={},
+        return_plain=False,
     )
     if relation.status != 0:
         relation.status = 0
@@ -461,25 +465,20 @@ class CustomerAccountService:
 
         with transaction.atomic():
             customer = (
-                Customer.objects.select_for_update()
-                .filter(
-                    id=customer_id,
-                    company_id=getattr(request.user, "company_id", None),
-                    branch_id=getattr(request.user, "branch_id", None),
-                )
+                commonQuery.branchScopedQueryset(Customer, {"id": customer_id}, request)
+                .select_for_update()
                 .first()
             )
             if customer is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
 
             latest_history = (
-                CustomerAccountHistory.objects.select_for_update()
-                .filter(
-                    customer_id=customer_id,
-                    company_id=getattr(request.user, "company_id", None),
-                    branch_id=getattr(request.user, "branch_id", None),
-                    status=0,
+                commonQuery.branchScopedQueryset(
+                    CustomerAccountHistory,
+                    {"customer_id": customer_id, "status": 0},
+                    request,
                 )
+                .select_for_update()
                 .order_by("-id")
                 .first()
             )
@@ -520,13 +519,8 @@ class CustomerAccountService:
         if not payment_id:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment ID is required.")
         payment = (
-            OrderPayment.objects.select_related("sale_order")
-            .filter(
-                id=payment_id,
-                company_id=getattr(request.user, "company_id", None),
-                branch_id=getattr(request.user, "branch_id", None),
-                status=0,
-            )
+            commonQuery.branchScopedQueryset(OrderPayment, {"id": payment_id, "status": 0}, request)
+            .select_related("sale_order")
             .first()
         )
         if payment is None:
@@ -537,14 +531,16 @@ class CustomerAccountService:
         if not sale_order.customer_id:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required for account payment.")
 
-        existing = CustomerAccountHistory.objects.filter(
-            customer_id=sale_order.customer_id,
-            order_id=sale_order.id,
-            operation="payment",
-            amount=payment.value,
-            company_id=getattr(request.user, "company_id", None),
-            branch_id=getattr(request.user, "branch_id", None),
-            status=0,
+        existing = commonQuery.branchScopedQueryset(
+            CustomerAccountHistory,
+            {
+                "customer_id": sale_order.customer_id,
+                "order_id": sale_order.id,
+                "operation": "payment",
+                "amount": payment.value,
+                "status": 0,
+            },
+            request,
         ).first()
         if existing:
             return successResponse("Customer account payment history already exists.", data={"id": existing.id})
