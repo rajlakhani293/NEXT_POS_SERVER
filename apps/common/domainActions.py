@@ -94,19 +94,6 @@ class DomainActionService:
 
     @staticmethod
     def afterSaleRefunded(sale_order, return_order, request):
-        from apps.accounts.models import User
-        from apps.customers.models import Customer
         from apps.reports.services import ReportService
 
-        refund_total = DomainActionService._money(return_order.get("total"))
-        cashier_id = sale_order.get("user_id") or request.user.id
-        cashier = User.objects.filter(id=cashier_id).first()
-        if cashier:
-            cashier.total_sales = max(DomainActionService._money(cashier.total_sales) - refund_total, Decimal("0"))
-            cashier.save(update_fields=["total_sales"])
-        if sale_order.get("customer_id"):
-            customer = Customer.objects.filter(id=sale_order["customer_id"]).first()
-            if customer:
-                customer.purchases_amount = max(DomainActionService._money(customer.purchases_amount) - refund_total, Decimal("0"))
-                customer.save(update_fields=["purchases_amount"])
         ReportService.refreshDashboardSnapshot({}, request)

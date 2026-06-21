@@ -586,3 +586,28 @@ class CustomerRewardService:
                     "issued_coupon": customer_coupon,
                 },
             )
+
+    @staticmethod
+    def jobHandlers():
+        return {
+            "process_sale_reward": lambda data, job: CustomerRewardService.earnFromSale(
+                data or {},
+                CustomerRewardService.requestFromJob(job),
+            ),
+            "apply_customer_reward": lambda data, job: CustomerRewardService.earnFromSale(
+                data or {},
+                CustomerRewardService.requestFromJob(job),
+            ),
+            "redeem_customer_reward": lambda data, job: CustomerRewardService.redeem(
+                data or {},
+                CustomerRewardService.requestFromJob(job),
+            ),
+        }
+
+    @staticmethod
+    def requestFromJob(job):
+        from types import SimpleNamespace
+        from apps.accounts.models import User
+
+        user = User.objects.select_related("company", "branch").get(id=job.user_id)
+        return SimpleNamespace(user=user)

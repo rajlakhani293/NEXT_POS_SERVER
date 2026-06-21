@@ -44,6 +44,7 @@ def runNextJob(request):
     from apps.purchases.services import PurchaseOrderService
     from apps.registers.services import RegisterService
     from apps.reports.services import ReportService
+    from apps.rewards.services import CustomerRewardService
     from apps.sales.services import SaleService
 
     handlers = {}
@@ -54,6 +55,7 @@ def runNextJob(request):
     handlers.update(PurchaseOrderService.jobHandlers())
     handlers.update(RegisterService.jobHandlers())
     handlers.update(ReportService.jobHandlers())
+    handlers.update(CustomerRewardService.jobHandlers())
     handlers.update(SaleService.jobHandlers())
     result = JobQueueService.runNext(handlers)
     return successResponse("Job processed successfully." if result else "No pending job found.", data=result)

@@ -317,9 +317,17 @@ class CustomerService:
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        if not isinstance(ids, list):
+            ids = [ids]
+        CustomerAddress.objects.filter(
+            customer_id__in=ids,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).delete()
         count = commonQuery.softDeleteById(
             Customer,
-            data.get("ids"),
+            ids,
             request=request,
             tenant_config=True,
         )

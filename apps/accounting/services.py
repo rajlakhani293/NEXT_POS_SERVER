@@ -555,13 +555,51 @@ class AccountingService:
             branch_id=request.user.branch_id,
             reflection_source_id=history["id"],
         ).exclude(status=2)
-        reflection_dates = list(reflections.values_list("trigger_date", flat=True))
-        deleted_count = reflections.delete()[0]
-        if deleted_count:
-            target_date = next((value for value in reflection_dates if value), history.get("trigger_date") or timezone.now())
-            target_date = normalizeTransactionDate(target_date).date().isoformat()
-            AccountingService.recomputeBalances(target_date, target_date, request)
-        return successResponse("Accounting reflection deleted successfully.", data={"deleted_count": deleted_count})
+        delete_result = AccountingService.deleteHistoriesAndTransactions(reflections, request)
+        return successResponse(
+            "Accounting reflection deleted successfully.",
+            data={
+                "deleted_count": delete_result["history_deleted_count"],
+                "transaction_deleted_count": delete_result["transaction_deleted_count"],
+            },
+        )
+
+    @staticmethod
+    def deleteHistoriesAndTransactions(histories, request):
+        history_rows = list(histories.values("id", "transaction_id", "trigger_date"))
+        if not history_rows:
+            return {"history_deleted_count": 0, "transaction_deleted_count": 0}
+
+        history_ids = [row["id"] for row in history_rows]
+        transaction_ids = [row["transaction_id"] for row in history_rows if row.get("transaction_id")]
+        trigger_dates = [row["trigger_date"] for row in history_rows if row.get("trigger_date")]
+
+        deleted_count = TransactionHistory.objects.filter(
+            id__in=history_ids,
+            company_id=request.user.company_id,
+            branch_id=request.user.branch_id,
+        ).delete()[0]
+
+        transaction_deleted_count = 0
+        if transaction_ids:
+            transaction_deleted_count = Transaction.objects.filter(
+                id__in=transaction_ids,
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+            ).delete()[0]
+
+        if trigger_dates:
+            parsed_dates = [normalizeTransactionDate(value).date() for value in trigger_dates]
+            AccountingService.recomputeBalances(
+                min(parsed_dates).isoformat(),
+                max(parsed_dates).isoformat(),
+                request,
+            )
+
+        return {
+            "history_deleted_count": deleted_count,
+            "transaction_deleted_count": transaction_deleted_count,
+        }
 
     @staticmethod
     def deleteOrderTransactionsHistory(sale_order_id, request):
@@ -572,17 +610,23 @@ class AccountingService:
             is_reflection=False,
         )
         reflection_source_ids = list(histories.values_list("id", flat=True))
-        reflection_count = 0
+        reflection_result = {"history_deleted_count": 0, "transaction_deleted_count": 0}
         if reflection_source_ids:
-            reflection_count = TransactionHistory.objects.filter(
+            reflections = TransactionHistory.objects.filter(
                 reflection_source_id__in=reflection_source_ids,
                 company_id=request.user.company_id,
                 branch_id=request.user.branch_id,
-            ).delete()[0]
-        deleted_count = histories.delete()[0]
+            )
+            reflection_result = AccountingService.deleteHistoriesAndTransactions(reflections, request)
+        delete_result = AccountingService.deleteHistoriesAndTransactions(histories, request)
         return successResponse(
             "Order transaction history deleted successfully.",
-            data={"deleted_count": deleted_count, "reflection_deleted_count": reflection_count},
+            data={
+                "deleted_count": delete_result["history_deleted_count"],
+                "transaction_deleted_count": delete_result["transaction_deleted_count"],
+                "reflection_deleted_count": reflection_result["history_deleted_count"],
+                "reflection_transaction_deleted_count": reflection_result["transaction_deleted_count"],
+            },
         )
 
     @staticmethod
@@ -594,17 +638,23 @@ class AccountingService:
             is_reflection=False,
         )
         reflection_source_ids = list(histories.values_list("id", flat=True))
-        reflection_count = 0
+        reflection_result = {"history_deleted_count": 0, "transaction_deleted_count": 0}
         if reflection_source_ids:
-            reflection_count = TransactionHistory.objects.filter(
+            reflections = TransactionHistory.objects.filter(
                 reflection_source_id__in=reflection_source_ids,
                 company_id=request.user.company_id,
                 branch_id=request.user.branch_id,
-            ).delete()[0]
-        deleted_count = histories.delete()[0]
+            )
+            reflection_result = AccountingService.deleteHistoriesAndTransactions(reflections, request)
+        delete_result = AccountingService.deleteHistoriesAndTransactions(histories, request)
         return successResponse(
             "Procurement transaction history deleted successfully.",
-            data={"deleted_count": deleted_count, "reflection_deleted_count": reflection_count},
+            data={
+                "deleted_count": delete_result["history_deleted_count"],
+                "transaction_deleted_count": delete_result["transaction_deleted_count"],
+                "reflection_deleted_count": reflection_result["history_deleted_count"],
+                "reflection_transaction_deleted_count": reflection_result["transaction_deleted_count"],
+            },
         )
 
     @staticmethod
