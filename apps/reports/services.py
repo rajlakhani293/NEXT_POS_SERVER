@@ -103,7 +103,8 @@ class ReportService:
     def dashboardSummary(data, request):
         base = tenantFilter(request)
         sale_filters = {**base, **dateFilter("created_at", data)}
-        zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
+        zero = Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5))
+        zero_float = Value(0.0, output_field=FloatField())
         sales = Order.objects.filter(**sale_filters).aggregate(
             total_sales=Coalesce(Sum("total"), zero),
             total_paid=Coalesce(Sum("tendered_amount"), zero),
@@ -120,8 +121,8 @@ class ReportService:
             total_discount=Coalesce(Sum("discount_amount"), zero),
         )
         purchases = Procurement.objects.filter(**base).aggregate(
-            total_purchase=Coalesce(Sum("value"), zero),
-            total_purchase_due=Coalesce(Sum("value", filter=Q(payment_status="unpaid")), zero),
+            total_purchase=Coalesce(Sum("value"), zero_float, output_field=FloatField()),
+            total_purchase_due=Coalesce(Sum("value", filter=Q(payment_status="unpaid")), zero_float, output_field=FloatField()),
             purchase_count=Count("id"),
         )
         expenses = {
@@ -133,7 +134,7 @@ class ReportService:
             customer_count=Count("id"),
         )
         suppliers = Provider.objects.filter(**base).aggregate(
-            total_supplier_payable=Coalesce(Sum("amount_due"), zero),
+            total_supplier_payable=Coalesce(Sum("amount_due"), zero_float, output_field=FloatField()),
             supplier_count=Count("id"),
         )
         best_customers = list(

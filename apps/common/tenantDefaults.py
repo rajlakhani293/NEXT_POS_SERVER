@@ -222,7 +222,7 @@ def decodeOptionValue(option):
     return option.value
 
 
-def ensureOptionValue(company, branch, key, value, user=None):
+def ensureOptionValue(company, branch, key, value, user=None, overwrite=True):
     encoded_value, is_array = encodeOptionValue(value)
     option, _created = Option.objects.get_or_create(
         company=company,
@@ -238,7 +238,8 @@ def ensureOptionValue(company, branch, key, value, user=None):
     if user and option.user_id is None:
         option.user = user
         update_fields.append("user")
-    if option.value != encoded_value or option.array != is_array:
+    should_update_value = overwrite or option.value in [None, ""]
+    if should_update_value and (option.value != encoded_value or option.array != is_array):
         option.value = encoded_value
         option.array = is_array
         update_fields.extend(["value", "array"])
@@ -272,7 +273,7 @@ def defaultOptionRows(company, branch):
 
 def ensureDefaultOptions(company, branch, user=None):
     for key, value in defaultOptionRows(company, branch).items():
-        ensureOptionValue(company, branch, key, value, user=user)
+        ensureOptionValue(company, branch, key, value, user=user, overwrite=False)
     return Option.objects.filter(company=company, branch=branch)
 
 

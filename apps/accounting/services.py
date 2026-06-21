@@ -23,6 +23,7 @@ from apps.common.tenantDefaults import ACCOUNT_BLUEPRINTS, DEFAULT_ACCOUNT_RULES
 
 
 ACCOUNT_CODES = {key: account for key, _name, account, _category, _parent in ACCOUNT_BLUEPRINTS}
+BRANCH_TENANT_CONFIG = {"company_id": True, "branch_id": True}
 
 
 def normalizeTransactionDate(value):
@@ -368,7 +369,12 @@ class AccountingService:
 
         with transaction.atomic():
             if account_id:
-                account = commonQuery.findOneRecord(TransactionAccount, account_id, request=request, tenant_config=True)
+                account = commonQuery.findOneRecord(
+                    TransactionAccount,
+                    account_id,
+                    request=request,
+                    tenant_config=BRANCH_TENANT_CONFIG,
+                )
                 if account is None:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
             else:
@@ -509,7 +515,7 @@ class AccountingService:
             TransactionActionRule,
             rule_id,
             request=request,
-            tenant_config=True,
+            tenant_config=BRANCH_TENANT_CONFIG,
         )
         if rule is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
@@ -747,7 +753,12 @@ class TransactionAccountService:
                 category_identifier=data.get("category_identifier"),
             ).count()
             data["account"] = f"{str(siblings + 1).zfill(4)}-{data['category_identifier']}-{data['name'].lower().replace(' ', '-')}"
-        account = commonQuery.createRecord(TransactionAccount, data, request=request, tenant_config=True)
+        account = commonQuery.createRecord(
+            TransactionAccount,
+            data,
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         return successResponse("Transaction account created successfully.", data=account)
 
     @staticmethod
@@ -773,7 +784,7 @@ class TransactionAccountService:
                 ]
             },
             request=request,
-            tenant_config=True,
+            tenant_config=BRANCH_TENANT_CONFIG,
         )
         return successResponse("Transaction accounts retrieved successfully.", data=result)
 
@@ -794,13 +805,18 @@ class TransactionAccountService:
                 "order": ["category_identifier", "name"],
             },
             request=request,
-            tenant_config=True,
+            tenant_config=BRANCH_TENANT_CONFIG,
         )
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
     def getById(account_id, request):
-        account = commonQuery.findOneRecord(TransactionAccount, account_id, request=request, tenant_config=True)
+        account = commonQuery.findOneRecord(
+            TransactionAccount,
+            account_id,
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         if account is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         return successResponse("Transaction account retrieved successfully.", data=account)
@@ -815,14 +831,25 @@ class TransactionAccountService:
         ).first()
         if account is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
-        updated = commonQuery.updateRecordById(TransactionAccount, account_id, data, request=request, tenant_config=True)
+        updated = commonQuery.updateRecordById(
+            TransactionAccount,
+            account_id,
+            data,
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         return successResponse("Transaction account updated successfully.", data=updated)
 
     @staticmethod
     def delete(data, request):
-        count = commonQuery.softDeleteById(TransactionAccount, data.get("ids"), request=request, tenant_config=True)
+        count = commonQuery.softDeleteById(
+            TransactionAccount,
+            data.get("ids"),
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         return successResponse("Transaction accounts deleted successfully.")
@@ -830,7 +857,13 @@ class TransactionAccountService:
     @staticmethod
     def updateStatus(data, request):
         status = data.get("status")
-        count = commonQuery.updateStatusById(TransactionAccount, data.get("ids"), status, request=request, tenant_config=True)
+        count = commonQuery.updateStatusById(
+            TransactionAccount,
+            data.get("ids"),
+            status,
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         return successResponse("Transaction account status updated successfully.", data={"updated_count": count, "status": status})
@@ -892,7 +925,12 @@ class TransactionRuleService:
         if "offset_action" in data and "do" not in data:
             data["do"] = data.pop("offset_action")
         TransactionRuleService.validateAccounts(data, request)
-        rule = commonQuery.createRecord(TransactionActionRule, data, request=request, tenant_config=True)
+        rule = commonQuery.createRecord(
+            TransactionActionRule,
+            data,
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
         return successResponse("Accounting rule created successfully.", data=rule)
 
     @staticmethod
@@ -907,7 +945,7 @@ class TransactionRuleService:
             rule_id,
             data,
             request=request,
-            tenant_config=True,
+            tenant_config=BRANCH_TENANT_CONFIG,
         )
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
@@ -919,7 +957,7 @@ class TransactionRuleService:
             TransactionActionRule,
             data.get("ids"),
             request=request,
-            tenant_config=True,
+            tenant_config=BRANCH_TENANT_CONFIG,
         )
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
