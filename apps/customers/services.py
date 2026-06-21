@@ -320,11 +320,12 @@ class CustomerService:
         ids = data.get("ids")
         if not isinstance(ids, list):
             ids = [ids]
-        CustomerAddress.objects.filter(
-            customer_id__in=ids,
-            company_id=request.user.company_id,
-            branch_id=request.user.branch_id,
-        ).delete()
+        commonQuery.softDeleteById(
+            CustomerAddress,
+            {"customer_id__in": ids},
+            request=request,
+            tenant_config=True,
+        )
         count = commonQuery.softDeleteById(
             Customer,
             ids,
