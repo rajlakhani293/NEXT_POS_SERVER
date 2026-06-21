@@ -224,7 +224,11 @@ class RegisterService:
                 request,
                 data.get("note") or "Register closing",
             )
-            Register.objects.filter(id=register.id).update(register_status=Register.STATUS_CLOSED, used_by=None, balance=0)
+            commonQuery.branchScopedQueryset(Register, {"id": register.id}, request).update(
+                register_status=Register.STATUS_CLOSED,
+                used_by=None,
+                balance=0,
+            )
         return successResponse("Cash register closed successfully.", data=history)
 
     @staticmethod
@@ -468,7 +472,7 @@ class RegisterService:
                 status = "active"
                 closed_at = None
                 declared_cash = None
-                reg = Register.objects.filter(id=register_id).first()
+                reg = commonQuery.branchScopedQueryset(Register, {"id": register_id}, request).first()
                 expected_cash = reg.balance if reg else 0
                 difference_amount = 0
 
@@ -546,7 +550,7 @@ class RegisterService:
             status = "active"
             closed_at = None
             declared_cash = None
-            reg = Register.objects.filter(id=register_id).first()
+            reg = commonQuery.branchScopedQueryset(Register, {"id": register_id}, request).first()
             expected_cash = reg.balance if reg else 0
             difference_amount = 0
             entries_qs = commonQuery.branchScopedQueryset(
@@ -564,7 +568,7 @@ class RegisterService:
             if entry.entry_type == RegistersHistory.ACTION_ORDER_PAYMENT and entry.payment_id:
                 from apps.sales.models import OrderPayment
 
-                pmt = OrderPayment.objects.filter(id=entry.payment_id).first()
+                pmt = commonQuery.branchScopedQueryset(OrderPayment, {"id": entry.payment_id}, request).first()
                 if pmt:
                     payment_type = pmt.identifier.replace("-payment", "").title()
 

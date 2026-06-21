@@ -126,6 +126,11 @@ class commonQuery:
         return serializeModelInstance(instance)
 
     @staticmethod
+    def createInstance(model, data, request=None, tenant_config=True):
+        enriched = commonQuery.enrichTenantData(model, data, request, tenant_config)
+        return model.objects.create(**enriched)
+
+    @staticmethod
     def normalizeInclude(include):
         if not include:
             return []

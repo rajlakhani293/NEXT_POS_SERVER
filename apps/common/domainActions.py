@@ -56,7 +56,7 @@ class DomainActionService:
     def afterSalePaid(sale_order, request):
         from apps.accounts.models import User
 
-        User.objects.filter(id=sale_order.get("user_id") or request.user.id).update(
+        commonQuery.branchScopedQueryset(User, {"id": sale_order.get("user_id") or request.user.id}, request).update(
             total_sales=F("total_sales") + sale_order.get("total", 0),
             total_sales_count=F("total_sales_count") + 1,
         )
@@ -68,11 +68,27 @@ class DomainActionService:
 
         if sale_order.get("payment_status") == "paid":
             cashier_id = sale_order.get("user_id") or request.user.id
-            cashier = User.objects.filter(id=cashier_id).first()
+            cashier = commonQuery.findOneRecord(
+                User,
+                cashier_id,
+                request=request,
+                tenant_config=True,
+            )
             if cashier:
-                cashier.total_sales = max(DomainActionService._money(cashier.total_sales) - DomainActionService._money(sale_order.get("total")), Decimal("0"))
-                cashier.total_sales_count = max(int(cashier.total_sales_count or 0) - 1, 0)
-                cashier.save(update_fields=["total_sales", "total_sales_count"])
+                commonQuery.updateRecordById(
+                    User,
+                    cashier_id,
+                    {
+                        "total_sales": max(
+                            DomainActionService._money(cashier.get("total_sales"))
+                            - DomainActionService._money(sale_order.get("total")),
+                            Decimal("0"),
+                        ),
+                        "total_sales_count": max(int(cashier.get("total_sales_count") or 0) - 1, 0),
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
         ReportService.refreshDashboardSnapshot({}, request)
 
     @staticmethod

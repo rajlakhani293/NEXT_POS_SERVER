@@ -68,16 +68,17 @@ class ScaleRangeService:
     def ensureDefaultScaleRanges(company, branch):
         ranges = []
         for name, range_start, range_end, next_scale_plu, description in DEFAULT_SCALE_RANGES:
-            scale_range, created = ScaleRange.objects.get_or_create(
-                company_id=company.id,
-                branch_id=branch.id,
-                name=name,
+            scale_range, created = commonQuery.getOrCreateRecord(
+                ScaleRange,
+                {"company_id": company.id, "branch_id": branch.id, "name": name},
                 defaults={
                     "range_start": range_start,
                     "range_end": range_end,
                     "next_scale_plu": next_scale_plu,
                     "description": description,
                 },
+                tenant_config={},
+                return_plain=False,
             )
             update_fields = []
             if created is False and scale_range.range_start != range_start:
@@ -272,7 +273,11 @@ class UnitService:
                 messages={"identifier": "Unit identifier already exists."},
             )
             if data.get("base_unit"):
-                Unit.objects.filter(group_id=data["group_id"], status__in=[0, 1]).update(base_unit=False)
+                commonQuery.branchScopedQueryset(
+                    Unit,
+                    {"group_id": data["group_id"], "status__in": [0, 1]},
+                    request,
+                ).update(base_unit=False)
             unit = commonQuery.createRecord(Unit, data, request=request, tenant_config=True)
             unit["group_name"] = _relationName(UnitGroup, unit.get("group_id"), request)
             return successResponse("Unit created successfully.", data=unit)
@@ -297,7 +302,11 @@ class UnitService:
                     messages={"identifier": "Unit identifier already exists."},
                 )
             if data.get("base_unit"):
-                Unit.objects.filter(group_id=data.get("group_id") or unit["group_id"], status__in=[0, 1]).exclude(id=unit_id).update(base_unit=False)
+                commonQuery.branchScopedQueryset(
+                    Unit,
+                    {"group_id": data.get("group_id") or unit["group_id"], "status__in": [0, 1]},
+                    request,
+                ).exclude(id=unit_id).update(base_unit=False)
             updated = commonQuery.updateRecordById(Unit, unit_id, data, request=request, tenant_config=True)
             if updated is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
@@ -572,7 +581,11 @@ class ProductService:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
             image_url = saveProductImage(image, request)
             if image_url:
-                ProductGallery.objects.filter(product_id=product_id, featured=True, status__in=[0, 1]).update(featured=False)
+                commonQuery.branchScopedQueryset(
+                    ProductGallery,
+                    {"product_id": product_id, "featured": True, "status__in": [0, 1]},
+                    request,
+                ).update(featured=False)
                 commonQuery.createRecord(
                     ProductGallery,
                     {"product_id": product_id, "url": image_url, "featured": True},
@@ -964,8 +977,9 @@ class ProductStockService:
             request,
             tenant_config=True,
         )
-        combined, created = ProductHistoryCombined.objects.get_or_create(
-            **combined_filters,
+        combined, created = commonQuery.getOrCreateRecord(
+            ProductHistoryCombined,
+            combined_filters,
             defaults={
                 "user_id": request.user.id,
                 "name": product.get("name") or "",
@@ -975,6 +989,8 @@ class ProductStockService:
                 "defective_quantity": 0,
                 "final_quantity": 0,
             },
+            tenant_config={},
+            return_plain=False,
         )
         if not created and not combined.name:
             combined.name = product.get("name") or combined.name

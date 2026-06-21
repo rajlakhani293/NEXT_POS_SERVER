@@ -61,18 +61,14 @@ def saleDueAmount(sale_order):
 
 
 def getCurrentRegisterContext(request, register_id=None, required=True):
-    filters = {
-        "company_id": request.user.company_id,
-        "branch_id": request.user.branch_id,
-        "status": 0,
-    }
+    filters = {"status": 0}
     if register_id:
         filters["id"] = register_id
     else:
         filters["used_by_id"] = request.user.id
 
     register = (
-        Register.objects.filter(**filters)
+        commonQuery.branchScopedQueryset(Register, filters, request)
         .filter(register_status__in=[Register.STATUS_OPENED, Register.STATUS_INUSE])
         .values("id", "name", "register_status", "balance")
         .first()
@@ -684,7 +680,7 @@ class SaleCustomerService:
         if sale_order.get("payment_status") == "paid":
             update_fields["purchases_amount"] = F("purchases_amount") + money(sale_order.get("total"))
             update_fields["total_sales_count"] = F("total_sales_count") + 1
-        Customer.objects.filter(id=customer_id).update(**update_fields)
+        commonQuery.branchScopedQueryset(Customer, {"id": customer_id}, request).update(**update_fields)
 
         if due_amount > 0:
             balance_after = money(customer_before.get("owed_amount") if customer_before else 0) + due_amount
@@ -715,7 +711,7 @@ class SaleCustomerService:
         if not customer:
             return {"customer": None, "reward": None}
 
-        Customer.objects.filter(id=customer["id"]).update(
+        commonQuery.branchScopedQueryset(Customer, {"id": customer["id"]}, request).update(
             purchases_amount=F("purchases_amount") + money(sale_order.get("total")),
             total_sales_count=F("total_sales_count") + 1,
         )
@@ -1462,7 +1458,7 @@ class SaleService:
         if sale_order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
         if sale_order.get("payment_status") == "paid" and sale_order.get("user_id"):
-            User.objects.filter(id=sale_order["user_id"]).update(
+            commonQuery.branchScopedQueryset(User, {"id": sale_order["user_id"]}, request).update(
                 total_sales=F("total_sales") + money(sale_order.get("total")),
                 total_sales_count=F("total_sales_count") + 1,
             )
@@ -1556,11 +1552,23 @@ class SaleService:
         if sale_order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
         if sale_order.get("payment_status") == "paid" and sale_order.get("user_id"):
-            user = User.objects.filter(id=sale_order["user_id"]).first()
+            user = commonQuery.findOneRecord(
+                User,
+                sale_order["user_id"],
+                request=request,
+                tenant_config=True,
+            )
             if user:
-                user.total_sales = max(money(user.total_sales) - money(sale_order.get("total")), Decimal("0"))
-                user.total_sales_count = max(int(user.total_sales_count or 0) - 1, 0)
-                user.save(update_fields=["total_sales", "total_sales_count"])
+                commonQuery.updateRecordById(
+                    User,
+                    sale_order["user_id"],
+                    {
+                        "total_sales": max(money(user.get("total_sales")) - money(sale_order.get("total")), Decimal("0")),
+                        "total_sales_count": max(int(user.get("total_sales_count") or 0) - 1, 0),
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
         return successResponse("Cashier stats decreased successfully.")
 
     @staticmethod
@@ -1614,10 +1622,20 @@ class SaleService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Refund not found.")
         sale_order = commonQuery.findOneRecord(Order, refund.get("sale_order_id"), request=request, tenant_config=True)
         if sale_order and sale_order.get("user_id"):
-            user = User.objects.filter(id=sale_order["user_id"]).first()
+            user = commonQuery.findOneRecord(
+                User,
+                sale_order["user_id"],
+                request=request,
+                tenant_config=True,
+            )
             if user:
-                user.total_sales = max(money(user.total_sales) - money(refund.get("total")), Decimal("0"))
-                user.save(update_fields=["total_sales"])
+                commonQuery.updateRecordById(
+                    User,
+                    sale_order["user_id"],
+                    {"total_sales": max(money(user.get("total_sales")) - money(refund.get("total")), Decimal("0"))},
+                    request=request,
+                    tenant_config=True,
+                )
         return successResponse("Cashier refund stats processed successfully.")
 
     @staticmethod

@@ -239,7 +239,7 @@ def issueEligibleRewardCoupons(customer_id, reward_system, balance, request, not
             request=request,
             tenant_config=True,
         )
-        CustomerReward.objects.filter(id=balance["id"]).update(
+        commonQuery.branchScopedQueryset(CustomerReward, {"id": balance["id"]}, request).update(
             points=F("points") - target,
         )
         current_points -= target
@@ -441,7 +441,7 @@ class CustomerRewardService:
         reward_system = ensureRewardSystem(data.get("reward_system_id"), request)
         with transaction.atomic():
             balance = getOrCreateBalance(data["customer_id"], data["reward_system_id"], request)
-            CustomerReward.objects.filter(id=balance["id"]).update(
+            commonQuery.branchScopedQueryset(CustomerReward, {"id": balance["id"]}, request).update(
                 points=F("points") + points,
             )
             updated = commonQuery.findOneRecord(
@@ -502,7 +502,7 @@ class CustomerRewardService:
         earned_points = money(rule.get("reward") or 0)
         with transaction.atomic():
             balance = getOrCreateBalance(customer["id"], reward_system["id"], request)
-            CustomerReward.objects.filter(id=balance["id"]).update(
+            commonQuery.branchScopedQueryset(CustomerReward, {"id": balance["id"]}, request).update(
                 points=F("points") + earned_points,
             )
             updated = commonQuery.findOneRecord(
@@ -570,7 +570,7 @@ class CustomerRewardService:
                 request=request,
                 tenant_config=True,
             )
-            CustomerReward.objects.filter(id=balance["id"]).update(
+            commonQuery.branchScopedQueryset(CustomerReward, {"id": balance["id"]}, request).update(
                 points=F("points") - points,
             )
             updated_balance = commonQuery.findOneRecord(

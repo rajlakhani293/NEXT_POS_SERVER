@@ -105,7 +105,7 @@ class ReportService:
         sale_filters = {**base, **dateFilter("created_at", data)}
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5))
         zero_float = Value(0.0, output_field=FloatField())
-        sales = Order.objects.filter(**sale_filters).aggregate(
+        sales = commonQuery.scopedQueryset(Order, sale_filters, request, tenant_config={}).aggregate(
             total_sales=Coalesce(Sum("total"), zero),
             total_paid=Coalesce(Sum("tendered_amount"), zero),
             total_due=Coalesce(Sum("total", filter=Q(payment_status__in=["unpaid", "partially_paid", "due", "partially_due"])), zero),
@@ -120,7 +120,7 @@ class ReportService:
             tax_total=Coalesce(Sum("tax_amount"), zero),
             total_discount=Coalesce(Sum("discount_amount"), zero),
         )
-        purchases = Procurement.objects.filter(**base).aggregate(
+        purchases = commonQuery.scopedQueryset(Procurement, base, request, tenant_config={}).aggregate(
             total_purchase=Coalesce(Sum("value"), zero_float, output_field=FloatField()),
             total_purchase_due=Coalesce(Sum("value", filter=Q(payment_status="unpaid")), zero_float, output_field=FloatField()),
             purchase_count=Count("id"),
@@ -129,16 +129,16 @@ class ReportService:
             "total_expense": Decimal("0"),
             "expense_count": 0,
         }
-        customers = Customer.objects.filter(**base).aggregate(
+        customers = commonQuery.scopedQueryset(Customer, base, request, tenant_config={}).aggregate(
             total_customer_due=Coalesce(Sum("owed_amount"), zero),
             customer_count=Count("id"),
         )
-        suppliers = Provider.objects.filter(**base).aggregate(
+        suppliers = commonQuery.scopedQueryset(Provider, base, request, tenant_config={}).aggregate(
             total_supplier_payable=Coalesce(Sum("amount_due"), zero_float, output_field=FloatField()),
             supplier_count=Count("id"),
         )
         best_customers = list(
-            Order.objects.filter(**sale_filters)
+            commonQuery.scopedQueryset(Order, sale_filters, request, tenant_config={})
             .exclude(customer_id__isnull=True)
             .values("customer_id", "customer__full_name")
             .annotate(
@@ -148,7 +148,7 @@ class ReportService:
             .order_by("-total_spent", "-order_count")[:5]
         )
         best_cashiers = list(
-            Order.objects.filter(**sale_filters)
+            commonQuery.scopedQueryset(Order, sale_filters, request, tenant_config={})
             .exclude(user_id__isnull=True)
             .values("user_id", "user__full_name")
             .annotate(
@@ -158,7 +158,7 @@ class ReportService:
             .order_by("-total_sales", "-order_count")[:5]
         )
         recent_orders = list(
-            Order.objects.filter(**sale_filters)
+            commonQuery.scopedQueryset(Order, sale_filters, request, tenant_config={})
             .values(
                 "id",
                 "code",
@@ -172,7 +172,12 @@ class ReportService:
             .order_by("-created_at")[:8]
         )
         weekly_sales = list(
-            Order.objects.filter(**base, created_at__gte=timezone.now() - timedelta(days=6))
+            commonQuery.scopedQueryset(
+                Order,
+                {**base, "created_at__gte": timezone.now() - timedelta(days=6)},
+                request,
+                tenant_config={},
+            )
             .annotate(day=TruncDate("created_at"))
             .values("day")
             .annotate(
@@ -507,7 +512,7 @@ class ReportService:
         base = tenantFilter(request)
         filters = {**base, **dateFilter("created_at", data)}
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
-        queryset = OrdersProduct.objects.filter(**filters).annotate(
+        queryset = commonQuery.scopedQueryset(OrdersProduct, filters, request, tenant_config={}).annotate(
             cost_total=ExpressionWrapper(
                 F("quantity") * F("cost_price"),
                 output_field=DecimalField(max_digits=14, decimal_places=2),
@@ -575,7 +580,7 @@ class ReportService:
             **dateFilter("histories__created_at", data),
         }
         accounts = (
-            TransactionAccount.objects.filter(**tenantFilter(request))
+            commonQuery.scopedQueryset(TransactionAccount, tenantFilter(request), request, tenant_config={})
             .annotate(
                 debits=Coalesce(
                     Sum("histories__value", filter=Q(histories__operation=TransactionHistory.OPERATION_DEBIT, **history_filters)),
@@ -633,9 +638,7 @@ class ReportService:
 
     @staticmethod
     def productsReport(data, request):
-        queryset = ProductUnitQuantity.objects.filter(
-            **tenantFilter(request),
-        ).annotate(
+        queryset = commonQuery.scopedQueryset(ProductUnitQuantity, tenantFilter(request), request, tenant_config={}).annotate(
             sold_quantity=Coalesce(Sum("sale_items__quantity"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=3))),
             sold_amount=Coalesce(Sum("sale_items__total"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
         )
@@ -671,10 +674,15 @@ class ReportService:
 
     @staticmethod
     def lowStockReport(data, request):
-        queryset = ProductUnitQuantity.objects.filter(
-            **tenantFilter(request),
-            stock_alert_enabled=True,
-            quantity__lte=F("low_quantity"),
+        queryset = commonQuery.scopedQueryset(
+            ProductUnitQuantity,
+            {
+                **tenantFilter(request),
+                "stock_alert_enabled": True,
+                "quantity__lte": F("low_quantity"),
+            },
+            request,
+            tenant_config={},
         ).values(
             "id",
             "product_id",
@@ -731,7 +739,7 @@ class ReportService:
 
     @staticmethod
     def stockReport(data, request):
-        queryset = ProductUnitQuantity.objects.filter(**tenantFilter(request))
+        queryset = commonQuery.scopedQueryset(ProductUnitQuantity, tenantFilter(request), request, tenant_config={})
         search = (data or {}).get("search")
         if search:
             queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
@@ -770,9 +778,11 @@ class ReportService:
         data = data or {}
         report_date = parseReportDate(data.get("date"))
 
-        queryset = ProductHistoryCombined.objects.filter(
-            **tenantFilter(request),
-            date=report_date,
+        queryset = commonQuery.scopedQueryset(
+            ProductHistoryCombined,
+            {**tenantFilter(request), "date": report_date},
+            request,
+            tenant_config={},
         )
         categories = data.get("categories") or data.get("category_ids") or []
         units = data.get("units") or data.get("unit_ids") or []
@@ -981,7 +991,12 @@ class ReportService:
 
     @staticmethod
     def cashierReport(data, request):
-        queryset = Order.objects.filter(**{**tenantFilter(request), **dateFilter("created_at", data)})
+        queryset = commonQuery.scopedQueryset(
+            Order,
+            {**tenantFilter(request), **dateFilter("created_at", data)},
+            request,
+            tenant_config={},
+        )
         if not request.user.is_superuser:
             queryset = queryset.filter(user_id=request.user.id)
         rows = queryset.values("user_id", "user__full_name").annotate(

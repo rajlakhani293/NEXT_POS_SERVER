@@ -384,7 +384,7 @@ class MediaService:
         return data
 
     @staticmethod
-    def buildStoredName(file):
+    def buildStoredName(file, request=None):
         path = Path(getattr(file, "name", "upload"))
         extension = path.suffix.lstrip(".").lower()
         base_name = slugify(path.stem) or "upload"
@@ -392,7 +392,11 @@ class MediaService:
         month = timezone.now().strftime("%m")
         candidate = base_name
         suffix = 1
-        while Media.objects.filter(name=candidate, extension=extension, status__in=[0, 1]).exists():
+        while commonQuery.branchScopedQueryset(
+            Media,
+            {"name": candidate, "extension": extension, "status__in": [0, 1]},
+            request,
+        ).exists():
             candidate = f"{base_name}-{suffix}"
             suffix += 1
         return candidate, extension, f"{year}/{month}/{candidate}"
@@ -407,7 +411,7 @@ class MediaService:
         if content_type and content_type not in MediaService.ALLOWED_IMAGE_TYPES:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Only image files are allowed.")
 
-        name, extension, slug = MediaService.buildStoredName(file)
+        name, extension, slug = MediaService.buildStoredName(file, request)
         storage = FileSystemStorage(location=settings.UPLOAD_ROOT, base_url=settings.UPLOAD_URL)
         storage.save(f"{slug}.{extension}", file)
         media = commonQuery.createRecord(
@@ -659,20 +663,18 @@ class JobQueueService:
     def enqueue(job_name, data=None, *, request=None, queue=None, available_at=None):
         if request is None:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Request context is required to enqueue a tenant job.")
-        return Job.objects.create(
-            **commonQuery.enrichTenantData(
-                Job,
-                {
-                    "queue": queue or JobQueueService.DEFAULT_QUEUE,
-                    "payload": JobQueueService.encodePayload(job_name, data),
-                    "attempts": 0,
-                    "reserved_at": None,
-                    "available_at": JobQueueService.timestamp(available_at),
-                    "created_at": JobQueueService.timestamp(),
-                },
-                request,
-                tenant_config=True,
-            )
+        return commonQuery.createInstance(
+            Job,
+            {
+                "queue": queue or JobQueueService.DEFAULT_QUEUE,
+                "payload": JobQueueService.encodePayload(job_name, data),
+                "attempts": 0,
+                "reserved_at": None,
+                "available_at": JobQueueService.timestamp(available_at),
+                "created_at": JobQueueService.timestamp(),
+            },
+            request=request,
+            tenant_config=True,
         )
 
     @staticmethod
@@ -706,15 +708,19 @@ class JobQueueService:
 
     @staticmethod
     def fail(job, exc):
-        FailedJob.objects.create(
-            user_id=job.user_id,
-            company_id=job.company_id,
-            branch_id=job.branch_id,
-            queue=job.queue,
-            connection="database",
-            payload=job.payload,
-            exception=str(exc),
-            status=0,
+        commonQuery.createInstance(
+            FailedJob,
+            {
+                "user_id": job.user_id,
+                "company_id": job.company_id,
+                "branch_id": job.branch_id,
+                "queue": job.queue,
+                "connection": "database",
+                "payload": job.payload,
+                "exception": str(exc),
+                "status": 0,
+            },
+            tenant_config={},
         )
         job.delete()
 

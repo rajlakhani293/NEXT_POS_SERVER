@@ -367,7 +367,9 @@ class PurchaseOrderService:
                 commonQuery.createRecord(ProcurementsProduct, {**item, "procurement_id": procurement["id"]}, request=request, tenant_config=True)
                 for item in products
             ]
-            Provider.objects.filter(id=provider["id"]).update(amount_due=F("amount_due") + float(value))
+            commonQuery.branchScopedQueryset(Provider, {"id": provider["id"]}, request).update(
+                amount_due=F("amount_due") + float(value)
+            )
             AccountingService.reflectEvent(
                 "procurement_unpaid",
                 value,
@@ -504,7 +506,9 @@ class PurchaseOrderService:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Received quantity cannot exceed available procurement quantity.")
                 unit_quantity = PurchaseOrderService.resolveProductUnitQuantity(item["product_id"], item["unit_id"], request, required=True)
                 new_available = qty(item.get("available_quantity")) - receive_qty
-                ProcurementsProduct.objects.filter(id=item["id"]).update(available_quantity=float(new_available))
+                commonQuery.branchScopedQueryset(ProcurementsProduct, {"id": item["id"]}, request).update(
+                    available_quantity=float(new_available)
+                )
                 ProductStockService.recordStockHistory(
                     ProductHistory.ACTION_STOCKED,
                     {
@@ -742,7 +746,7 @@ class PurchaseOrderService:
         diff = target_paid - current_paid
         with transaction.atomic():
             if diff > 0:
-                Provider.objects.filter(id=procurement["provider_id"]).update(
+                commonQuery.branchScopedQueryset(Provider, {"id": procurement["provider_id"]}, request).update(
                     amount_due=F("amount_due") - float(diff),
                     amount_paid=F("amount_paid") + float(diff),
                 )
@@ -760,7 +764,7 @@ class PurchaseOrderService:
                 )
             elif diff < 0:
                 reverse_amount = abs(diff)
-                Provider.objects.filter(id=procurement["provider_id"]).update(
+                commonQuery.branchScopedQueryset(Provider, {"id": procurement["provider_id"]}, request).update(
                     amount_due=F("amount_due") + float(reverse_amount),
                     amount_paid=F("amount_paid") - float(reverse_amount),
                 )
