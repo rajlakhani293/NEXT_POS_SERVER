@@ -40,6 +40,7 @@ from apps.sales.models import (
     OrderInstalment,
     OrderStorage,
     OrderPayment,
+    OrderSetting,
     OrdersProductsRefund,
     OrdersRefund,
     OrdersProduct,
@@ -1441,6 +1442,93 @@ class SaleService:
         return successResponse("Cashier stats increased successfully.")
 
     @staticmethod
+    def saveOrderSettings(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+
+        option_rows = {
+            option.key: option.value
+            for option in Option.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                status=0,
+                key__in=["pos_preferred_price", "pos_vat"],
+            )
+        }
+        settings_payload = [
+            ("pos_preferred_price", option_rows.get("pos_preferred_price", "sale_price")),
+            ("pos_vat", option_rows.get("pos_vat", "disabled")),
+        ]
+        with transaction.atomic():
+            OrderSetting.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                sale_order_id=sale_order_id,
+            ).delete()
+            created = [
+                commonQuery.createRecord(
+                    OrderSetting,
+                    {"sale_order_id": sale_order_id, "key": key, "value": value},
+                    request=request,
+                    tenant_config=True,
+                )
+                for key, value in settings_payload
+            ]
+        return successResponse("Order settings saved successfully.", data=created)
+
+    @staticmethod
+    def resolveInstalments(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        if sale_order.get("payment_status") not in ["paid", "partially_paid"]:
+            return successResponse("Sale has no instalments to resolve.", data={"updated_count": 0})
+
+        today_start = timezone.localtime(timezone.now()).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = today_start.replace(hour=23, minute=59, second=59, microsecond=999999)
+        with transaction.atomic():
+            instalments = list(
+                OrderInstalment.objects.select_for_update()
+                .filter(
+                    company_id=request.user.company_id,
+                    branch_id=request.user.branch_id,
+                    sale_order_id=sale_order_id,
+                    paid=False,
+                    date__gte=today_start,
+                    date__lte=today_end,
+                    status=0,
+                )
+                .order_by("date", "id")
+            )
+            if not instalments:
+                return successResponse("Sale has no instalments to resolve.", data={"updated_count": 0})
+
+            paid_instalments = sum(
+                (
+                    money(item.amount)
+                    for item in OrderInstalment.objects.filter(
+                        company_id=request.user.company_id,
+                        branch_id=request.user.branch_id,
+                        sale_order_id=sale_order_id,
+                        paid=True,
+                        status=0,
+                    )
+                ),
+                Decimal("0"),
+            )
+            payable_difference = money(sale_order.get("tendered_amount")) - paid_instalments
+            updated_count = 0
+            for instalment in instalments:
+                amount = money(instalment.amount)
+                if payable_difference - amount >= 0:
+                    instalment.paid = True
+                    instalment.save(update_fields=["paid"])
+                    payable_difference -= amount
+                    updated_count += 1
+        return successResponse("Sale instalments resolved successfully.", data={"updated_count": updated_count})
+
+    @staticmethod
     def uncountDeletedOrderForCashier(sale_order_id, request):
         sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
         if sale_order is None:
@@ -1452,6 +1540,50 @@ class SaleService:
                 user.total_sales_count = max(int(user.total_sales_count or 0) - 1, 0)
                 user.save(update_fields=["total_sales", "total_sales_count"])
         return successResponse("Cashier stats decreased successfully.")
+
+    @staticmethod
+    def uncountDeletedOrderForCustomer(sale_order_id, request):
+        sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
+        if sale_order is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
+        customer_id = sale_order.get("customer_id")
+        if not customer_id:
+            return successResponse("Sale has no customer to update.")
+
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+
+        payment_status = sale_order.get("payment_status")
+        if payment_status == "paid":
+            payload = {
+                "purchases_amount": max(
+                    money(customer.get("purchases_amount")) - money(sale_order.get("total")),
+                    Decimal("0"),
+                )
+            }
+        elif payment_status == "partially_paid":
+            payload = {
+                "purchases_amount": max(
+                    money(customer.get("purchases_amount")) - money(sale_order.get("tendered_amount")),
+                    Decimal("0"),
+                )
+            }
+        else:
+            payload = {
+                "owed_amount": max(
+                    money(customer.get("owed_amount")) - money(sale_order.get("total")),
+                    Decimal("0"),
+                )
+            }
+        updated = commonQuery.updateRecordById(
+            Customer,
+            customer_id,
+            payload,
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer sale counters decreased successfully.", data=updated)
 
     @staticmethod
     def reduceCashierStatsFromRefund(return_order_id, request):
@@ -1918,11 +2050,23 @@ class SaleService:
                 data.get("sale_order_id") or data.get("order_id"),
                 SaleService.requestFromJob(job),
             ),
+            "save_order_settings": lambda data, job: SaleService.saveOrderSettings(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "resolve_instalments": lambda data, job: SaleService.resolveInstalments(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
             "increase_cashier_stats": lambda data, job: SaleService.increaseCashierStats(
                 data.get("sale_order_id") or data.get("order_id"),
                 SaleService.requestFromJob(job),
             ),
             "uncount_deleted_order_for_cashier": lambda data, job: SaleService.uncountDeletedOrderForCashier(
+                data.get("sale_order_id") or data.get("order_id"),
+                SaleService.requestFromJob(job),
+            ),
+            "uncount_deleted_order_for_customer": lambda data, job: SaleService.uncountDeletedOrderForCustomer(
                 data.get("sale_order_id") or data.get("order_id"),
                 SaleService.requestFromJob(job),
             ),
@@ -2039,6 +2183,7 @@ class SaleService:
                 tenant_config=True,
             )
 
+            SaleService.saveOrderSettings(sale_order["id"], request)
             SaleDraftService.trackOrderCoupons(sale_order["id"], request)
             SaleStockService.recordSaleStock(sale_order, request)
             customer = SaleCustomerService.applyCustomerImpact(sale_order, request)
@@ -2088,6 +2233,7 @@ class SaleService:
                     reference_number=sale_order["code"],
                     request=request,
                 )
+            SaleService.resolveInstalments(sale_order["id"], request)
 
             if data.get("draft_id"):
                 draft = commonQuery.findOneRecord(
