@@ -67,16 +67,21 @@ class AccountsService:
         seeded_roles = []
 
         for role_blueprint in ROLE_CATALOG:
-            role, _created = Role.objects.get_or_create(
-                company_id=company.id,
-                branch_id=branch.id,
-                namespace=role_blueprint["namespace"],
+            role, _created = commonQuery.getOrCreateRecord(
+                Role,
+                {
+                    "company_id": company.id,
+                    "branch_id": branch.id,
+                    "namespace": role_blueprint["namespace"],
+                },
                 defaults={
                     "user_id": None,
                     "name": role_blueprint["name"],
                     "description": role_blueprint["description"],
                     "locked": True,
                 },
+                tenant_config={},
+                return_plain=False,
             )
             role.name = role_blueprint["name"]
             role.description = role_blueprint["description"]
@@ -104,19 +109,24 @@ class AccountsService:
         role_list = [role for role in roles if role]
         role_ids = [role.id for role in role_list]
 
-        UserRoleRelation.objects.filter(user_id=user.id).exclude(role_id__in=role_ids).update(
+        commonQuery.scopedQueryset(UserRoleRelation, {"user_id": user.id}, tenant_config={}).exclude(role_id__in=role_ids).update(
             status=2,
             deleted_at=timezone.now(),
         )
         for role in role_list:
-            relation, _created = UserRoleRelation.objects.get_or_create(
-                user_id=user.id,
-                role_id=role.id,
+            relation, _created = commonQuery.getOrCreateRecord(
+                UserRoleRelation,
+                {
+                    "user_id": user.id,
+                    "role_id": role.id,
+                },
                 defaults={
                     "company_id": user.company_id,
                     "branch_id": user.branch_id,
                     "status": 0,
                 },
+                tenant_config={},
+                return_plain=False,
             )
             if relation.status != 0:
                 relation.status = 0
@@ -135,7 +145,7 @@ class AccountsService:
         if getattr(user, "role_id", None) and user.role_id not in role_ids:
             role_ids.insert(0, user.role_id)
         return list(
-            Role.objects.filter(id__in=role_ids, status__in=[0, 1])
+            commonQuery.scopedQueryset(Role, {"id__in": role_ids, "status__in": [0, 1]}, tenant_config={})
             .prefetch_related("permissions")
             .order_by("name")
         )
@@ -169,17 +179,29 @@ class AccountsService:
 
     @staticmethod
     def buildSessionData(user: User):
-        company = Company.objects.filter(id=user.company_id, status__in=[0, 1]).first()
-        branch = Branch.objects.filter(id=user.branch_id, company_id=user.company_id, status__in=[0, 1]).first()
-        branch_list = list(
-            Branch.objects.filter(company_id=user.company_id, status=0)
-            .order_by("name")
-            .values("id", "name", "code", "city", "phone", "is_head_office")
+        company = commonQuery.findOneRecord(
+            Company,
+            {"id": user.company_id, "status__in": [0, 1]},
+            tenant_config={},
+        )
+        branch = commonQuery.findOneRecord(
+            Branch,
+            {"id": user.branch_id, "company_id": user.company_id, "status__in": [0, 1]},
+            tenant_config={},
+        )
+        branch_list = commonQuery.findAllRecords(
+            Branch,
+            {"company_id": user.company_id, "status": 0},
+            {
+                "attributes": ["id", "name", "code", "city", "phone", "is_head_office"],
+                "order": ["name"],
+            },
+            tenant_config={},
         )
         return {
             "user": AccountsService.serializeUser(user),
-            "company": serializeModelInstance(company),
-            "branch": serializeModelInstance(branch),
+            "company": company,
+            "branch": branch,
             "branch_list": branch_list,
             "business_settings": OptionSettingService.buildSessionSettings(user),
         }
@@ -200,42 +222,54 @@ class AccountsService:
             return {"has_permission": True, "access": None}
 
         now = timezone.now()
-        approved = PermissionAccess.objects.filter(
-            requester=user,
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            permission=permission,
-            access_status=PermissionAccess.GRANTED,
-            expired_at__gte=now,
-            status=0,
+        approved = commonQuery.scopedQueryset(
+            PermissionAccess,
+            {
+                "requester": user,
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+                "permission": permission,
+                "access_status": PermissionAccess.GRANTED,
+                "expired_at__gte": now,
+                "status": 0,
+            },
+            tenant_config={},
         ).first()
         if approved:
             return {"has_permission": True, "access": serializeModelInstance(approved)}
 
-        pending = PermissionAccess.objects.filter(
-            requester=user,
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            permission=permission,
-            access_status=PermissionAccess.PENDING,
-            expired_at__gte=now,
-            status=0,
+        pending = commonQuery.scopedQueryset(
+            PermissionAccess,
+            {
+                "requester": user,
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+                "permission": permission,
+                "access_status": PermissionAccess.PENDING,
+                "expired_at__gte": now,
+                "status": 0,
+            },
+            tenant_config={},
         ).first()
         if pending:
             return {"has_permission": False, "access": serializeModelInstance(pending), "type": "permission_pending"}
 
-        access = PermissionAccess.objects.create(
-            requester=user,
-            granter=user,
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            permission=permission,
-            url=data.get("url"),
-            access_status=PermissionAccess.PENDING,
-            expired_at=now + timedelta(minutes=5),
-            status=0,
+        access = commonQuery.createRecord(
+            PermissionAccess,
+            {
+                "requester_id": user.id,
+                "granter_id": user.id,
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+                "permission": permission,
+                "url": data.get("url"),
+                "access_status": PermissionAccess.PENDING,
+                "expired_at": now + timedelta(minutes=5),
+                "status": 0,
+            },
+            tenant_config={},
         )
-        return {"has_permission": False, "access": serializeModelInstance(access), "type": "permission_denied"}
+        return {"has_permission": False, "access": access, "type": "permission_denied"}
 
     @staticmethod
     def listPermissionAccess(user: User, data):
@@ -267,11 +301,15 @@ class AccountsService:
 
     @staticmethod
     def approvePermissionAccess(user: User, access_id: int, data):
-        access = PermissionAccess.objects.filter(
-            id=access_id,
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            status=0,
+        access = commonQuery.scopedQueryset(
+            PermissionAccess,
+            {
+                "id": access_id,
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+                "status": 0,
+            },
+            tenant_config={},
         ).first()
         if access is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Permission access not found.")
@@ -290,13 +328,17 @@ class AccountsService:
 
     @staticmethod
     def markPermissionAccessUsed(user: User, access_id: int):
-        access = PermissionAccess.objects.filter(
-            id=access_id,
-            requester=user,
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            access_status=PermissionAccess.GRANTED,
-            status=0,
+        access = commonQuery.scopedQueryset(
+            PermissionAccess,
+            {
+                "id": access_id,
+                "requester": user,
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+                "access_status": PermissionAccess.GRANTED,
+                "status": 0,
+            },
+            tenant_config={},
         ).first()
         if access is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Permission access not found.")
@@ -313,7 +355,7 @@ class AccountsService:
         if company_id is not None and "company" in [f.name for f in model._meta.get_fields()]:
             filters["company_id"] = company_id
 
-        while model.objects.filter(**filters).exists():
+        while commonQuery.existsRecord(model, filters, tenant_config={}):
             counter += 1
             code = f"{base_code}-{counter}"
             filters["code"] = code
@@ -348,13 +390,13 @@ class AccountsService:
                 ErrorCodes.VALIDATION_ERROR,
                 "Password confirmation does not match.",
             )
-        if User.objects.filter(username__iexact=payload.username).exists():
+        if commonQuery.existsRecord(User, {"username__iexact": payload.username}, tenant_config={}):
             raise api_error(
                 422,
                 ErrorCodes.VALIDATION_ERROR,
                 "The username is already taken.",
             )
-        if payload.email and User.objects.filter(email__iexact=payload.email).exists():
+        if payload.email and commonQuery.existsRecord(User, {"email__iexact": payload.email}, tenant_config={}):
             raise api_error(
                 422,
                 ErrorCodes.VALIDATION_ERROR,
@@ -368,28 +410,42 @@ class AccountsService:
                 Company,
                 placeholder_company_name,
             )
-            company = Company.objects.create(
-                name=placeholder_company_name,
-                legal_name=placeholder_company_name,
-                code=company_code,
-                email=payload.email,
+            company_data = commonQuery.createRecord(
+                Company,
+                {
+                    "name": placeholder_company_name,
+                    "legal_name": placeholder_company_name,
+                    "code": company_code,
+                    "email": payload.email,
+                },
+                tenant_config={},
             )
-            branch = Branch.objects.create(
-                company=company,
-                name=branch_name,
-                code=AccountsService.generateUniqueCode(
-                    Branch,
-                    branch_name,
-                    company.id,
-                ),
-                is_head_office=True,
+            company = commonQuery.findOneInstance(Company, company_data["id"], tenant_config={})
+            branch_data = commonQuery.createRecord(
+                Branch,
+                {
+                    "company_id": company.id,
+                    "name": branch_name,
+                    "code": AccountsService.generateUniqueCode(
+                        Branch,
+                        branch_name,
+                        company.id,
+                    ),
+                    "is_head_office": True,
+                },
+                tenant_config={},
             )
+            branch = commonQuery.findOneInstance(Branch, branch_data["id"], tenant_config={})
             TenantDefaultsService.ensureBranchDefaults(company, branch)
-            role = Role.objects.filter(
-                company=company,
-                branch=branch,
-                namespace="admin",
-                status=0,
+            role = commonQuery.scopedQueryset(
+                Role,
+                {
+                    "company": company,
+                    "branch": branch,
+                    "namespace": "admin",
+                    "status": 0,
+                },
+                tenant_config={},
             ).first()
             if role is None:
                 raise api_error(
@@ -419,7 +475,7 @@ class AccountsService:
 
     @staticmethod
     def login(request, payload):
-        user = User.objects.filter(username=payload.username).first()
+        user = commonQuery.scopedQueryset(User, {"username": payload.username}, tenant_config={}).first()
         if user is None or not user.check_password(payload.password):
             raise api_error(401, ErrorCodes.PERMISSION_DENIED, "Invalid username or password.")
         if user.status != 0 or not user.is_active:
@@ -440,10 +496,14 @@ class AccountsService:
 
     @staticmethod
     def switchBranch(user: User, branch_id: int, request, token_value: str = ""):
-        branch = Branch.objects.filter(
-            id=branch_id,
-            company_id=user.company_id,
-            status=0,
+        branch = commonQuery.scopedQueryset(
+            Branch,
+            {
+                "id": branch_id,
+                "company_id": user.company_id,
+                "status": 0,
+            },
+            tenant_config={},
         ).first()
         if branch is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
@@ -452,7 +512,7 @@ class AccountsService:
         user.save(update_fields=["branch"])
 
         if token_value:
-            AccessToken.objects.filter(token=token_value).update(
+            commonQuery.scopedQueryset(AccessToken, {"token": token_value}, tenant_config={}).update(
                 status=1,
                 deleted_at=timezone.now(),
             )
@@ -466,7 +526,7 @@ class AccountsService:
 
     @staticmethod
     def logout(token_value: str):
-        AccessToken.objects.filter(token=token_value).update(
+        commonQuery.scopedQueryset(AccessToken, {"token": token_value}, tenant_config={}).update(
             status=2,
             deleted_at=timezone.now(),
         )
@@ -551,7 +611,7 @@ class AccountsService:
         def delete_model(model):
             if not AccountsService._modelHasField(model, "company"):
                 return 0
-            queryset = model.objects.filter(company_id=company_id)
+            queryset = commonQuery.scopedQueryset(model, {"company_id": company_id}, tenant_config={})
             return AccountsService._deleteQueryset(model._meta.label, queryset, deleted_summary)
 
         for label in ordered_labels:
@@ -587,7 +647,7 @@ class AccountsService:
 
         remaining = {}
         for model in company_scoped_models:
-            count = model.objects.filter(company_id=company_id).count()
+            count = commonQuery.countRecords(model, {"company_id": company_id}, tenant_config={})
             if count:
                 remaining[model._meta.label] = count
 
@@ -617,7 +677,7 @@ class AccountsService:
                 "Only the workspace super admin can delete this workspace.",
             )
 
-        company = Company.objects.filter(id=user.company_id).first()
+        company = commonQuery.findOneInstance(Company, user.company_id, tenant_config={})
         if company is None:
             raise api_error(
                 404,
@@ -626,20 +686,20 @@ class AccountsService:
             )
 
         user_ids = list(
-            User.objects.filter(company_id=company.id).values_list("id", flat=True)
+            commonQuery.scopedQueryset(User, {"company_id": company.id}, tenant_config={}).values_list("id", flat=True)
         )
         branch_ids = list(
-            Branch.objects.filter(company_id=company.id).values_list("id", flat=True)
+            commonQuery.scopedQueryset(Branch, {"company_id": company.id}, tenant_config={}).values_list("id", flat=True)
         )
         role_ids = list(
-            Role.objects.filter(company_id=company.id).values_list("id", flat=True)
+            commonQuery.scopedQueryset(Role, {"company_id": company.id}, tenant_config={}).values_list("id", flat=True)
         )
 
         with transaction.atomic():
-            token_count, _ = AccessToken.objects.filter(user_id__in=user_ids).delete()
+            token_count, _ = commonQuery.scopedQueryset(AccessToken, {"user_id__in": user_ids}, tenant_config={}).delete()
             tenant_deleted_summary = AccountsService._deleteCompanyScopedModels(company.id)
-            deleted_user_count, _ = User.objects.filter(id__in=user_ids).delete()
-            deleted_company_count, _ = Company.objects.filter(id=company.id).delete()
+            deleted_user_count, _ = commonQuery.scopedQueryset(User, {"id__in": user_ids}, tenant_config={}).delete()
+            deleted_company_count, _ = commonQuery.scopedQueryset(Company, {"id": company.id}, tenant_config={}).delete()
 
         return {
             "company_id": company.id,
@@ -680,16 +740,24 @@ class AccountsService:
 
     @staticmethod
     def userDropdown(user: User):
-        return list(
-            User.objects.filter(company_id=user.company_id, status__in=[0, 1])
-            .order_by("full_name")
-            .values("id", "full_name", "phone", "email")
+        return commonQuery.findAllRecords(
+            User,
+            {"company_id": user.company_id, "status__in": [0, 1]},
+            {
+                "attributes": ["id", "full_name", "phone", "email"],
+                "order": ["full_name"],
+            },
+            tenant_config={},
         )
 
     @staticmethod
     def getUser(user: User, user_id: int):
         target_user = (
-            User.objects.filter(company_id=user.company_id, id=user_id, status__in=[0, 1])
+            commonQuery.scopedQueryset(
+                User,
+                {"company_id": user.company_id, "id": user_id, "status__in": [0, 1]},
+                tenant_config={},
+            )
             .select_related("branch", "role")
             .first()
         )
@@ -703,13 +771,21 @@ class AccountsService:
         branch_id = data.get("branch_id") or user.branch_id
         role_id = data.get("role_id")
 
-        branch = Branch.objects.filter(company_id=user.company_id, id=branch_id, status__in=[0, 1]).first()
+        branch = commonQuery.scopedQueryset(
+            Branch,
+            {"company_id": user.company_id, "id": branch_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
         if branch is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
 
         role = None
         if role_id:
-            role = Role.objects.filter(company_id=user.company_id, branch_id=branch_id, id=role_id, status__in=[0, 1]).first()
+            role = commonQuery.scopedQueryset(
+                Role,
+                {"company_id": user.company_id, "branch_id": branch_id, "id": role_id, "status__in": [0, 1]},
+                tenant_config={},
+            ).first()
             if role is None:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
 
@@ -748,7 +824,11 @@ class AccountsService:
 
     @staticmethod
     def updateUser(user: User, user_id: int, payload):
-        target_user = User.objects.filter(company_id=user.company_id, id=user_id, status__in=[0, 1]).first()
+        target_user = commonQuery.scopedQueryset(
+            User,
+            {"company_id": user.company_id, "id": user_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
         if target_user is None:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
 
@@ -771,16 +851,24 @@ class AccountsService:
             },
         )
         if data.get("branch_id"):
-            branch = Branch.objects.filter(company_id=user.company_id, id=data["branch_id"], status__in=[0, 1]).first()
+            branch = commonQuery.scopedQueryset(
+                Branch,
+                {"company_id": user.company_id, "id": data["branch_id"], "status__in": [0, 1]},
+                tenant_config={},
+            ).first()
             if branch is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
             target_user.branch = branch
         if data.get("role_id"):
-            role = Role.objects.filter(
-                company_id=user.company_id,
-                branch_id=target_user.branch_id,
-                id=data["role_id"],
-                status__in=[0, 1],
+            role = commonQuery.scopedQueryset(
+                Role,
+                {
+                    "company_id": user.company_id,
+                    "branch_id": target_user.branch_id,
+                    "id": data["role_id"],
+                    "status__in": [0, 1],
+                },
+                tenant_config={},
             ).first()
             if role is None:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
@@ -801,7 +889,11 @@ class AccountsService:
         ids = data.get("ids", [])
         if not isinstance(ids, list):
             ids = [ids]
-        count = User.objects.filter(company_id=user.company_id, id__in=ids).update(status=2, deleted_at=timezone.now())
+        count = commonQuery.scopedQueryset(
+            User,
+            {"company_id": user.company_id, "id__in": ids},
+            tenant_config={},
+        ).update(status=2, deleted_at=timezone.now())
         if count == 0:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
         return {"deleted_count": count}
@@ -812,7 +904,11 @@ class AccountsService:
         ids = data.get("ids", [])
         if not isinstance(ids, list):
             ids = [ids]
-        count = User.objects.filter(company_id=user.company_id, id__in=ids).update(status=status)
+        count = commonQuery.scopedQueryset(
+            User,
+            {"company_id": user.company_id, "id__in": ids},
+            tenant_config={},
+        ).update(status=status)
         if count == 0:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
         return {"updated_count": count, "status": status}
@@ -821,7 +917,11 @@ class AccountsService:
     def listRoles(user: User):
         AccountsService.ensurePermissions()
         roles = (
-            Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, status__in=[0, 1])
+            commonQuery.scopedQueryset(
+                Role,
+                {"company_id": user.company_id, "branch_id": user.branch_id, "status__in": [0, 1]},
+                tenant_config={},
+            )
             .prefetch_related("permissions")
             .order_by("name")
         )
@@ -831,7 +931,11 @@ class AccountsService:
     def getRole(user: User, role_id: int):
         AccountsService.ensurePermissions()
         role = (
-            Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1])
+            commonQuery.scopedQueryset(
+                Role,
+                {"company_id": user.company_id, "branch_id": user.branch_id, "id": role_id, "status__in": [0, 1]},
+                tenant_config={},
+            )
             .prefetch_related("permissions")
             .first()
         )
@@ -869,24 +973,33 @@ class AccountsService:
             messages={"name": "Role name already exists."},
         )
 
-        role = Role.objects.create(
-            company_id=user.company_id,
-            branch_id=user.branch_id,
-            user_id=user.id,
-            name=payload.name,
-            namespace=role_namespace,
-            description=payload.description,
-            reward_system_id=payload.reward_system_id,
-            minimal_credit_payment=payload.minimal_credit_payment,
-            locked=payload.locked,
+        role_data = commonQuery.createRecord(
+            Role,
+            {
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+                "user_id": user.id,
+                "name": payload.name,
+                "namespace": role_namespace,
+                "description": payload.description,
+                "reward_system_id": payload.reward_system_id,
+                "minimal_credit_payment": payload.minimal_credit_payment,
+                "locked": payload.locked,
+            },
+            tenant_config={},
         )
+        role = commonQuery.findOneInstance(Role, role_data["id"], tenant_config={})
         role.permissions.set([permission_map[code] for code in requested_permissions])
         return AccountsService.serializeRole(role)
 
     @staticmethod
     def updateRole(user: User, role_id: int, payload):
         role = (
-            Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1])
+            commonQuery.scopedQueryset(
+                Role,
+                {"company_id": user.company_id, "branch_id": user.branch_id, "id": role_id, "status__in": [0, 1]},
+                tenant_config={},
+            )
             .prefetch_related("permissions")
             .first()
         )
@@ -937,7 +1050,11 @@ class AccountsService:
 
     @staticmethod
     def deleteRole(user: User, role_id: int):
-        role = Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1]).first()
+        role = commonQuery.scopedQueryset(
+            Role,
+            {"company_id": user.company_id, "branch_id": user.branch_id, "id": role_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
         if role is None:
             raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
         if role.locked or role.namespace == "admin":
@@ -964,11 +1081,19 @@ class AccountsService:
 
     @staticmethod
     def assignRole(user: User, user_id: int, role_id: int):
-        target_user = User.objects.filter(company_id=user.company_id, id=user_id, status__in=[0, 1]).first()
+        target_user = commonQuery.scopedQueryset(
+            User,
+            {"company_id": user.company_id, "id": user_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
         if target_user is None:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
 
-        role = Role.objects.filter(company_id=user.company_id, branch_id=user.branch_id, id=role_id, status__in=[0, 1]).first()
+        role = commonQuery.scopedQueryset(
+            Role,
+            {"company_id": user.company_id, "branch_id": user.branch_id, "id": role_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
         if role is None:
             raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
 

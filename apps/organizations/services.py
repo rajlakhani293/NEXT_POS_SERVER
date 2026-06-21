@@ -16,29 +16,49 @@ class OrganizationsService:
         base_code = slugify(code or name) or "branch"
         branch_code = base_code
         counter = 1
-        while Branch.objects.filter(company_id=company_id, code=branch_code).exists():
+        while commonQuery.existsRecord(
+            Branch,
+            {"company_id": company_id, "code": branch_code},
+            tenant_config={},
+        ):
             counter += 1
             branch_code = f"{base_code}-{counter}"
         return branch_code
 
     @staticmethod
     def getCurrentOrganization(user):
-        company = Company.objects.filter(id=user.company_id, status__in=[0, 1]).first()
-        branch = Branch.objects.filter(id=user.branch_id, company_id=user.company_id, status__in=[0, 1]).first()
+        company = commonQuery.findOneRecord(
+            Company,
+            {"id": user.company_id, "status__in": [0, 1]},
+            tenant_config={},
+        )
+        branch = commonQuery.findOneRecord(
+            Branch,
+            {"id": user.branch_id, "company_id": user.company_id, "status__in": [0, 1]},
+            tenant_config={},
+        )
         if company is None:
             raise api_error(404, ErrorCodes.COMPANY_NOT_FOUND, "Company not found.")
 
         return {
-            "company": serializeModelInstance(company),
-            "branch": serializeModelInstance(branch) if branch else None,
+            "company": company,
+            "branch": branch,
         }
 
     @staticmethod
     def updateCurrentOrganization(user, company_payload, branch_payload=None, logo=None, request=None):
-        company = Company.objects.filter(id=user.company_id, status__in=[0, 1]).first()
+        company = commonQuery.findOneInstance(
+            Company,
+            {"id": user.company_id, "status__in": [0, 1]},
+            tenant_config={},
+        )
         branch = None
         if branch_payload is not None:
-            branch = Branch.objects.filter(id=user.branch_id, company_id=user.company_id, status__in=[0, 1]).first()
+            branch = commonQuery.findOneInstance(
+                Branch,
+                {"id": user.branch_id, "company_id": user.company_id, "status__in": [0, 1]},
+                tenant_config={},
+            )
         if company is None or (branch_payload is not None and branch is None):
             raise api_error(
                 404,
@@ -108,8 +128,8 @@ class OrganizationsService:
                 request=request,
                 tenant_config={"company_id": True},
             )
-            company = Company.objects.get(id=user.company_id)
-            branch = Branch.objects.get(id=branch_data["id"])
+            company = commonQuery.findOneInstance(Company, user.company_id, tenant_config={})
+            branch = commonQuery.findOneInstance(Branch, branch_data["id"], tenant_config={})
             TenantDefaultsService.ensureBranchDefaults(company, branch)
             return branch_data
 
