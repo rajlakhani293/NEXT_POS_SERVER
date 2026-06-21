@@ -681,12 +681,11 @@ class SaleCustomerService:
         )
 
         due_amount = saleDueAmount(sale_order)
-        paid_amount = max(money(sale_order.get("tendered_amount")) - money(sale_order.get("change_amount")), Decimal("0"))
-        Customer.objects.filter(id=customer_id).update(
-            purchases_amount=F("purchases_amount") + paid_amount,
-            total_sales_count=F("total_sales_count") + 1,
-            owed_amount=F("owed_amount") + due_amount,
-        )
+        update_fields = {"owed_amount": F("owed_amount") + due_amount}
+        if sale_order.get("payment_status") == "paid":
+            update_fields["purchases_amount"] = F("purchases_amount") + money(sale_order.get("total"))
+            update_fields["total_sales_count"] = F("total_sales_count") + 1
+        Customer.objects.filter(id=customer_id).update(**update_fields)
 
         if due_amount > 0:
             balance_after = money(customer_before.get("owed_amount") if customer_before else 0) + due_amount
@@ -711,6 +710,24 @@ class SaleCustomerService:
             request=request,
             tenant_config=True,
         )
+
+    @staticmethod
+    def finalizePaidSale(sale_order, customer, settings, request):
+        if not customer:
+            return {"customer": None, "reward": None}
+
+        Customer.objects.filter(id=customer["id"]).update(
+            purchases_amount=F("purchases_amount") + money(sale_order.get("total")),
+            total_sales_count=F("total_sales_count") + 1,
+        )
+        updated_customer = commonQuery.findOneRecord(
+            Customer,
+            customer["id"],
+            request=request,
+            tenant_config=True,
+        )
+        reward = SaleRewardService.processRewards(sale_order, request) if settings.enable_customer_rewards else None
+        return {"customer": updated_customer, "reward": reward}
 
 
 class SaleRewardService:
@@ -1426,9 +1443,19 @@ class SaleService:
         if sale_order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
         customer = SaleService.recomputeCustomerOwed(sale_order.get("customer_id"), request) if sale_order.get("customer_id") else None
+        reward = None
+        if customer and sale_order.get("payment_status") == "paid":
+            result = SaleCustomerService.finalizePaidSale(
+                sale_order,
+                customer,
+                getOptionSettings(request.user),
+                request,
+            )
+            customer = result["customer"]
+            reward = result["reward"]
         return successResponse(
             "Customer owed amount processed successfully.",
-            data={"customer": customer, "reward_processed": False},
+            data={"customer": customer, "reward_processed": reward is not None, "reward": reward},
         )
 
     @staticmethod
@@ -2464,6 +2491,7 @@ class SaleService:
             SaleStockService.recordSaleStock(updated_sale, request)
             if sale_order.get("payment_status") != "paid" and next_status == "paid":
                 DomainActionService.afterSalePaid(updated_sale, request)
+                SaleCustomerService.finalizePaidSale(updated_sale, customer, settings, request)
                 sale_items = commonQuery.findAllRecords(
                     OrdersProduct,
                     {"sale_order_id": sale_order_id},
@@ -2731,6 +2759,7 @@ class SaleService:
             SaleStockService.recordSaleStock(updated_sale, request)
             if sale_order.get("payment_status") != "paid" and next_status == "paid":
                 DomainActionService.afterSalePaid(updated_sale, request)
+                SaleCustomerService.finalizePaidSale(updated_sale, customer, settings, request)
                 sale_items = commonQuery.findAllRecords(
                     OrdersProduct,
                     {"sale_order_id": sale_order_id},

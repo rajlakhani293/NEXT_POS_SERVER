@@ -26,6 +26,10 @@ BUSINESS_SETTING_FIELDS = [
 
 
 OPTION_KEY_MAP = {
+    "allow_partial_orders": "orders_allow_partial",
+    "enable_customer_rewards": "customers_rewards_enabled",
+    "enable_credit_account": "customers_credit_enabled",
+    "enable_cash_registers": "registers_enabled",
     "allow_decimal_quantities": "allow_decimal_quantities",
     "quick_product_enabled": "quick_product",
     "show_quantity": "show_quantity",
@@ -234,7 +238,7 @@ def ensureOptionValue(company, branch, key, value, user=None):
     if user and option.user_id is None:
         option.user = user
         update_fields.append("user")
-    if option.value in [None, ""]:
+    if option.value != encoded_value or option.array != is_array:
         option.value = encoded_value
         option.array = is_array
         update_fields.extend(["value", "array"])
