@@ -74,8 +74,6 @@ def buildWhere(model, where_input=None, tenant_config=True, request=None):
             q &= Q(company_id=ctx["company_id"])
         if "branch" in model_fields and ctx.get("branch_id"):
             q &= Q(branch_id=ctx["branch_id"])
-        if "user" in model_fields and ctx.get("user_id"):
-            q &= Q(user_id=ctx["user_id"])
     # Explicit toggles
     elif is_obj and not is_empty_obj:
         if tenant_config.get("company_id") and ctx.get("company_id"):
