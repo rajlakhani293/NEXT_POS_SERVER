@@ -44,8 +44,8 @@ class SaleCreateIn(Schema):
 
 
 class SaleListIn(Schema):
-    page: int = 1
-    limit: int = 10
+    page: int = Field(1, ge=1)
+    limit: int = Field(10, ge=1, le=100)
     search: Optional[str] = None
     status: Optional[int] = None
     startDate: Optional[str] = None

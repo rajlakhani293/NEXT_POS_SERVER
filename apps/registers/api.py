@@ -3,7 +3,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.registers.schemas import (
     CashRegisterIn,
     CashRegisterUpdateIn,
@@ -37,7 +37,7 @@ def getRegisterDropdown(request):
 @router.post("/", response=ApiResponse)
 @permission_required("cash_register_open")
 def createRegister(request, payload: CashRegisterIn):
-    return RegisterService.create(payload.dict(), request)
+    return RegisterService.create(payloadData(payload), request)
 
 
 @router.post("/get-transactions", response=ApiResponse)
@@ -49,49 +49,37 @@ def getAllRegisters(request, payload: dict = None):
 @router.delete("/delete", response=ApiResponse)
 @permission_required("cash_register_close")
 def deleteRegisters(request, payload: BulkIdsSchema):
-    return RegisterService.delete(payload.dict(), request)
+    return RegisterService.delete(payloadData(payload), request)
 
 
 @router.patch("/status", response=ApiResponse)
 @permission_required("cash_register_close")
 def updateRegisterStatus(request, payload: StatusUpdateSchema):
-    return RegisterService.updateStatus(payload.dict(), request)
+    return RegisterService.updateStatus(payloadData(payload), request)
 
 
 @router.post("/open", response=ApiResponse)
 @permission_required("cash_register_open")
 def openRegister(request, payload: RegisterStatusIn):
-    return RegisterService.openRegister(payload.dict(), request)
+    return RegisterService.openRegister(payloadData(payload), request)
 
 
 @router.post("/close", response=ApiResponse)
 @permission_required("cash_register_close")
 def closeRegister(request, payload: RegisterStatusIn):
-    return RegisterService.closeRegister(payload.dict(), request)
+    return RegisterService.closeRegister(payloadData(payload), request)
 
 
 @router.post("/cash-in", response=ApiResponse)
 @permission_required("cash_register_open")
 def cashIn(request, payload: RegisterMoneyActionIn):
-    return RegisterService.cashIn(payload.dict(), request)
+    return RegisterService.cashIn(payloadData(payload), request)
 
 
 @router.post("/cash-out", response=ApiResponse)
 @permission_required("cash_register_close")
 def cashOut(request, payload: RegisterMoneyActionIn):
-    return RegisterService.cashOut(payload.dict(), request)
-
-
-@router.get("/{register_id}", response=ApiResponse)
-@permission_required("cash_register_view")
-def getRegisterById(request, register_id: int):
-    return RegisterService.getById(register_id, request)
-
-
-@router.put("/{register_id}", response=ApiResponse)
-@permission_required("cash_register_close")
-def updateRegister(request, register_id: int, payload: CashRegisterUpdateIn):
-    return RegisterService.update(register_id, payload.dict(exclude_none=True), request)
+    return RegisterService.cashOut(payloadData(payload), request)
 
 
 @router.get("/shifts/current", response=ApiResponse)
@@ -150,3 +138,15 @@ def getShiftsData(request, payload: dict = None):
 @permission_required("cash_register_view")
 def getShiftById(request, shift_id: int):
     return RegisterService.getShiftById(shift_id, request)
+
+
+@router.get("/{register_id}", response=ApiResponse)
+@permission_required("cash_register_view")
+def getRegisterById(request, register_id: int):
+    return RegisterService.getById(register_id, request)
+
+
+@router.put("/{register_id}", response=ApiResponse)
+@permission_required("cash_register_close")
+def updateRegister(request, register_id: int, payload: CashRegisterUpdateIn):
+    return RegisterService.update(register_id, payloadData(payload, exclude_none=True), request)

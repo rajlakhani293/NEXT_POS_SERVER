@@ -41,13 +41,13 @@ def providerPayable(request, payload: Optional[dict] = None):
     return ReportService.supplierPayable(payload, request)
 
 
-@router.post("/supplier-payable", response=ApiResponse)
+@router.post("/supplier-payable", response=ApiResponse, deprecated=True, include_in_schema=False)
 @permission_required("reports_view")
 def supplierPayableAlias(request, payload: Optional[dict] = None):
     return ReportService.supplierPayable(payload, request)
 
 
-@router.post("/Provider-payable", response=ApiResponse)
+@router.post("/Provider-payable", response=ApiResponse, deprecated=True, include_in_schema=False)
 @permission_required("reports_view")
 def providerPayableLegacy(request, payload: Optional[dict] = None):
     return ReportService.supplierPayable(payload, request)

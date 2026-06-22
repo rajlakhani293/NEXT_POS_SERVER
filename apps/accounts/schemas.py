@@ -80,7 +80,7 @@ class UserIn(Schema):
     email: str = Field("", example="staff@example.com")
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
-    status: int = 0
+    status: ActiveStatus = 0
 
 
 class UserUpdateIn(Schema):

@@ -1,6 +1,8 @@
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from ninja import Field, Schema
+
+OrderType = Literal["takeaway", "delivery"]
 
 
 class OptionSettingIn(Schema):
@@ -15,7 +17,7 @@ class OptionSettingIn(Schema):
     hide_empty_categories: bool = True
     unit_price_editable: bool = True
     default_change_payment_type: str = "cash-payment"
-    order_types: List[str] = ["takeaway", "delivery"]
+    order_types: List[OrderType] = Field(default_factory=lambda: ["takeaway", "delivery"])
 
 
 class PaymentTypeOut(Schema):
@@ -38,8 +40,8 @@ class PaymentTypeUpdateIn(Schema):
 
 
 class PaymentTypeListIn(Schema):
-    page: int = 1
-    limit: int = 10
+    page: int = Field(1, ge=1)
+    limit: int = Field(10, ge=1, le=100)
     search: Optional[str] = ""
     filters: Optional[int] = 2
     sortBy: Optional[str] = "priority"
