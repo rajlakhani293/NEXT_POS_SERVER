@@ -53,13 +53,6 @@ def _buildBarcode(request, exclude_id=None):
 
 
 def _normalizeProductPayload(data):
-    if data.get("product_type") in ["stock", "service"]:
-        legacy_type = data.pop("product_type")
-        data["product_type"] = "product"
-        if "type" not in data:
-            data["type"] = "dematerialized" if legacy_type == "service" else "materialized"
-        if legacy_type == "service" and "stock_management" not in data:
-            data["stock_management"] = "disabled"
     return data
 
 

@@ -5,7 +5,7 @@ from ninja import Schema
 
 from apps.common.schemas import ActiveStatus
 
-ProductType = Literal["product", "variation", "variable", "stock", "service"]
+ProductType = Literal["product", "variation", "variable"]
 CatalogItemType = Literal["dematerialized", "materialized", "grouped"]
 StockManagement = Literal["enabled", "disabled"]
 TaxType = Literal["inclusive", "exclusive"]

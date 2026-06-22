@@ -15,9 +15,6 @@ class RewardSystemIn(Schema):
     coupon_id: int
     target: Decimal = Field(Decimal("0"), ge=0)
     description: str = ""
-    from_amount: Decimal = Field(Decimal("0"), ge=0)
-    to_amount: Decimal = Field(Decimal("0"), ge=0)
-    reward: Decimal = Field(Decimal("0"), ge=0)
     rules: List[RewardRuleIn] = Field(default_factory=list)
 
 
@@ -26,9 +23,6 @@ class RewardSystemUpdateIn(Schema):
     coupon_id: Optional[int] = None
     target: Optional[Decimal] = Field(None, ge=0)
     description: Optional[str] = None
-    from_amount: Optional[Decimal] = Field(None, ge=0)
-    to_amount: Optional[Decimal] = Field(None, ge=0)
-    reward: Optional[Decimal] = Field(None, ge=0)
     rules: Optional[List[RewardRuleIn]] = None
     status: Optional[ActiveStatus] = None
 

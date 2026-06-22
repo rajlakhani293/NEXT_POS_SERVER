@@ -80,14 +80,7 @@ def attachRewardRules(systems, request):
 
 
 def normalizeRules(data):
-    legacy_rule = {
-        "from_amount": data.pop("from_amount", 0) or 0,
-        "to_amount": data.pop("to_amount", 0) or 0,
-        "reward": data.pop("reward", 0) or 0,
-    }
-    if "rules" in data:
-        return data.pop("rules") or []
-    return [legacy_rule] if legacy_rule["reward"] else []
+    return data.pop("rules", None) or []
 
 
 def replaceRules(reward_system_id, rules, request):
@@ -315,7 +308,7 @@ class RewardSystemService:
     @staticmethod
     def update(data, request, reward_system_id):
         with transaction.atomic():
-            has_rule_update = "rules" in data or any(key in data for key in ["from_amount", "to_amount", "reward"])
+            has_rule_update = "rules" in data
             rules = normalizeRules(data) if has_rule_update else []
             ensureRewardSystem(reward_system_id, request)
 
