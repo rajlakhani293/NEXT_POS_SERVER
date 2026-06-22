@@ -630,10 +630,38 @@ class ProductService:
             ],
         }
         result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
+        product_ids = [item["id"] for item in result["items"]]
+        unit_quantities_by_product = {}
+        if product_ids:
+            unit_quantities = commonQuery.findAllRecords(
+                ProductUnitQuantity,
+                {"product_id__in": product_ids},
+                {
+                    "attributes": [
+                        "id",
+                        "product_id",
+                        "unit_id",
+                        "unit__name",
+                        "quantity",
+                        "sale_price",
+                    ],
+                    "order": ["id"],
+                },
+                request=request,
+                tenant_config=True,
+            )
+            for unit_quantity in unit_quantities:
+                product_id = unit_quantity.get("product_id")
+                if product_id not in unit_quantities_by_product:
+                    unit_quantities_by_product[product_id] = unit_quantity
         for item in result["items"]:
             item["category_name"] = item.pop("category__name", None)
             item["tax_group_name"] = item.pop("tax_group__name", None)
             item["unit_group_name"] = item.pop("unit_group__name", None)
+            first_unit_quantity = unit_quantities_by_product.get(item["id"]) or {}
+            item["unit_name"] = first_unit_quantity.get("unit__name")
+            item["selling_price"] = first_unit_quantity.get("sale_price") or 0
+            item["current_stock"] = first_unit_quantity.get("quantity") or 0
         return successResponse("Products retrieved successfully.", data=result)
 
     @staticmethod
@@ -641,7 +669,19 @@ class ProductService:
         data = commonQuery.findAllRecords(
             Product,
             {},
-            {"attributes": ["id", "name", "sku", "barcode", "product_type", "unit_group_id"], "order": ["position", "name"]},
+            {
+                "attributes": [
+                    "id",
+                    "name",
+                    "sku",
+                    "barcode",
+                    "product_type",
+                    "type",
+                    "stock_management",
+                    "unit_group_id",
+                ],
+                "order": ["position", "name"],
+            },
             request=request,
             tenant_config=True,
         )

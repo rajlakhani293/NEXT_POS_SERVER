@@ -247,6 +247,7 @@ class NexoPosParityFlowTest(TestCase):
 
         order = Order.objects.get(id=sale["id"])
         self.unit_quantity.refresh_from_db()
+        self.assertRegex(order.code, r"^\d{6}-\d{3}$")
         self.assertEqual(order.payment_status, "paid")
         self.assertEqual(order.total, Decimal("200.00000"))
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("8.0"))
@@ -319,6 +320,7 @@ class NexoPosParityFlowTest(TestCase):
         order = Order.objects.get(id=sale["id"])
         sale_item = OrdersProduct.objects.get(sale_order=order)
 
+        self.assertRegex(order.code, r"^\d{6}-\d{3}$")
         self.assertEqual(order.total, Decimal("190.00000"))
         self.assertEqual(order.total_coupons, Decimal("10.00000"))
         self.assertTrue(

@@ -1,5 +1,6 @@
 # type: ignore
 import json
+from datetime import datetime, time
 from types import SimpleNamespace
 from decimal import Decimal
 
@@ -38,6 +39,7 @@ from apps.registers.services import RegisterService
 from apps.reports.services import ReportService
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import (
+    OrderCount,
     OrderInstalment,
     OrderStorage,
     OrderPayment,
@@ -58,6 +60,52 @@ def getOptionSettings(user):
 
 def saleDueAmount(sale_order):
     return max(money((sale_order or {}).get("total")) - money((sale_order or {}).get("tendered_amount")), Decimal("0"))
+
+
+def normalizeOrderPayments(payments):
+    for payment in payments or []:
+        payment["payment_type"] = payment.get("identifier")
+        payment["amount"] = payment.get("value")
+    return payments
+
+
+def generateOrderCode(request, created_at=None):
+    if not transaction.get_connection().in_atomic_block:
+        with transaction.atomic():
+            return generateOrderCode(request, created_at)
+
+    now = timezone.localtime(created_at or timezone.now())
+    today = now.date()
+    day_start = timezone.make_aware(
+        datetime.combine(today, time.min),
+        timezone.get_current_timezone(),
+    )
+
+    counter = (
+        commonQuery.branchScopedQueryset(OrderCount, {"date": day_start}, request)
+        .select_for_update()
+        .first()
+    )
+    if counter is None:
+        counter = commonQuery.createInstance(
+            OrderCount,
+            {"date": day_start, "count": 1},
+            request=request,
+            tenant_config=True,
+        )
+
+    count = counter.count
+    counter.count = counter.count + 1
+    counter.save(update_fields=["count"])
+
+    while True:
+        code = f"{now:%y%m%d}-{count:03d}"
+        exists = commonQuery.branchScopedQueryset(Order, {"code": code}, request).exists()
+        if not exists:
+            return code
+        count += 1
+        counter.count = max(counter.count, count + 1)
+        counter.save(update_fields=["count"])
 
 
 def getCurrentRegisterContext(request, register_id=None, required=True):
@@ -1771,6 +1819,7 @@ class SaleService:
             request=request,
             tenant_config=True,
         )
+        payments = normalizeOrderPayments(payments)
 
         applied_coupons = commonQuery.findAllRecords(
             OrdersCoupon,
@@ -2136,7 +2185,7 @@ class SaleService:
             customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
             order_type = SaleValidationService.ensureOrderTypeAllowed(data.get("order_type"), settings)
 
-            sale_code = buildCode(Order, "Sale", data.get("code"), request)
+            sale_code = buildCode(Order, "", data.get("code"), request) if data.get("code") else generateOrderCode(request)
             sale_order = commonQuery.createRecord(
                 Order,
                 {
