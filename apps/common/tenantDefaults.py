@@ -223,16 +223,23 @@ def decodeOptionValue(option):
 
 
 def ensureOptionValue(company, branch, key, value, user=None, overwrite=True):
+    from apps.common.commonQuery import commonQuery
+
     encoded_value, is_array = encodeOptionValue(value)
-    option, _created = Option.objects.get_or_create(
-        company=company,
-        branch=branch,
-        key=key,
+    option, _created = commonQuery.getOrCreateRecord(
+        Option,
+        {
+            "company": company,
+            "branch": branch,
+            "key": key,
+        },
         defaults={
             "user": user,
             "value": encoded_value,
             "array": is_array,
         },
+        tenant_config={},
+        return_plain=False,
     )
     update_fields = []
     if user and option.user_id is None:
@@ -281,28 +288,22 @@ def defaultOptionRows(company, branch):
 
 
 def ensureDefaultOptions(company, branch, user=None):
+    from apps.common.commonQuery import commonQuery
+
     for key, value in defaultOptionRows(company, branch).items():
         ensureOptionValue(company, branch, key, value, user=user, overwrite=False)
-    return Option.objects.filter(company=company, branch=branch)
+    return commonQuery.scopedQueryset(Option, {"company": company, "branch": branch}, tenant_config={})
 
 
 def ensureOrderSettings(sale_order, request):
     from apps.sales.models import OrderSetting
+    from apps.common.commonQuery import commonQuery
 
-    sale_order.settings.all().delete()
+    commonQuery.branchScopedQueryset(OrderSetting, {"sale_order": sale_order}, request).delete()
     settings = []
     for key, value in DEFAULT_ORDER_SETTINGS:
-        settings.append(
-            OrderSetting(
-                user=request.user,
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                sale_order=sale_order,
-                key=key,
-                value=value,
-            )
-        )
-    OrderSetting.objects.bulk_create(settings)
+        settings.append({"sale_order": sale_order, "key": key, "value": value})
+    commonQuery.bulkCreate(OrderSetting, settings, request=request, tenant_config=True)
     return settings
 
 

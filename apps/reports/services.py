@@ -96,8 +96,9 @@ class ReportService:
 
     @staticmethod
     def requestFromJob(job):
-        user = User.objects.select_related("company", "branch").get(id=job.user_id)
-        return SimpleNamespace(user=user)
+        from apps.common.helpers import requestFromJobUser
+
+        return requestFromJobUser(job)
 
     @staticmethod
     def dashboardSummary(data, request):
@@ -248,53 +249,45 @@ class ReportService:
             "day_expenses": expense_total,
             "total_expenses": expense_total,
         }
-        day, _ = DashboardDay.objects.update_or_create(
-            **commonQuery.enrichTenantData(
-                DashboardDay,
-                {
-                    "range_starts": start,
-                    "range_ends": end,
-                    "day_of_year": target_date.timetuple().tm_yday,
-                },
-                request,
-                tenant_config=True,
-            ),
+        day, _ = commonQuery.updateOrCreateInstance(
+            DashboardDay,
+            {
+                "range_starts": start,
+                "range_ends": end,
+                "day_of_year": target_date.timetuple().tm_yday,
+            },
             defaults=defaults,
+            request=request,
+            tenant_config=True,
         )
         week_start = start - timedelta(days=target_date.weekday())
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-        DashboardWeek.objects.update_or_create(
-            **commonQuery.enrichTenantData(
-                DashboardWeek,
-                {
-                    "range_starts": week_start,
-                    "range_ends": week_end,
-                    "week_number": int(target_date.strftime("%U")),
-                },
-                request,
-                tenant_config=True,
-            ),
+        commonQuery.updateOrCreateInstance(
+            DashboardWeek,
+            {
+                "range_starts": week_start,
+                "range_ends": week_end,
+                "week_number": int(target_date.strftime("%U")),
+            },
             defaults={
                 "total_gross_income": income,
                 "total_taxes": tax_total,
                 "total_expenses": expense_total,
                 "total_net_income": income - tax_total - expense_total,
             },
+            request=request,
+            tenant_config=True,
         )
         month_start = timezone.make_aware(timezone.datetime(target_date.year, target_date.month, 1))
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
         month_end = next_month - timedelta(seconds=1)
-        DashboardMonth.objects.update_or_create(
-            **commonQuery.enrichTenantData(
-                DashboardMonth,
-                {
-                    "range_starts": month_start,
-                    "range_ends": month_end,
-                    "month_of_year": target_date.month,
-                },
-                request,
-                tenant_config=True,
-            ),
+        commonQuery.updateOrCreateInstance(
+            DashboardMonth,
+            {
+                "range_starts": month_start,
+                "range_ends": month_end,
+                "month_of_year": target_date.month,
+            },
             defaults={
                 "month_paid_orders": total_paid,
                 "total_paid_orders": total_paid,
@@ -317,6 +310,8 @@ class ReportService:
                 "month_expenses": expense_total,
                 "total_expenses": expense_total,
             },
+            request=request,
+            tenant_config=True,
         )
         return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
 
@@ -870,17 +865,13 @@ class ReportService:
                 total=Coalesce(Sum("quantity"), Value(0.0), output_field=FloatField())
             )["total"]
             final_quantity = Decimal(str(initial_quantity or 0)) + Decimal(str(procured_quantity or 0)) - Decimal(str(sold_quantity or 0)) - Decimal(str(defective_quantity or 0))
-            ProductHistoryCombined.objects.update_or_create(
-                **commonQuery.enrichTenantData(
-                    ProductHistoryCombined,
-                    {
-                        "product_id": unit_quantity.product_id,
-                        "unit_id": unit_quantity.unit_id,
-                        "date": report_date,
-                    },
-                    request,
-                    tenant_config=True,
-                ),
+            commonQuery.updateOrCreateInstance(
+                ProductHistoryCombined,
+                {
+                    "product_id": unit_quantity.product_id,
+                    "unit_id": unit_quantity.unit_id,
+                    "date": report_date,
+                },
                 defaults={
                     "user_id": request.user.id,
                     "name": unit_quantity.product.name,
@@ -891,6 +882,8 @@ class ReportService:
                     "final_quantity": final_quantity,
                     "status": 0,
                 },
+                request=request,
+                tenant_config=True,
             )
             updated_count += 1
         return successResponse("Stock combined report recomputed successfully.", data={"date": report_date, "updated_count": updated_count})

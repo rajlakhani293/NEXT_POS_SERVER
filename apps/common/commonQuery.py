@@ -131,6 +131,11 @@ class commonQuery:
         return model.objects.create(**enriched)
 
     @staticmethod
+    def updateOrCreateInstance(model, lookup, defaults=None, request=None, tenant_config=True):
+        enriched_lookup = commonQuery.enrichTenantData(model, lookup, request, tenant_config)
+        return model.objects.update_or_create(**enriched_lookup, defaults=defaults or {})
+
+    @staticmethod
     def normalizeInclude(include):
         if not include:
             return []
@@ -428,6 +433,15 @@ class commonQuery:
         default_values = commonQuery.enrichTenantData(model, defaults or {}, request, tenant_config)
         instance, created = model.objects.get_or_create(**filters, defaults=default_values)
         return (serializeModelInstance(instance) if return_plain else instance), created
+
+    @staticmethod
+    def getOrCreateInstance(model, where_input=None, defaults=None, request=None, tenant_config=True, for_update=False):
+        filters = commonQuery.enrichTenantData(model, where_input, request, tenant_config)
+        default_values = commonQuery.enrichTenantData(model, defaults or {}, request, tenant_config)
+        queryset = model.objects
+        if for_update:
+            queryset = queryset.select_for_update()
+        return queryset.get_or_create(**filters, defaults=default_values)
 
     @staticmethod
     def firstValueRecord(model, where_input=None, options=None, request=None, tenant_config=True):

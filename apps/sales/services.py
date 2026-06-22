@@ -2066,8 +2066,9 @@ class SaleService:
 
     @staticmethod
     def requestFromJob(job):
-        user = User.objects.select_related("company", "branch").get(id=job.user_id)
-        return SimpleNamespace(user=user)
+        from apps.common.helpers import requestFromJobUser
+
+        return requestFromJobUser(job)
 
     @staticmethod
     def jobHandlers():

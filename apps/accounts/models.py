@@ -3,7 +3,7 @@ from django.contrib.auth.models import AbstractUser, Permission
 from django.db import models
 from django.utils import timezone
 from apps.common.models import BaseModel, SoftDeleteModel, TenantAwareModel
-
+from apps.common.commonQuery import commonQuery
 
 class Role(TenantAwareModel):
     ADMIN = "admin"
@@ -31,7 +31,7 @@ class Role(TenantAwareModel):
 
     @classmethod
     def findByNamespace(cls, namespace, company_id=None, branch_id=None):
-        queryset = cls.objects.filter(namespace=namespace, status__in=[0, 1])
+        queryset = commonQuery.scopedQueryset(cls, {"namespace": namespace, "status__in": [0, 1]}, tenant_config={})
         if company_id is not None:
             queryset = queryset.filter(company_id=company_id)
         if branch_id is not None:
@@ -106,17 +106,24 @@ class User(AbstractUser):
         return self.full_name or self.phone or self.email or self.username
 
     def assignRole(self, role_name):
+        from apps.common.commonQuery import commonQuery
+
         role = Role.findByNamespace(role_name, self.company_id, self.branch_id)
         if role is None:
             return {"status": "error", "message": "Unable to identify the provided role."}
-        UserRoleRelation.objects.get_or_create(
-            user=self,
-            role=role,
+        commonQuery.getOrCreateRecord(
+            UserRoleRelation,
+            {
+                "user": self,
+                "role": role,
+            },
             defaults={
                 "company_id": self.company_id,
                 "branch_id": self.branch_id,
                 "status": 0,
             },
+            tenant_config={},
+            return_plain=False,
         )
         return {"status": "success", "message": "The role was successfully assigned."}
 

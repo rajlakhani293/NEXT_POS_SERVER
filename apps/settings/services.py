@@ -424,7 +424,12 @@ class MediaService:
             request=request,
             tenant_config=True,
         )
-        media_instance = Media.objects.get(id=media["id"])
+        media_instance = commonQuery.findOneInstance(
+            Media,
+            media["id"],
+            request=request,
+            tenant_config=True,
+        )
         return successResponse("Media uploaded successfully.", data=MediaService.mediaData(media_instance))
 
     @staticmethod
@@ -681,7 +686,7 @@ class JobQueueService:
     def reserveNext(*, queue=None, now=None):
         current_time = JobQueueService.timestamp(now)
         with transaction.atomic():
-            queryset = Job.objects.select_for_update(
+            queryset = commonQuery.scopedQueryset(Job, {}, tenant_config={}).select_for_update(
                 skip_locked=connection.features.has_select_for_update_skip_locked
             )
             job = (

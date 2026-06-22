@@ -172,12 +172,13 @@ class SupplierService:
 class PurchaseOrderService:
     @staticmethod
     def requestFromJob(job):
-        user = User.objects.select_related("company", "branch").get(id=job.user_id)
-        return SimpleNamespace(user=user)
+        from apps.common.helpers import requestFromJobUser
+
+        return requestFromJobUser(job)
 
     @staticmethod
     def procurementName():
-        last_id = Procurement.objects.order_by("-id").values_list("id", flat=True).first() or 0
+        last_id = commonQuery.scopedQueryset(Procurement, {}, tenant_config={}).order_by("-id").values_list("id", flat=True).first() or 0
         return str(last_id + 1).zfill(5)
 
     @staticmethod

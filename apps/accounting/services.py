@@ -182,15 +182,13 @@ class AccountingService:
             .first()
         )
         opening_balance = money(previous_day.closing_balance if previous_day else 0)
-        day_filters = commonQuery.enrichTenantData(
+        day, _ = commonQuery.getOrCreateInstance(
             TransactionBalanceDay,
             {"date": balance_date},
-            request,
-            BRANCH_TENANT_CONFIG,
-        )
-        day, _ = TransactionBalanceDay.objects.select_for_update().get_or_create(
-            **day_filters,
             defaults={"opening_balance": opening_balance, "closing_balance": opening_balance},
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+            for_update=True,
         )
         if operation == "credit":
             day.income = F("income") + amount
@@ -208,15 +206,13 @@ class AccountingService:
             .first()
         )
         month_opening_balance = money(previous_month.closing_balance if previous_month else 0)
-        month_filters = commonQuery.enrichTenantData(
+        month, _ = commonQuery.getOrCreateInstance(
             TransactionBalanceMonth,
             {"date": month_date},
-            request,
-            BRANCH_TENANT_CONFIG,
-        )
-        month, _ = TransactionBalanceMonth.objects.select_for_update().get_or_create(
-            **month_filters,
             defaults={"opening_balance": month_opening_balance, "closing_balance": month_opening_balance},
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+            for_update=True,
         )
         if operation == "credit":
             month.income = F("income") + amount
@@ -994,10 +990,9 @@ class TransactionRuleService:
 class TransactionService:
     @staticmethod
     def requestFromJob(job):
-        from apps.accounts.models import User
+        from apps.common.helpers import requestFromJobUser
 
-        user = User.objects.select_related("company", "branch").get(id=job.user_id)
-        return SimpleNamespace(user=user)
+        return requestFromJobUser(job)
 
     @staticmethod
     def createManual(data, request):

@@ -606,8 +606,6 @@ class CustomerRewardService:
 
     @staticmethod
     def requestFromJob(job):
-        from types import SimpleNamespace
-        from apps.accounts.models import User
+        from apps.common.helpers import requestFromJobUser
 
-        user = User.objects.select_related("company", "branch").get(id=job.user_id)
-        return SimpleNamespace(user=user)
+        return requestFromJobUser(job)

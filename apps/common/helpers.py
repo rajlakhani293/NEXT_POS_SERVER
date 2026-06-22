@@ -1,6 +1,7 @@
 # type: ignore
 from datetime import date, datetime
 from decimal import Decimal
+from types import SimpleNamespace
 from uuid import UUID
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -25,6 +26,23 @@ def getAuthContext(request):
         ctx.setdefault("branch_id", getattr(user, "branch_id", None))
 
     return ctx
+
+
+def requestFromJobUser(job):
+    from apps.accounts.models import User
+    from apps.common.commonQuery import commonQuery
+
+    user = commonQuery.findOneInstance(
+        User,
+        {
+            "id": job.user_id,
+            "company_id": job.company_id,
+            "branch_id": job.branch_id,
+        },
+        options={"select_related": ["company", "branch"]},
+        tenant_config={},
+    )
+    return SimpleNamespace(user=user)
 
 
 def jsonsafe(value):
@@ -83,21 +101,31 @@ def validateUniqueFields(
 ):
     from apps.common.error_codes import ErrorCodes
     from apps.common.exceptions import api_error
+    from apps.common.commonQuery import commonQuery
 
-    query = model.objects.all()
     auth_context = getAuthContext(request)
     case_insensitive = set(case_insensitive or [])
     messages = messages or {}
 
     if scope == "branch":
-        query = query.filter(
-            company_id=auth_context.get("company_id"),
-            branch_id=auth_context.get("branch_id"),
+        query = commonQuery.scopedQueryset(
+            model,
+            {
+                "company_id": auth_context.get("company_id"),
+                "branch_id": auth_context.get("branch_id"),
+            },
+            tenant_config={},
         )
     elif scope == "company":
-        query = query.filter(company_id=auth_context.get("company_id"))
+        query = commonQuery.scopedQueryset(
+            model,
+            {"company_id": auth_context.get("company_id")},
+            tenant_config={},
+        )
     elif scope not in (None, "global"):
         raise ImproperlyConfigured("validateUniqueFields scope must be branch, company, global, or None.")
+    else:
+        query = commonQuery.scopedQueryset(model, {}, tenant_config={})
 
     if status_in is not None:
         query = query.filter(status__in=status_in)

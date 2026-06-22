@@ -21,9 +21,10 @@ def get_user_permission_codenames(user):
 
     if role_ids:
         from apps.accounts.models import Role
+        from apps.common.commonQuery import commonQuery
 
         permissions.update(
-            Role.objects.filter(id__in=role_ids, status=0)
+            commonQuery.scopedQueryset(Role, {"id__in": role_ids, "status": 0}, tenant_config={})
             .values_list("permissions__codename", flat=True)
             .exclude(permissions__codename__isnull=True)
         )

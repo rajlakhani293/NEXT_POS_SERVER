@@ -4,6 +4,7 @@ from datetime import timedelta
 from django.utils import timezone
 from ninja.security import HttpBearer
 from apps.accounts.models import AccessToken
+from apps.common.commonQuery import commonQuery
 
 
 class AccessTokenAuth(HttpBearer):
@@ -11,18 +12,22 @@ class AccessTokenAuth(HttpBearer):
 
     def authenticate(self, request, token):
         access_token = (
-            AccessToken.objects.select_related(
+            commonQuery.scopedQueryset(
+                AccessToken,
+                {
+                    "token": token,
+                    "status": 0,
+                    "user__status": 0,
+                    "user__company__status": 0,
+                    "user__branch__status": 0,
+                },
+                tenant_config={},
+            )
+            .select_related(
                 "user",
                 "user__company",
                 "user__branch",
                 "user__role",
-            )
-            .filter(
-                token=token,
-                status=0,
-                user__status=0,
-                user__company__status=0,
-                user__branch__status=0,
             )
             .first()
         )
@@ -34,7 +39,7 @@ class AccessTokenAuth(HttpBearer):
             access_token.last_used_at is None
             or access_token.last_used_at <= now - self.TOKEN_TOUCH_INTERVAL
         ):
-            AccessToken.objects.filter(id=access_token.id).update(last_used_at=now)
+            commonQuery.scopedQueryset(AccessToken, {"id": access_token.id}, tenant_config={}).update(last_used_at=now)
 
         request.user = access_token.user
         return {
