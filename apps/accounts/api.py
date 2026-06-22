@@ -17,7 +17,7 @@ from apps.accounts.schemas import (
 from apps.accounts.services import AccountsService
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 
 
 router = Router(tags=["accounts"])
@@ -89,7 +89,7 @@ def listPermissions(request):
 
 @router.post("/permissions-access/request", auth=auth_bearer, response=ApiResponse)
 def requestPermissionAccess(request, payload: PermissionAccessRequestIn):
-    data = AccountsService.requestPermissionAccess(request.user, payload.dict())
+    data = AccountsService.requestPermissionAccess(request.user, payloadData(payload))
     return successResponse("Permission access request processed successfully.", data=data)
 
 
@@ -102,7 +102,7 @@ def listPermissionAccess(request, payload: Optional[dict] = None):
 
 @router.post("/permissions-access/{access_id}/approve", auth=auth_bearer, response=ApiResponse)
 def approvePermissionAccess(request, access_id: int, payload: PermissionAccessApproveIn):
-    data = AccountsService.approvePermissionAccess(request.user, access_id, payload.dict())
+    data = AccountsService.approvePermissionAccess(request.user, access_id, payloadData(payload))
     return successResponse("Permission access granted successfully.", data=data)
 
 
@@ -176,14 +176,14 @@ def userDropdown(request):
 @router.delete("/users/delete", auth=auth_bearer, response=ApiResponse)
 @permission_required("users_delete")
 def deleteUsers(request, payload: BulkIdsSchema):
-    data = AccountsService.deleteUsers(request.user, payload.dict())
+    data = AccountsService.deleteUsers(request.user, payloadData(payload))
     return successResponse("Users deleted successfully.", data=data)
 
 
 @router.patch("/users/status", auth=auth_bearer, response=ApiResponse)
 @permission_required("users_update")
 def updateUserStatus(request, payload: StatusUpdateSchema):
-    data = AccountsService.updateUserStatus(request.user, payload.dict())
+    data = AccountsService.updateUserStatus(request.user, payloadData(payload))
     return successResponse("User status updated successfully.", data=data)
 
 

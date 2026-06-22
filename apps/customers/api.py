@@ -3,7 +3,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.customers.schemas import (
     CustomerGroupIn,
     CustomerGroupUpdateIn,
@@ -20,7 +20,7 @@ router = Router(tags=["customers"], auth=auth_bearer)
 @router.post("/", response=ApiResponse)
 @permission_required("customers_create")
 def createCustomer(request, payload: CustomerIn):
-    return CustomerService.create(payload.dict(), request)
+    return CustomerService.create(payloadData(payload), request)
 
 
 @router.post("/get-transactions", response=ApiResponse)
@@ -44,7 +44,7 @@ def getCustomerGroupDropdown(request):
 @router.post("/groups/", response=ApiResponse)
 @permission_required("customers_create")
 def createCustomerGroup(request, payload: CustomerGroupIn):
-    return CustomerGroupService.create(payload.dict(), request)
+    return CustomerGroupService.create(payloadData(payload), request)
 
 
 @router.post("/groups/get-transactions", response=ApiResponse)
@@ -56,13 +56,13 @@ def getAllCustomerGroups(request, payload: Optional[dict] = None):
 @router.delete("/groups/delete", response=ApiResponse)
 @permission_required("customers_delete")
 def deleteCustomerGroups(request, payload: BulkIdsSchema):
-    return CustomerGroupService.delete(payload.dict(), request)
+    return CustomerGroupService.delete(payloadData(payload), request)
 
 
 @router.patch("/groups/status", response=ApiResponse)
 @permission_required("customers_update")
 def updateCustomerGroupStatus(request, payload: StatusUpdateSchema):
-    return CustomerGroupService.updateStatus(payload.dict(), request)
+    return CustomerGroupService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/groups/{group_id}", response=ApiResponse)
@@ -74,19 +74,19 @@ def getCustomerGroupById(request, group_id: int):
 @router.put("/groups/{group_id}", response=ApiResponse)
 @permission_required("customers_update")
 def updateCustomerGroup(request, group_id: int, payload: CustomerGroupUpdateIn):
-    return CustomerGroupService.update(payload.dict(exclude_none=True), request, group_id)
+    return CustomerGroupService.update(payloadData(payload, exclude_none=True), request, group_id)
 
 
 @router.delete("/delete", response=ApiResponse)
 @permission_required("customers_delete")
 def deleteCustomers(request, payload: BulkIdsSchema):
-    return CustomerService.delete(payload.dict(), request)
+    return CustomerService.delete(payloadData(payload), request)
 
 
 @router.patch("/status", response=ApiResponse)
 @permission_required("customers_update")
 def updateCustomerStatus(request, payload: StatusUpdateSchema):
-    return CustomerService.updateStatus(payload.dict(), request)
+    return CustomerService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/{customer_id}", response=ApiResponse)
@@ -98,13 +98,13 @@ def getCustomerById(request, customer_id: int):
 @router.put("/{customer_id}", response=ApiResponse)
 @permission_required("customers_update")
 def updateCustomer(request, customer_id: int, payload: CustomerUpdateIn):
-    return CustomerService.update(payload.dict(exclude_none=True), request, customer_id)
+    return CustomerService.update(payloadData(payload, exclude_none=True), request, customer_id)
 
 
 @router.post("/{customer_id}/credit-adjustment", response=ApiResponse)
 @permission_required("customers_update")
 def adjustCustomerCredit(request, customer_id: int, payload: CustomerCreditIn):
-    return CustomerService.adjustCredit(customer_id, payload.dict(), request)
+    return CustomerService.adjustCredit(customer_id, payloadData(payload), request)
 
 
 @router.post("/{customer_id}/credit-ledger", response=ApiResponse)

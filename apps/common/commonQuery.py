@@ -7,6 +7,8 @@ import logging
 from django.db.models import Q, Sum, Min, Max, F
 from django.utils import timezone
 from ninja.errors import HttpError
+from apps.common.error_codes import ErrorCodes
+from apps.common.exceptions import api_error
 from apps.common.helpers import getAuthContext, jsonsafe, serializeModelInstance
 
 logger = logging.getLogger(__name__)
@@ -305,6 +307,8 @@ class commonQuery:
 
     @staticmethod
     def updateStatusById(model, where_input, status, request=None, tenant_config=True):
+        if status not in [0, 1]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Status must be 0 (active) or 1 (inactive).")
         q = buildWhere(model, where_input, tenant_config, request)
         update_kwargs = {"status": status}
         return model.objects.filter(q).update(**update_kwargs)

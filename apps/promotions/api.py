@@ -5,7 +5,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.promotions.schemas import CouponIn, CouponUpdateIn
 from apps.promotions.services import CouponService
 
@@ -16,7 +16,7 @@ router = Router(tags=["promotions"], auth=auth_bearer)
 @router.post("/coupons/", response=ApiResponse)
 @permission_required("promotions_create")
 def createCoupon(request, payload: CouponIn):
-    return CouponService.create(payload.dict(), request)
+    return CouponService.create(payloadData(payload), request)
 
 
 @router.post("/coupons/get-transactions", response=ApiResponse)
@@ -34,13 +34,13 @@ def getCouponDropdown(request):
 @router.delete("/coupons/delete", response=ApiResponse)
 @permission_required("promotions_delete")
 def deleteCoupons(request, payload: BulkIdsSchema):
-    return CouponService.delete(payload.dict(), request)
+    return CouponService.delete(payloadData(payload), request)
 
 
 @router.patch("/coupons/status", response=ApiResponse)
 @permission_required("promotions_update")
 def updateCouponStatus(request, payload: StatusUpdateSchema):
-    return CouponService.updateStatus(payload.dict(), request)
+    return CouponService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/coupons/{coupon_id}", response=ApiResponse)
@@ -52,7 +52,7 @@ def getCouponById(request, coupon_id: int):
 @router.put("/coupons/{coupon_id}", response=ApiResponse)
 @permission_required("promotions_update")
 def updateCoupon(request, coupon_id: int, payload: CouponUpdateIn):
-    return CouponService.update(payload.dict(exclude_none=True), request, coupon_id)
+    return CouponService.update(payloadData(payload, exclude_none=True), request, coupon_id)
 
 
 @router.post("/customers/{customer_id}/coupons/get-transactions", response=ApiResponse)

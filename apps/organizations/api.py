@@ -7,7 +7,7 @@ from apps.common.authz import permission_required
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.responses import ApiResponse, successResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.organizations.schemas import BranchIn, BranchPatchIn, OrganizationSetupIn
 from apps.organizations.services import OrganizationsService
 
@@ -62,7 +62,7 @@ def updateCompany(request):
 def createBranch(request, payload: BranchIn):
     data = OrganizationsService.createBranch(
         request.user,
-        payload.dict(exclude_none=True),
+        payloadData(payload, exclude_none=True),
         request,
     )
     return successResponse("Branch created successfully.", data=data)
@@ -85,14 +85,14 @@ def branchDropdown(request):
 @router.delete("/branches/delete", auth=auth_bearer, response=ApiResponse)
 @permission_required("branches_delete")
 def deleteBranches(request, payload: BulkIdsSchema):
-    data = OrganizationsService.deleteBranches(payload.dict(), request)
+    data = OrganizationsService.deleteBranches(payloadData(payload), request)
     return successResponse("Branches deleted successfully.", data=data)
 
 
 @router.patch("/branches/status", auth=auth_bearer, response=ApiResponse)
 @permission_required("branches_update")
 def updateBranchStatus(request, payload: StatusUpdateSchema):
-    data = OrganizationsService.updateBranchStatus(payload.dict(), request)
+    data = OrganizationsService.updateBranchStatus(payloadData(payload), request)
     return successResponse("Branch status updated successfully.", data=data)
 
 
@@ -109,7 +109,7 @@ def updateBranch(request, branch_id: int, payload: BranchPatchIn):
     data = OrganizationsService.updateBranch(
         request.user,
         branch_id,
-        payload.dict(exclude_none=True),
+        payloadData(payload, exclude_none=True),
         request,
     )
     return successResponse("Branch updated successfully.", data=data)

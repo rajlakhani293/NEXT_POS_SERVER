@@ -5,7 +5,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.purchases.schemas import (
     PurchaseItemIn,
     PurchaseItemUpdateIn,
@@ -26,7 +26,7 @@ router = Router(tags=["purchases"], auth=auth_bearer)
 @router.post("/suppliers/", response=ApiResponse)
 @permission_required("purchases_create")
 def createSupplier(request, payload: SupplierIn):
-    return SupplierService.create(payload.dict(), request)
+    return SupplierService.create(payloadData(payload), request)
 
 
 @router.post("/suppliers/get-transactions", response=ApiResponse)
@@ -44,13 +44,13 @@ def getSupplierDropdown(request):
 @router.delete("/suppliers/delete", response=ApiResponse)
 @permission_required("purchases_delete")
 def deleteSuppliers(request, payload: BulkIdsSchema):
-    return SupplierService.delete(payload.dict(), request)
+    return SupplierService.delete(payloadData(payload), request)
 
 
 @router.patch("/suppliers/status", response=ApiResponse)
 @permission_required("purchases_update")
 def updateSupplierStatus(request, payload: StatusUpdateSchema):
-    return SupplierService.updateStatus(payload.dict(), request)
+    return SupplierService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/suppliers/{supplier_id}", response=ApiResponse)
@@ -62,13 +62,13 @@ def getSupplierById(request, supplier_id: int):
 @router.put("/suppliers/{supplier_id}", response=ApiResponse)
 @permission_required("purchases_update")
 def updateSupplier(request, supplier_id: int, payload: SupplierUpdateIn):
-    return SupplierService.update(supplier_id, payload.dict(exclude_none=True), request)
+    return SupplierService.update(supplier_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.post("/orders/", response=ApiResponse)
 @permission_required("purchases_create")
 def createPurchaseOrder(request, payload: PurchaseOrderIn):
-    return PurchaseOrderService.create(payload.dict(), request)
+    return PurchaseOrderService.create(payloadData(payload), request)
 
 
 @router.post("/orders/get-transactions", response=ApiResponse)
@@ -86,7 +86,7 @@ def getAllProcurementProducts(request, payload: Optional[dict] = None):
 @router.delete("/orders/delete", response=ApiResponse)
 @permission_required("purchases_delete")
 def deletePurchaseOrders(request, payload: BulkIdsSchema):
-    return PurchaseOrderService.delete(payload.dict(), request)
+    return PurchaseOrderService.delete(payloadData(payload), request)
 
 
 @router.get("/orders/{order_id}", response=ApiResponse)
@@ -116,31 +116,31 @@ def queueRefreshPurchaseOrder(request, order_id: int):
 @router.put("/orders/{order_id}", response=ApiResponse)
 @permission_required("purchases_update")
 def updatePurchaseOrder(request, order_id: int, payload: PurchaseOrderUpdateIn):
-    return PurchaseOrderService.update(order_id, payload.dict(exclude_none=True), request)
+    return PurchaseOrderService.update(order_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.put("/orders/{order_id}/change-payment-status", response=ApiResponse)
 @permission_required("purchases_update")
 def changePurchaseStatus(request, order_id: int, payload: PurchaseStatusIn):
-    return PurchaseOrderService.changePaymentStatus(order_id, payload.dict(exclude_none=True), request)
+    return PurchaseOrderService.changePaymentStatus(order_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.post("/orders/{order_id}/products", response=ApiResponse)
 @permission_required("purchases_create")
 def addPurchaseOrderProduct(request, order_id: int, payload: PurchaseItemIn):
-    return PurchaseOrderService.addProduct(order_id, payload.dict(), request)
+    return PurchaseOrderService.addProduct(order_id, payloadData(payload), request)
 
 
 @router.put("/orders/{order_id}/products/{purchase_item_id}", response=ApiResponse)
 @permission_required("purchases_update")
 def updatePurchaseOrderProduct(request, order_id: int, purchase_item_id: int, payload: PurchaseItemUpdateIn):
-    return PurchaseOrderService.editProduct(order_id, purchase_item_id, payload.dict(exclude_none=True), request)
+    return PurchaseOrderService.editProduct(order_id, purchase_item_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.put("/orders/{order_id}/products", response=ApiResponse)
 @permission_required("purchases_update")
 def bulkUpdatePurchaseOrderProducts(request, order_id: int, payload: PurchaseProductsBulkUpdateIn):
-    return PurchaseOrderService.bulkUpdateProducts(order_id, payload.dict(), request)
+    return PurchaseOrderService.bulkUpdateProducts(order_id, payloadData(payload), request)
 
 
 @router.delete("/orders/{order_id}/products/{purchase_item_id}", response=ApiResponse)
@@ -152,7 +152,7 @@ def deletePurchaseOrderProduct(request, order_id: int, purchase_item_id: int):
 @router.post("/orders/{order_id}/receive", response=ApiResponse)
 @permission_required("purchases_receive")
 def receivePurchaseOrder(request, order_id: int, payload: PurchaseReceiveIn):
-    return PurchaseOrderService.receive(order_id, payload.dict(), request)
+    return PurchaseOrderService.receive(order_id, payloadData(payload), request)
 
 
 @router.get("/orders/{order_id}/set-as-paid", response=ApiResponse)

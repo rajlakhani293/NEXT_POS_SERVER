@@ -10,7 +10,7 @@ from apps.accounting.services import (
 )
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 
 
 router = Router(tags=["accounting"], auth=auth_bearer)
@@ -19,7 +19,7 @@ router = Router(tags=["accounting"], auth=auth_bearer)
 @router.post("/accounts/", response=ApiResponse)
 @permission_required("settings_update")
 def createAccount(request, payload: TransactionAccountIn):
-    return TransactionAccountService.create(payload.dict(), request)
+    return TransactionAccountService.create(payloadData(payload), request)
 
 
 @router.post("/accounts/get-transactions", response=ApiResponse)
@@ -37,13 +37,13 @@ def getAccountsDropdown(request):
 @router.delete("/accounts/delete", response=ApiResponse)
 @permission_required("settings_update")
 def deleteAccounts(request, payload: BulkIdsSchema):
-    return TransactionAccountService.delete(payload.dict(), request)
+    return TransactionAccountService.delete(payloadData(payload), request)
 
 
 @router.patch("/accounts/status", response=ApiResponse)
 @permission_required("settings_update")
 def updateAccountStatus(request, payload: StatusUpdateSchema):
-    return TransactionAccountService.updateStatus(payload.dict(), request)
+    return TransactionAccountService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/accounts/{account_id}", response=ApiResponse)
@@ -55,7 +55,7 @@ def getAccountById(request, account_id: int):
 @router.put("/accounts/{account_id}", response=ApiResponse)
 @permission_required("settings_update")
 def updateAccount(request, account_id: int, payload: TransactionAccountUpdateIn):
-    return TransactionAccountService.update(account_id, payload.dict(exclude_none=True), request)
+    return TransactionAccountService.update(account_id, payloadData(payload, exclude_none=True), request)
 
 @router.get("/rules/actions", response=ApiResponse)
 @permission_required("reports_view")
@@ -72,19 +72,19 @@ def getAccountingRules(request):
 @router.post("/rules/", response=ApiResponse)
 @permission_required("settings_update")
 def createAccountingRule(request, payload: TransactionRuleIn):
-    return TransactionRuleService.create(payload.dict(), request)
+    return TransactionRuleService.create(payloadData(payload), request)
 
 
 @router.put("/rules/{rule_id}", response=ApiResponse)
 @permission_required("settings_update")
 def updateAccountingRule(request, rule_id: int, payload: TransactionRuleUpdateIn):
-    return TransactionRuleService.update(rule_id, payload.dict(exclude_none=True), request)
+    return TransactionRuleService.update(rule_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.delete("/rules/delete", response=ApiResponse)
 @permission_required("settings_update")
 def deleteAccountingRules(request, payload: BulkIdsSchema):
-    return TransactionRuleService.delete(payload.dict(), request)
+    return TransactionRuleService.delete(payloadData(payload), request)
 
 
 @router.post("/rules/reset", response=ApiResponse)
@@ -96,7 +96,7 @@ def resetAccountingRules(request):
 @router.post("/transactions/", response=ApiResponse)
 @permission_required("settings_update")
 def createManualTransaction(request, payload: ManualTransactionIn):
-    return TransactionService.createManual(payload.dict(), request)
+    return TransactionService.createManual(payloadData(payload), request)
 
 
 @router.post("/transactions/get-transactions", response=ApiResponse)

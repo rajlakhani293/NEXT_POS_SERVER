@@ -19,7 +19,7 @@ from apps.catalog.schemas import (
     UnitIn,
     UnitUpdateIn,
 )
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.catalog.services import (
     CategoryService,
     ProductService,
@@ -40,7 +40,7 @@ router = Router(tags=["catalog"], auth=auth_bearer)
 @router.post("/categories/", response=ApiResponse)
 @permission_required("products_create")
 def createCategory(request, payload: CategoryIn):
-    return CategoryService.create(payload.dict(), request)
+    return CategoryService.create(payloadData(payload), request)
 
 
 @router.post("/categories/get-transactions", response=ApiResponse)
@@ -58,13 +58,13 @@ def getCategoryDropdown(request):
 @router.delete("/categories/delete", response=ApiResponse)
 @permission_required("products_delete")
 def deleteCategories(request, payload: BulkIdsSchema):
-    return CategoryService.delete(payload.dict(), request)
+    return CategoryService.delete(payloadData(payload), request)
 
 
 @router.patch("/categories/status", response=ApiResponse)
 @permission_required("products_update")
 def updateCategoryStatus(request, payload: StatusUpdateSchema):
-    return CategoryService.updateStatus(payload.dict(), request)
+    return CategoryService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/categories/{category_id}", response=ApiResponse)
@@ -76,12 +76,12 @@ def getCategoryById(request, category_id: int):
 @router.put("/categories/{category_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateCategory(request, category_id: int, payload: CategoryUpdateIn):
-    return CategoryService.update(payload.dict(exclude_none=True), request, category_id)
+    return CategoryService.update(payloadData(payload, exclude_none=True), request, category_id)
 
 @router.post("/unit-groups/", response=ApiResponse)
 @permission_required("products_create")
 def createUnitGroup(request, payload: UnitGroupIn):
-    return UnitGroupService.create(payload.dict(), request)
+    return UnitGroupService.create(payloadData(payload), request)
 
 
 @router.post("/unit-groups/get-transactions", response=ApiResponse)
@@ -99,13 +99,13 @@ def getUnitGroupDropdown(request):
 @router.delete("/unit-groups/delete", response=ApiResponse)
 @permission_required("products_delete")
 def deleteUnitGroups(request, payload: BulkIdsSchema):
-    return UnitGroupService.delete(payload.dict(), request)
+    return UnitGroupService.delete(payloadData(payload), request)
 
 
 @router.patch("/unit-groups/status", response=ApiResponse)
 @permission_required("products_update")
 def updateUnitGroupStatus(request, payload: StatusUpdateSchema):
-    return UnitGroupService.updateStatus(payload.dict(), request)
+    return UnitGroupService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/unit-groups/{unit_group_id}", response=ApiResponse)
@@ -117,14 +117,12 @@ def getUnitGroupById(request, unit_group_id: int):
 @router.put("/unit-groups/{unit_group_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateUnitGroup(request, unit_group_id: int, payload: UnitGroupUpdateIn):
-    return UnitGroupService.update(payload.dict(exclude_none=True), request, unit_group_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
+    return UnitGroupService.update(payloadData(payload, exclude_none=True), request, unit_group_id)
 
 @router.post("/units/", response=ApiResponse)
 @permission_required("products_create")
 def createUnit(request, payload: UnitIn):
-    return UnitService.create(payload.dict(), request)
+    return UnitService.create(payloadData(payload), request)
 
 
 @router.post("/units/get-transactions", response=ApiResponse)
@@ -142,13 +140,13 @@ def getUnitDropdown(request):
 @router.delete("/units/delete", response=ApiResponse)
 @permission_required("products_delete")
 def deleteUnits(request, payload: BulkIdsSchema):
-    return UnitService.delete(payload.dict(), request)
+    return UnitService.delete(payloadData(payload), request)
 
 
 @router.patch("/units/status", response=ApiResponse)
 @permission_required("products_update")
 def updateUnitStatus(request, payload: StatusUpdateSchema):
-    return UnitService.updateStatus(payload.dict(), request)
+    return UnitService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/units/{unit_id}", response=ApiResponse)
@@ -160,14 +158,12 @@ def getUnitById(request, unit_id: int):
 @router.put("/units/{unit_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateUnit(request, unit_id: int, payload: UnitUpdateIn):
-    return UnitService.update(payload.dict(exclude_none=True), request, unit_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
+    return UnitService.update(payloadData(payload, exclude_none=True), request, unit_id)
 
 @router.post("/tax-groups/", response=ApiResponse)
 @permission_required("products_create")
 def createTaxGroup(request, payload: TaxGroupIn):
-    return TaxGroupService.create(payload.dict(), request)
+    return TaxGroupService.create(payloadData(payload), request)
 
 
 @router.post("/tax-groups/get-transactions", response=ApiResponse)
@@ -185,13 +181,13 @@ def getTaxGroupDropdown(request):
 @router.delete("/tax-groups/delete", response=ApiResponse)
 @permission_required("products_delete")
 def deleteTaxGroups(request, payload: BulkIdsSchema):
-    return TaxGroupService.delete(payload.dict(), request)
+    return TaxGroupService.delete(payloadData(payload), request)
 
 
 @router.patch("/tax-groups/status", response=ApiResponse)
 @permission_required("products_update")
 def updateTaxGroupStatus(request, payload: StatusUpdateSchema):
-    return TaxGroupService.updateStatus(payload.dict(), request)
+    return TaxGroupService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/tax-groups/{tax_group_id}", response=ApiResponse)
@@ -203,14 +199,12 @@ def getTaxGroupById(request, tax_group_id: int):
 @router.put("/tax-groups/{tax_group_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateTaxGroup(request, tax_group_id: int, payload: TaxGroupUpdateIn):
-    return TaxGroupService.update(payload.dict(exclude_none=True), request, tax_group_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
+    return TaxGroupService.update(payloadData(payload, exclude_none=True), request, tax_group_id)
 
 @router.post("/taxes/", response=ApiResponse)
 @permission_required("products_create")
 def createTax(request, payload: TaxIn):
-    return TaxService.create(payload.dict(), request)
+    return TaxService.create(payloadData(payload), request)
 
 
 @router.post("/taxes/get-transactions", response=ApiResponse)
@@ -228,13 +222,13 @@ def getTaxDropdown(request):
 @router.delete("/taxes/delete", response=ApiResponse)
 @permission_required("products_delete")
 def deleteTaxes(request, payload: BulkIdsSchema):
-    return TaxService.delete(payload.dict(), request)
+    return TaxService.delete(payloadData(payload), request)
 
 
 @router.patch("/taxes/status", response=ApiResponse)
 @permission_required("products_update")
 def updateTaxStatus(request, payload: StatusUpdateSchema):
-    return TaxService.updateStatus(payload.dict(), request)
+    return TaxService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/taxes/{tax_id}", response=ApiResponse)
@@ -246,14 +240,12 @@ def getTaxById(request, tax_id: int):
 @router.put("/taxes/{tax_id}", response=ApiResponse)
 @permission_required("products_update")
 def updateTax(request, tax_id: int, payload: TaxUpdateIn):
-    return TaxService.update(payload.dict(exclude_none=True), request, tax_id)
-
-# -------------------------------------------------------- /////////////// -------------------------------------------------------- /////////////// --------------------------------------------------------
+    return TaxService.update(payloadData(payload, exclude_none=True), request, tax_id)
 
 @router.post("/products/", response=ApiResponse)
 @permission_required("products_create")
 def createProduct(request, payload: Form[ProductIn], image: File[Optional[UploadedFile]] = None):
-    return ProductService.create(payload.dict(exclude_none=True), request, image=image)
+    return ProductService.create(payloadData(payload, exclude_none=True), request, image=image)
 
 
 @router.post("/products/get-transactions", response=ApiResponse)
@@ -271,13 +263,13 @@ def getProductDropdown(request):
 @router.delete("/products/delete", response=ApiResponse)
 @permission_required("products_delete")
 def deleteProducts(request, payload: BulkIdsSchema):
-    return ProductService.delete(payload.dict(), request)
+    return ProductService.delete(payloadData(payload), request)
 
 
 @router.patch("/products/status", response=ApiResponse)
 @permission_required("products_update")
 def updateProductStatus(request, payload: StatusUpdateSchema):
-    return ProductService.updateStatus(payload.dict(), request)
+    return ProductService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/products/search/using-barcode/{reference}", response=ApiResponse)
@@ -289,7 +281,7 @@ def searchProductUsingBarcode(request, reference: str):
 @router.post("/products/adjustments", response=ApiResponse)
 @permission_required("inventory_adjust")
 def adjustProductStock(request, payload: ProductAdjustmentIn):
-    return ProductStockService.applyManualAdjustment(payload.dict(), request)
+    return ProductStockService.applyManualAdjustment(payloadData(payload), request)
 
 
 @router.get("/products/{product_id}/units/quantities", response=ApiResponse)
@@ -301,7 +293,7 @@ def getProductUnitQuantities(request, product_id: int):
 @router.post("/products/{product_id}/units/quantities", response=ApiResponse)
 @permission_required("products_update")
 def createProductUnitQuantity(request, product_id: int, payload: ProductUnitQuantityIn):
-    return ProductUnitQuantityService.create(product_id, payload.dict(), request)
+    return ProductUnitQuantityService.create(product_id, payloadData(payload), request)
 
 
 @router.put("/products/{product_id}/units/quantities/{unit_quantity_id}", response=ApiResponse)
@@ -312,7 +304,7 @@ def updateProductUnitQuantity(
     unit_quantity_id: int,
     payload: ProductUnitQuantityUpdateIn,
 ):
-    return ProductUnitQuantityService.update(product_id, unit_quantity_id, payload.dict(exclude_none=True), request)
+    return ProductUnitQuantityService.update(product_id, unit_quantity_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.delete("/products/{product_id}/units/quantities/{unit_quantity_id}", response=ApiResponse)
@@ -335,4 +327,4 @@ def updateProduct(
     payload: Form[ProductUpdateIn],
     image: File[Optional[UploadedFile]] = None,
 ):
-    return ProductService.update(payload.dict(exclude_none=True), request, product_id, image=image)
+    return ProductService.update(payloadData(payload, exclude_none=True), request, product_id, image=image)

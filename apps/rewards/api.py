@@ -5,7 +5,7 @@ from ninja import Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse
-from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
+from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.rewards.schemas import (
     RewardBalanceAdjustIn,
     RewardRedeemIn,
@@ -22,7 +22,7 @@ router = Router(tags=["rewards"], auth=auth_bearer)
 @router.post("/systems/", response=ApiResponse)
 @permission_required("rewards_create")
 def createRewardSystem(request, payload: RewardSystemIn):
-    return RewardSystemService.create(payload.dict(), request)
+    return RewardSystemService.create(payloadData(payload), request)
 
 
 @router.post("/systems/get-transactions", response=ApiResponse)
@@ -40,13 +40,13 @@ def getRewardSystemDropdown(request):
 @router.delete("/systems/delete", response=ApiResponse)
 @permission_required("rewards_delete")
 def deleteRewardSystems(request, payload: BulkIdsSchema):
-    return RewardSystemService.delete(payload.dict(), request)
+    return RewardSystemService.delete(payloadData(payload), request)
 
 
 @router.patch("/systems/status", response=ApiResponse)
 @permission_required("rewards_update")
 def updateRewardSystemStatus(request, payload: StatusUpdateSchema):
-    return RewardSystemService.updateStatus(payload.dict(), request)
+    return RewardSystemService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/systems/{reward_system_id}", response=ApiResponse)
@@ -58,7 +58,7 @@ def getRewardSystemById(request, reward_system_id: int):
 @router.put("/systems/{reward_system_id}", response=ApiResponse)
 @permission_required("rewards_update")
 def updateRewardSystem(request, reward_system_id: int, payload: RewardSystemUpdateIn):
-    return RewardSystemService.update(payload.dict(exclude_none=True), request, reward_system_id)
+    return RewardSystemService.update(payloadData(payload, exclude_none=True), request, reward_system_id)
 
 
 @router.get("/customers/{customer_id}/balance", response=ApiResponse)
@@ -82,16 +82,16 @@ def getCustomerRewardRedemptions(request, payload: Optional[dict] = None):
 @router.post("/customers/earn", response=ApiResponse)
 @permission_required("rewards_update")
 def earnCustomerReward(request, payload: RewardBalanceAdjustIn):
-    return CustomerRewardService.earn(payload.dict(), request)
+    return CustomerRewardService.earn(payloadData(payload), request)
 
 
 @router.post("/customers/earn-from-sale", response=ApiResponse)
 @permission_required("rewards_update")
 def earnCustomerRewardFromSale(request, payload: RewardSaleEarnIn):
-    return CustomerRewardService.earnFromSale(payload.dict(), request)
+    return CustomerRewardService.earnFromSale(payloadData(payload), request)
 
 
 @router.post("/customers/redeem", response=ApiResponse)
 @permission_required("rewards_update")
 def redeemCustomerReward(request, payload: RewardRedeemIn):
-    return CustomerRewardService.redeem(payload.dict(), request)
+    return CustomerRewardService.redeem(payloadData(payload), request)
