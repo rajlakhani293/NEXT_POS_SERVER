@@ -209,7 +209,9 @@ class ReportService:
         if data and data.get("date"):
             target_date = timezone.datetime.fromisoformat(str(data.get("date"))).date()
         start = timezone.make_aware(timezone.datetime.combine(target_date, timezone.datetime.min.time()))
-        end = timezone.make_aware(timezone.datetime.combine(target_date, timezone.datetime.max.time()))
+        end = timezone.make_aware(
+            timezone.datetime.combine(target_date, timezone.datetime.max.time()).replace(microsecond=0)
+        )
 
         summary_payload = ReportService.dashboardSummary({"startDate": start, "endDate": end}, request).data
         sales = summary_payload.get("sales", {})
@@ -258,9 +260,9 @@ class ReportService:
             },
             defaults=defaults,
             request=request,
-            tenant_config=True,
+            tenant_config={"company_id": True, "branch_id": True},
         )
-        week_start = start - timedelta(days=target_date.weekday())
+        week_start = (start - timedelta(days=target_date.weekday())).replace(microsecond=0)
         week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
         commonQuery.updateOrCreateInstance(
             DashboardWeek,
@@ -276,11 +278,11 @@ class ReportService:
                 "total_net_income": income - tax_total - expense_total,
             },
             request=request,
-            tenant_config=True,
+            tenant_config={"company_id": True, "branch_id": True},
         )
         month_start = timezone.make_aware(timezone.datetime(target_date.year, target_date.month, 1))
         next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
-        month_end = next_month - timedelta(seconds=1)
+        month_end = (next_month - timedelta(seconds=1)).replace(microsecond=0)
         commonQuery.updateOrCreateInstance(
             DashboardMonth,
             {
@@ -311,7 +313,7 @@ class ReportService:
                 "total_expenses": expense_total,
             },
             request=request,
-            tenant_config=True,
+            tenant_config={"company_id": True, "branch_id": True},
         )
         return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
 

@@ -6,7 +6,7 @@ from django.test import TestCase
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
 from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Unit, UnitGroup
-from apps.customers.models import CustomerCoupon, CustomerGroup, CustomerReward
+from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.common.tenantDefaults import TenantDefaultsService
 from apps.organizations.models import Branch, Company
 from apps.promotions.models import OrdersCoupon
@@ -20,7 +20,7 @@ from apps.rewards.services import CustomerRewardService
 from apps.sales.models import Order, OrderPayment, OrdersProduct, OrdersProductsRefund, OrdersRefund
 from apps.sales.services import SaleService
 from apps.settings.models import Job, Option, PaymentType
-from apps.settings.services import JobQueueService
+from apps.settings.services import JobQueueService, OptionSettingService
 
 
 class NexoPosParityFlowTest(TestCase):
@@ -350,10 +350,13 @@ class NexoPosParityFlowTest(TestCase):
         ).data
         refund = refund_response["return_order"]
         order.refresh_from_db()
+        sale_item.refresh_from_db()
         self.unit_quantity.refresh_from_db()
 
         self.assertEqual(refund["total"], Decimal("100.00000"))
+        self.assertEqual(order.total, Decimal("90.00000"))
         self.assertEqual(order.payment_status, "partially_refunded")
+        self.assertEqual(sale_item.quantity, Decimal("1.00000"))
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("9.0"))
         self.assertTrue(OrdersRefund.objects.filter(id=refund["id"], sale_order=order).exists())
         self.assertTrue(OrdersProductsRefund.objects.filter(return_order_id=refund["id"], sale_item=sale_item).exists())
@@ -452,3 +455,348 @@ class NexoPosParityFlowTest(TestCase):
         run_result = JobQueueService.runNext(CustomerRewardService.jobHandlers())
         self.assertEqual(run_result, {"status": "completed", "job_id": job.id})
         self.assertFalse(Job.objects.filter(id=job.id).exists())
+
+    def test_exchange_return_requires_linked_sale_and_reduces_original_order_product(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+
+        first_sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+        exchange_sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=first_sale["id"])
+        sale_item = OrdersProduct.objects.get(sale_order=order)
+
+        response = SaleService.createReturn(
+            order.id,
+            {
+                "return_type": "exchange",
+                "payment_type": "cash-payment",
+                "exchange_sale_id": exchange_sale["id"],
+                "items": [
+                    {
+                        "sale_item_id": sale_item.id,
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("100"),
+                        "condition": "unspoiled",
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        order.refresh_from_db()
+        sale_item.refresh_from_db()
+
+        self.assertEqual(response["difference_amount"], Decimal("0.00000"))
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertEqual(order.total, Decimal("0.00000"))
+        self.assertEqual(sale_item.quantity, Decimal("0.00000"))
+        self.assertTrue(OrdersRefund.objects.filter(sale_order=order, payment_method="cash-payment").exists())
+
+    def test_customer_account_payment_and_credit_note_follow_nexopos(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "customers_credit_enabled",
+            "yes",
+            user=self.user,
+        )
+        customer = self.create_customer(username="account-customer")
+        customer.account_amount = Decimal("150")
+        customer.save(update_fields=["account_amount"])
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "account-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        sale_item = OrdersProduct.objects.get(sale_order=order)
+        customer.refresh_from_db()
+
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(customer.account_amount, Decimal("50.00000"))
+        self.assertTrue(
+            CustomerAccountHistory.objects.filter(
+                customer=customer,
+                order=order,
+                operation="payment",
+                amount=Decimal("100"),
+            ).exists()
+        )
+
+        response = SaleService.createReturn(
+            order.id,
+            {
+                "return_type": "credit_note",
+                "items": [
+                    {
+                        "sale_item_id": sale_item.id,
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("100"),
+                        "condition": "unspoiled",
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        customer.refresh_from_db()
+        order.refresh_from_db()
+
+        self.assertEqual(response["return_order"]["payment_method"], "")
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertEqual(customer.account_amount, Decimal("150.00000"))
+        self.assertTrue(
+            CustomerAccountHistory.objects.filter(
+                customer=customer,
+                order=order,
+                operation="refund",
+                amount=Decimal("100"),
+            ).exists()
+        )
+
+    def test_partial_sale_installments_collect_due_and_customer_ledger_follow_nexopos(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_partial",
+            "yes",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "customers_credit_enabled",
+            "yes",
+            user=self.user,
+        )
+        customer = self.create_customer(username="installment-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("50")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        customer.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(order.payment_status, "partially_paid")
+        self.assertEqual(order.total, Decimal("200.00000"))
+        self.assertEqual(order.tendered_amount, Decimal("50.00000"))
+        self.assertEqual(customer.owed_amount, Decimal("150.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("8.0"))
+
+        SaleService.createInstallments(
+            order.id,
+            {
+                "total_installments": 1,
+                "total_amount": Decimal("150"),
+                "lines": [{"due_date": "2026-07-01T00:00:00Z", "amount": Decimal("150")}],
+            },
+            self.request,
+        )
+        installment = order.instalments.get()
+
+        SaleService.payInstallment(
+            order.id,
+            installment.id,
+            {
+                "amount": Decimal("150"),
+                "payment_type": "cash-payment",
+                "note": "Final installment",
+            },
+            self.request,
+        )
+        order.refresh_from_db()
+        customer.refresh_from_db()
+        installment.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.tendered_amount, Decimal("200.00000"))
+        self.assertTrue(installment.paid)
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("8.0"))
+        self.assertTrue(
+            CustomerAccountHistory.objects.filter(
+                customer=customer,
+                order=order,
+                operation="payment",
+                amount=Decimal("150"),
+            ).exists()
+        )
+
+    def test_unpaid_sale_void_reverses_stock_and_customer_due_like_nexopos(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_partial",
+            "yes",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "customers_credit_enabled",
+            "yes",
+            user=self.user,
+        )
+        customer = self.create_customer(username="void-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        customer.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(order.payment_status, "unpaid")
+        self.assertEqual(customer.owed_amount, Decimal("200.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("10.0"))
+
+        SaleService.void(order.id, {"note": "Customer cancelled"}, self.request)
+        order.refresh_from_db()
+        customer.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(order.payment_status, "void")
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("10.0"))
+        self.assertFalse(
+            ProductHistory.objects.filter(
+                product=self.product,
+                order_id=order.id,
+                operation_type=ProductHistory.ACTION_VOID_RETURN,
+            ).exists()
+        )
+        self.assertTrue(
+            CustomerAccountHistory.objects.filter(
+                customer=customer,
+                order=order,
+                operation="deduct",
+                amount=Decimal("200"),
+            ).exists()
+        )
+
+    def test_unpaid_sale_delete_reverses_stock_and_customer_due_like_nexopos(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_partial",
+            "yes",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "customers_credit_enabled",
+            "yes",
+            user=self.user,
+        )
+        customer = self.create_customer(username="delete-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        self.unit_quantity.refresh_from_db()
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("10.0"))
+
+        SaleService.delete({"ids": [order.id]}, self.request)
+        order.refresh_from_db()
+        customer.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(order.status, 2)
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("10.0"))
+        self.assertFalse(
+            ProductHistory.objects.filter(
+                product=self.product,
+                order_id=order.id,
+                operation_type=ProductHistory.ACTION_RETURNED,
+            ).exists()
+        )

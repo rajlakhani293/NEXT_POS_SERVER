@@ -1189,8 +1189,7 @@ class SaleReturnValidationService:
             if refund_qty <= 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Refund quantity must be greater than 0.")
 
-            already_refunded = SaleReturnValidationService.refundedQuantity(sale_item["id"], request)
-            refundable_qty = quantity(sale_item.get("quantity")) - already_refunded
+            refundable_qty = quantity(sale_item.get("quantity"))
             if refund_qty > refundable_qty:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, f"Refund quantity exceeds remaining refundable quantity for item {sale_item['id']}.")
 
@@ -1335,22 +1334,29 @@ class SaleRefundService:
             return {"refund_payment": None, "difference_amount": Decimal("0")}
 
         if return_type == "exchange":
+            if not data.get("exchange_sale_id"):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Exchange sale is required.")
+            if int(data.get("exchange_sale_id")) == int(sale_order.get("id")):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Exchange sale cannot be the same sale.")
             difference_amount = Decimal("0")
-            if data.get("exchange_sale_id"):
-                exchange_sale = commonQuery.findOneRecord(
-                    Order,
-                    data["exchange_sale_id"],
-                    request=request,
-                    tenant_config=True,
-                )
-                if exchange_sale is None:
-                    raise api_error(404, ErrorCodes.NOT_FOUND, "Exchange sale not found.")
-                difference_amount = money(exchange_sale.get("total")) - total
-                if difference_amount < 0 and data.get("payment_type"):
-                    total_to_refund = abs(difference_amount)
-                    payment_data = {**data, "return_type": "refund"}
-                    settlement = SaleRefundService.handleRefundSettlement(return_order, sale_order, customer, payment_data, total_to_refund, settings, request)
-                    return {"refund_payment": settlement["refund_payment"], "difference_amount": difference_amount}
+            exchange_sale = commonQuery.findOneRecord(
+                Order,
+                data["exchange_sale_id"],
+                request=request,
+                tenant_config=True,
+            )
+            if exchange_sale is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Exchange sale not found.")
+            if exchange_sale.get("payment_status") == "void":
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Void sale cannot be used for exchange.")
+            difference_amount = money(exchange_sale.get("total")) - total
+            if difference_amount < 0:
+                if not data.get("payment_type"):
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Refund payment type is required when exchange value is lower than return value.")
+                total_to_refund = abs(difference_amount)
+                payment_data = {**data, "return_type": "refund"}
+                settlement = SaleRefundService.handleRefundSettlement(return_order, sale_order, customer, payment_data, total_to_refund, settings, request)
+                return {"refund_payment": settlement["refund_payment"], "difference_amount": difference_amount}
             return {"refund_payment": None, "difference_amount": difference_amount}
 
         payment_type = PaymentTypeService.resolvePaymentType(data.get("payment_type"), request)
@@ -1419,11 +1425,19 @@ class SaleService:
             request=request,
             tenant_config=True,
         )
+        refunds = commonQuery.findAllRecords(
+            OrdersRefund,
+            {"sale_order_id": sale_order_id},
+            {"attributes": ["total"]},
+            request=request,
+            tenant_config=True,
+        )
 
         subtotal = sum((money(item.get("total")) for item in items), Decimal("0"))
         tax_amount = sum((money(item.get("tax_amount")) for item in items), Decimal("0"))
         total_cogs = sum((money(item.get("cost_price")) * quantity(item.get("quantity")) for item in items), Decimal("0"))
         coupon_total = sum((money(coupon.get("discount_amount")) for coupon in coupons), Decimal("0"))
+        refunded_total = sum((money(refund.get("total")) for refund in refunds), Decimal("0"))
         total = max(
             subtotal
             - money(sale_order.get("discount_amount"))
@@ -1434,7 +1448,12 @@ class SaleService:
         paid_amount = sum((money(payment.get("value")) for payment in payments), Decimal("0"))
         change_amount = max(paid_amount - total, Decimal("0"))
         due_amount = max(total - paid_amount, Decimal("0"))
-        payment_status = "paid" if due_amount == 0 else ("partially_paid" if paid_amount > 0 else "unpaid")
+        if total == 0 and refunded_total > 0:
+            payment_status = "refunded"
+        elif total > 0 and refunded_total > 0:
+            payment_status = "partially_refunded"
+        else:
+            payment_status = "paid" if due_amount == 0 else ("partially_paid" if paid_amount > 0 else "unpaid")
 
         updated = commonQuery.updateRecordById(
             Order,
@@ -1454,7 +1473,6 @@ class SaleService:
             tenant_config=True,
         )
         SaleDraftService.trackOrderCoupons(sale_order_id, request)
-        SaleStockService.recordSaleStock(updated, request)
         return successResponse("Sale order refreshed successfully.", data=updated)
 
     @staticmethod
@@ -1648,9 +1666,10 @@ class SaleService:
                 )
             }
         else:
+            due_amount = saleDueAmount(sale_order)
             payload = {
                 "owed_amount": max(
-                    money(customer.get("owed_amount")) - money(sale_order.get("total")),
+                    money(customer.get("owed_amount")) - due_amount,
                     Decimal("0"),
                 )
             }
@@ -1798,7 +1817,7 @@ class SaleService:
             refunded_qty = SaleReturnValidationService.refundedQuantity(item["id"], request)
             sold_qty = quantity(item.get("quantity"))
             item["refunded_quantity"] = refunded_qty
-            item["refundable_quantity"] = max(sold_qty - refunded_qty, Decimal("0"))
+            item["refundable_quantity"] = sold_qty
 
         sale_order["due_amount"] = saleDueAmount(sale_order)
         sale_order["total_items"] = len(items)
@@ -2454,7 +2473,7 @@ class SaleService:
                         if item.get("product_id") and sale_order.get("payment_status") in [
                             "paid",
                             "partially_paid",
-                            "unpaid",
+                            "refunded",
                             "partially_refunded",
                         ]:
                             ProductStockService.recordStockHistory(
@@ -2918,12 +2937,21 @@ class SaleService:
                 )
                 created_items.append(return_item)
 
-                refunded_qty = SaleReturnValidationService.refundedQuantity(item["sale_item"]["id"], request)
-                item_status = "returned" if refunded_qty >= quantity(item["sale_item"].get("quantity")) else "partially_returned"
+                remaining_qty = max(quantity(item["sale_item"].get("quantity")) - item["quantity"], Decimal("0"))
+                original_qty = quantity(item["sale_item"].get("quantity"))
+                tax_ratio = money(item["sale_item"].get("tax_amount")) / original_qty if original_qty > 0 else Decimal("0")
+                next_tax_amount = tax_ratio * remaining_qty
+                next_total = remaining_qty * money(item["sale_item"].get("unit_price")) + next_tax_amount
+                item_status = "returned" if remaining_qty <= 0 else "partially_returned"
                 commonQuery.updateRecordById(
                     OrdersProduct,
                     item["sale_item"]["id"],
-                    {"item_status": item_status},
+                    {
+                        "quantity": remaining_qty,
+                        "tax_amount": next_tax_amount,
+                        "total": next_total,
+                        "item_status": item_status,
+                    },
                     request=request,
                     tenant_config=True,
                 )
@@ -2938,7 +2966,7 @@ class SaleService:
                 settings,
                 request,
             )
-            updated_sale = SaleRefundService.updateOrderPaymentStatus(sale_order["id"], request)
+            updated_sale = SaleService.refreshOrder(sale_order["id"], request).data
             AccountingService.reflectEvent(
                 "order_refunded",
                 prepared["total"],
