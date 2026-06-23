@@ -598,7 +598,7 @@ class PurchaseOrderService:
                     )
 
                 latest_unit_quantity = commonQuery.findOneRecord(ProductUnitQuantity, unit_quantity["id"], request=request, tenant_config=True)
-                if latest_unit_quantity and latest_unit_quantity.get("stock_alert_enabled") and qty(latest_unit_quantity.get("quantity")) <= qty(latest_unit_quantity.get("low_quantity")):
+                if latest_unit_quantity and latest_unit_quantity.get("stock_alert_enabled") and qty(latest_unit_quantity.get("quantity")) < qty(latest_unit_quantity.get("low_quantity")):
                     NotificationService.push(
                         title="Low stock alert",
                         message=f"{item['name']} is at or below minimum stock.",
@@ -699,7 +699,7 @@ class PurchaseOrderService:
     def lowStockSuggestions(request):
         rows = commonQuery.branchScopedQueryset(
             ProductUnitQuantity,
-            {"status__in": [0, 1], "stock_alert_enabled": True, "quantity__lte": F("low_quantity")},
+            {"status__in": [0, 1], "stock_alert_enabled": True, "quantity__lt": F("low_quantity")},
             request,
         ).values("id", "product_id", "product__name", "product__sku", "product__barcode", "quantity", "low_quantity", "cogs", "unit_id", "unit__name").order_by("quantity", "product__name")[:100]
         products = []

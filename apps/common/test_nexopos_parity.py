@@ -559,7 +559,7 @@ class NexoPosParityFlowTest(TestCase):
         order.refresh_from_db()
         customer.refresh_from_db()
 
-        self.assertEqual(order.payment_status, "void")
+        self.assertEqual(order.payment_status, "order_void")
         self.assertEqual(order.voidance_reason, "Wrong cart")
         self.assertIn("Void Note: Wrong cart", order.note)
         self.assertEqual(customer.owed_amount, Decimal("0.00000"))
@@ -1529,7 +1529,7 @@ class NexoPosParityFlowTest(TestCase):
         customer.refresh_from_db()
         self.unit_quantity.refresh_from_db()
 
-        self.assertEqual(order.payment_status, "void")
+        self.assertEqual(order.payment_status, "order_void")
         self.assertEqual(customer.owed_amount, Decimal("0.00000"))
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("10.0"))
         self.assertFalse(

@@ -116,7 +116,7 @@ class ReportService:
             unpaid_orders=Count("id", filter=Q(payment_status="unpaid")),
             refunded_orders=Count("id", filter=Q(payment_status="refunded")),
             partially_refunded_orders=Count("id", filter=Q(payment_status="partially_refunded")),
-            void_orders=Count("id", filter=Q(payment_status="void")),
+            void_orders=Count("id", filter=Q(payment_status="order_void")),
             refund_total=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
             tax_total=Coalesce(Sum("tax_amount"), zero),
             total_discount=Coalesce(Sum("discount_amount"), zero),
@@ -676,7 +676,7 @@ class ReportService:
             {
                 **tenantFilter(request),
                 "stock_alert_enabled": True,
-                "quantity__lte": F("low_quantity"),
+                "quantity__lt": F("low_quantity"),
             },
             request,
             tenant_config={},

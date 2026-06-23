@@ -1362,7 +1362,7 @@ class SaleReturnValidationService:
         )
         if sale_order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
-        if sale_order.get("payment_status") == "void":
+        if sale_order.get("payment_status") == "order_void":
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Void sale cannot be returned.")
         return sale_order
 
@@ -1581,7 +1581,7 @@ class SaleRefundService:
             )
             if exchange_sale is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Exchange sale not found.")
-            if exchange_sale.get("payment_status") == "void":
+            if exchange_sale.get("payment_status") == "order_void":
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Void sale cannot be used for exchange.")
             difference_amount = money(exchange_sale.get("total")) - total
             if difference_amount < 0:
@@ -1628,7 +1628,7 @@ class SaleService:
         )
         if sale_order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
-        if sale_order.get("payment_status") in ["hold", "void"]:
+        if sale_order.get("payment_status") in ["hold", "order_void"]:
             return successResponse("Sale order skipped from refresh.", data=sale_order)
 
         items = commonQuery.findAllRecords(
@@ -2466,6 +2466,56 @@ class SaleService:
         return successResponse("Order storage purged successfully.", data={"deleted_count": deleted_count})
 
     @staticmethod
+    def notifyExpiredLaidAway(data, request):
+        now = timezone.now()
+        orders = commonQuery.branchScopedQueryset(
+            Order,
+            {
+                "payment_status__in": ["partially_paid", "unpaid"],
+                "final_payment_date__isnull": False,
+                "final_payment_date__lt": now,
+                "status__in": [0, 1],
+            },
+            request,
+        )
+        
+        updated_count = 0
+        for order in orders:
+            if order.tendered_amount > 0:
+                order.payment_status = "partially_due"
+            else:
+                order.payment_status = "due"
+            order.save(update_fields=["payment_status"])
+            updated_count += 1
+            
+        if updated_count:
+            commonQuery.branchScopedQueryset(
+                Notification,
+                {"identifier": "ns.due-orders-notifications"},
+                request,
+            ).delete()
+            
+            from apps.settings.services import NotificationService
+            NotificationService.dispatchForRoleNamespaces(
+                ["admin", "store-administrator"],
+                title="Unpaid Orders Turned Due",
+                description=f"{updated_count} order(s) either unpaid or partially paid has turned due. This occurs if none has been completed before the expected payment date.",
+                identifier="ns.due-orders-notifications",
+                url="/sales",
+                source="system",
+                request=request,
+            )
+            
+        return successResponse("Expired layaway orders processed successfully.", data={"updated_count": updated_count})
+
+    @staticmethod
+    def enqueueTrackLaidAwayOrders(data, request):
+        from apps.settings.services import JobQueueService
+
+        job = JobQueueService.enqueue("track_laid_away_orders", data or {}, request=request)
+        return successResponse("Track layaway orders job queued successfully.", data={"job_id": job.id})
+
+    @staticmethod
     def enqueueClearExpiredHeldCarts(data, request):
         from apps.settings.services import JobQueueService
 
@@ -2497,6 +2547,7 @@ class SaleService:
         return {
             "clear_hold_orders": lambda data, job: SaleService.clearExpiredHeldCarts(data, SaleService.requestFromJob(job)),
             "purge_order_storage": lambda data, job: SaleService.purgeOrderStorage(data, SaleService.requestFromJob(job)),
+            "track_laid_away_orders": lambda data, job: SaleService.notifyExpiredLaidAway(data, SaleService.requestFromJob(job)),
             "refresh_order": lambda data, job: SaleService.refreshOrder(
                 data.get("sale_order_id") or data.get("order_id"),
                 SaleService.requestFromJob(job),
@@ -2760,7 +2811,7 @@ class SaleService:
 
         with transaction.atomic():
             sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
-            if sale_order.get("payment_status") in ["paid", "refunded", "partially_refunded", "void"]:
+            if sale_order.get("payment_status") in ["paid", "refunded", "partially_refunded", "order_void"]:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "This sale cannot be edited in its current status.")
             if commonQuery.findOneRecord(
                 OrdersRefund,
@@ -2981,7 +3032,7 @@ class SaleService:
     def void(sale_order_id, data, request):
         with transaction.atomic():
             sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
-            if sale_order.get("payment_status") == "void":
+            if sale_order.get("payment_status") == "order_void":
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Sale is already void.")
             if sale_order.get("payment_status") in ["refunded", "partially_refunded"]:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Refunded sale cannot be voided.")
@@ -3016,7 +3067,7 @@ class SaleService:
                 Order,
                 sale_order_id,
                 {
-                    "payment_status": "void",
+                    "payment_status": "order_void",
                     "voidance_reason": data.get("note") or data.get("reason") or sale_order.get("voidance_reason"),
                     "note": (sale_order.get("note") or "") + (
                         f"\nVoid Note: {data.get('note')}" if data.get("note") else ""
@@ -3057,7 +3108,7 @@ class SaleService:
                 SaleDraftService.reverseAppliedCoupons(sale_order_id, request)
                 SaleDraftService.reverseRewards(sale_order, request)
 
-                if sale_order.get("payment_status") != "void":
+                if sale_order.get("payment_status") != "order_void":
                     sale_items = commonQuery.findAllRecords(
                         OrdersProduct,
                         {"sale_order_id": sale_order_id},
@@ -3117,7 +3168,7 @@ class SaleService:
     def collectDue(sale_order_id, data, request):
         with transaction.atomic():
             sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
-            if sale_order.get("payment_status") in ["void", "refunded"]:
+            if sale_order.get("payment_status") in ["order_void", "refunded"]:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Due cannot be collected for this sale.")
 
             remaining_due = saleDueAmount(sale_order)

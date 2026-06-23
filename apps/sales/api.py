@@ -77,6 +77,12 @@ def purgeOrderStorage(request):
     return SaleService.enqueuePurgeOrderStorage({}, request)
 
 
+@router.post("/layaway/track-expired", response=ApiResponse)
+@permission_required("sales_update")
+def trackExpiredLaidAway(request):
+    return SaleService.enqueueTrackLaidAwayOrders({}, request)
+
+
 @router.get("/permissions-check", response=ApiResponse)
 @permission_required("sales_view")
 def permissionsCheck(request):

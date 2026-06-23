@@ -14,7 +14,9 @@ class Order(TenantAwareModel):
         ("paid", "Paid"),
         ("refunded", "Refunded"),
         ("partially_refunded", "Partially Refunded"),
-        ("void", "Void"),
+        ("order_void", "Void"),
+        ("due", "Due"),
+        ("partially_due", "Partially Due"),
     ]
     ORDER_TYPES = [
         ("takeaway", "Takeaway"),
