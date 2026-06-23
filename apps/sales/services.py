@@ -2405,7 +2405,7 @@ class SaleService:
             request=request,
             tenant_config=True,
         )
-        if draft is None:
+        if draft is None or draft.get("payment_status") != "hold":
             raise api_error(404, ErrorCodes.NOT_FOUND, "Held cart not found.")
         commonQuery.updateRecordById(
             Order,

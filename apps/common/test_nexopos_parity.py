@@ -20,7 +20,7 @@ from apps.rewards.models import RewardSystem, RewardSystemRule
 from apps.rewards.services import CustomerRewardService
 from apps.sales.models import Order, OrderInstalment, OrderPayment, OrderSetting, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
 from apps.sales.services import SaleService
-from apps.settings.models import Job, Option, PaymentType
+from apps.settings.models import Job, Notification, Option, PaymentType
 from apps.settings.services import JobQueueService, OptionSettingService
 
 
@@ -778,6 +778,141 @@ class NexoPosParityFlowTest(TestCase):
             RegistersHistory.objects.filter(order_id=order.id, entry_type=RegistersHistory.ACTION_ORDER_PAYMENT).count(),
             3,
         )
+
+    def test_hold_cart_has_no_stock_payment_accounting_or_customer_side_effects_like_nexopos(self):
+        self.stock_product(5)
+        customer = self.create_customer(username="hold-customer")
+
+        held = SaleService.hold(
+            {
+                "customer_id": customer.id,
+                "note": "Call back later",
+                "coupon_codes": ["NOT-YET-USED"],
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("20")}],
+            },
+            self.request,
+        ).data
+        draft = Order.objects.get(id=held["id"])
+        self.unit_quantity.refresh_from_db()
+        customer.refresh_from_db()
+
+        self.assertEqual(draft.payment_status, "hold")
+        self.assertEqual(draft.status, 0)
+        self.assertEqual(held["draft_status"], "held")
+        self.assertEqual(held["items"][0]["line_total"], Decimal("200.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("5.0"))
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertEqual(OrdersProduct.objects.filter(sale_order=draft).count(), 0)
+        self.assertEqual(OrderPayment.objects.filter(sale_order=draft).count(), 0)
+        self.assertFalse(TransactionHistory.objects.filter(order_id=draft.id).exists())
+
+        fetched = SaleService.getHeldCart(draft.id, self.request).data
+        self.assertEqual(fetched["note_text"], "Call back later")
+        self.assertEqual(fetched["payments"][0]["amount"], Decimal("20.00000"))
+
+    def test_hold_cart_conversion_soft_deletes_draft_and_processes_real_sale_like_nexopos(self):
+        self.stock_product(5)
+        customer = self.create_customer(username="hold-convert-customer")
+        held = SaleService.hold(
+            {
+                "customer_id": customer.id,
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        draft = Order.objects.get(id=held["id"])
+
+        sale = SaleService.create(
+            {
+                "draft_id": draft.id,
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("200")}],
+            },
+            self.request,
+        ).data
+        draft.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(draft.status, 2)
+        self.assertEqual(sale["payment_status"], "paid")
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
+        self.assertTrue(OrdersProduct.objects.filter(sale_order_id=sale["id"]).exists())
+        self.assertTrue(TransactionHistory.objects.filter(order_id=sale["id"]).exists())
+
+    def test_expired_hold_cart_cleanup_only_soft_deletes_hold_orders_like_nexopos(self):
+        self.stock_product(5)
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_quotation_expiration",
+            "1",
+            user=self.user,
+        )
+        held = SaleService.hold(
+            {
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        draft = Order.objects.get(id=held["id"])
+        Order.objects.filter(id=draft.id).update(created_at=timezone.now() - timezone.timedelta(days=2))
+        active_sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+
+        result = SaleService.clearExpiredHeldCarts({}, self.request).data
+        draft.refresh_from_db()
+        active_order = Order.objects.get(id=active_sale["id"])
+
+        self.assertEqual(result["deleted_count"], 1)
+        self.assertEqual(draft.status, 2)
+        self.assertEqual(active_order.status, 0)
+        self.assertTrue(Notification.objects.filter(identifier="clear_hold_orders").exists())
+        with self.assertRaises(Exception):
+            SaleService.deleteHeldCart(active_order.id, self.request)
 
     def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
         purchase = PurchaseOrderService.create(
