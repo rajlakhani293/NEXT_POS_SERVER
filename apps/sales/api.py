@@ -1,5 +1,5 @@
+# type: ignore
 from ninja import Router
-
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permission_required
 from apps.common.responses import ApiResponse, successResponse
@@ -14,6 +14,7 @@ from apps.sales.schemas import (
     SaleListIn,
     SaleReturnCreateIn,
     SaleStatusUpdateIn,
+    SaleUpdateIn,
     SaleVoidIn,
 )
 from apps.sales.services import SaleService
@@ -89,6 +90,12 @@ def permissionsCheck(request):
 @permission_required("sales_view")
 def getSale(request, sale_order_id: int):
     return SaleService.getSale(sale_order_id, request)
+
+
+@router.put("/{sale_order_id}", response=ApiResponse)
+@permission_required("sales_update")
+def updateSale(request, sale_order_id: int, payload: SaleUpdateIn):
+    return SaleService.update(sale_order_id, payloadData(payload), request)
 
 
 @router.get("/{sale_order_id}/receipt", response=ApiResponse)

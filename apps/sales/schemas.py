@@ -20,6 +20,7 @@ class SaleItemIn(Schema):
 
 
 class OrderPaymentIn(Schema):
+    id: Optional[int] = None
     payment_type: str
     amount: Decimal = Field(..., ge=0)
     reference_number: str = ""
@@ -43,6 +44,10 @@ class SaleCreateIn(Schema):
     coupon_codes: List[str] = Field(default_factory=list)
     items: List[SaleItemIn]
     payments: List[OrderPaymentIn] = Field(default_factory=list)
+
+
+class SaleUpdateIn(SaleCreateIn):
+    draft_id: Optional[int] = None
 
 
 class SaleListIn(Schema):

@@ -387,6 +387,125 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(tax_rows[0].tax_value, Decimal("0.00000"))
         self.assertEqual(tax_rows[1].tax_value, Decimal("0.00000"))
 
+    def test_unpaid_sale_update_rebuilds_items_totals_and_stock_like_nexopos(self):
+        self.unit_quantity.quantity = Decimal("5")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
+        customer = self.create_customer(username="unpaid-edit-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        self.assertEqual(order.payment_status, "unpaid")
+        self.assertEqual(order.total, Decimal("100.00000"))
+        self.unit_quantity.refresh_from_db()
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("5.0"))
+
+        updated = SaleService.update(
+            order.id,
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        order.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(updated["total"], Decimal("200.00000"))
+        self.assertEqual(order.payment_status, "unpaid")
+        self.assertEqual(OrdersProduct.objects.filter(sale_order=order).count(), 1)
+        self.assertEqual(OrdersProduct.objects.get(sale_order=order).quantity, Decimal("2.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("5.0"))
+
+    def test_partially_paid_sale_update_preserves_payments_and_recomputes_stock_like_nexopos(self):
+        self.unit_quantity.quantity = Decimal("5")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
+        customer = self.create_customer(username="partial-edit-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("50")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        payment = OrderPayment.objects.get(sale_order=order)
+        self.unit_quantity.refresh_from_db()
+        self.assertEqual(order.payment_status, "partially_paid")
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("4.0"))
+
+        updated = SaleService.update(
+            order.id,
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [
+                    {
+                        "id": payment.id,
+                        "payment_type": "cash-payment",
+                        "amount": Decimal("50"),
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        order.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+        customer.refresh_from_db()
+
+        self.assertEqual(updated["total"], Decimal("200.00000"))
+        self.assertEqual(updated["paid_amount"], Decimal("50.00000"))
+        self.assertEqual(order.payment_status, "partially_paid")
+        self.assertEqual(OrderPayment.objects.filter(sale_order=order).count(), 1)
+        self.assertEqual(OrdersProduct.objects.get(sale_order=order).quantity, Decimal("2.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
+        self.assertEqual(customer.owed_amount, Decimal("150.00000"))
+
     def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
         purchase = PurchaseOrderService.create(
             {

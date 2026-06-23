@@ -782,6 +782,63 @@ class SaleCouponService:
 
 class OrderPaymentService:
     @staticmethod
+    def existingPayments(sale_order_id, request):
+        return commonQuery.findAllRecords(
+            OrderPayment,
+            {"sale_order_id": sale_order_id},
+            {"attributes": ["id", "identifier", "value"]},
+            request=request,
+            tenant_config=True,
+        )
+
+    @staticmethod
+    def validatePreservedPayments(sale_order, payments, request):
+        existing_payments = OrderPaymentService.existingPayments(sale_order["id"], request)
+        existing_by_id = {payment["id"]: payment for payment in existing_payments}
+        payload_by_id = {
+            int(payment["id"]): payment
+            for payment in payments or []
+            if payment.get("id")
+        }
+
+        missing_ids = set(existing_by_id.keys()) - set(payload_by_id.keys())
+        if missing_ids:
+            raise api_error(
+                400,
+                ErrorCodes.BAD_REQUEST,
+                "Existing sale payments must be preserved while updating a partially paid sale.",
+            )
+
+        for payment_id, payment in payload_by_id.items():
+            existing = existing_by_id.get(payment_id)
+            if existing is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Sale payment not found.")
+            requested_type = payment.get("payment_type")
+            if requested_type and requested_type != existing.get("identifier"):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Existing sale payment type cannot be changed.")
+            if money(payment.get("amount")) != money(existing.get("value")):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Existing sale payment amount cannot be changed.")
+
+        paid_amount = sum((money(payment.get("value")) for payment in existing_payments), Decimal("0"))
+        cash_paid_amount = sum(
+            (
+                money(payment.get("value"))
+                for payment in existing_payments
+                if payment.get("identifier") == "cash-payment"
+            ),
+            Decimal("0"),
+        )
+        return {
+            "paid_amount": paid_amount,
+            "cash_paid_amount": cash_paid_amount,
+            "existing_payment_ids": set(existing_by_id.keys()),
+        }
+
+    @staticmethod
+    def splitNewPayments(payments):
+        return [payment for payment in payments or [] if not payment.get("id")]
+
+    @staticmethod
     def applyPayments(sale_order, payments, shift, customer, settings, request):
         paid_amount = Decimal("0")
         cash_paid_amount = Decimal("0")
@@ -2610,6 +2667,230 @@ class SaleService:
                     "items": sale_items,
                     "applied_coupons": coupon_result["applied_coupons"],
                     "customer": customer,
+                    "reward": reward,
+                    "paid_amount": paid_amount,
+                },
+            )
+
+    @staticmethod
+    def update(sale_order_id, data, request):
+        if not data.get("items"):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one sale item is required.")
+
+        with transaction.atomic():
+            sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+            if sale_order.get("payment_status") in ["paid", "refunded", "partially_refunded", "void"]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "This sale cannot be edited in its current status.")
+            if commonQuery.findOneRecord(
+                OrdersRefund,
+                {"sale_order_id": sale_order_id},
+                request=request,
+                tenant_config=True,
+            ):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Returned sale cannot be edited.")
+
+            settings = getOptionSettings(request.user)
+            shift = getCurrentRegisterContext(
+                request,
+                data.get("register_id") or sale_order.get("register_id"),
+                required=bool(settings.enable_cash_registers),
+            )
+            customer = SaleValidationService.ensureCustomer(data.get("customer_id"), request)
+            order_type = SaleValidationService.ensureOrderTypeAllowed(data.get("order_type"), settings)
+            status_defaults = SaleValidationService.statusDefaultsForOrderType(order_type)
+
+            preserved_payment_summary = OrderPaymentService.validatePreservedPayments(
+                sale_order,
+                data.get("payments") or [],
+                request,
+            )
+
+            SaleDraftService.reverseAppliedCoupons(sale_order_id, request)
+            SaleDraftService.reverseRewards(sale_order, request)
+            SaleVoidService.reverseCustomerImpact(sale_order, request)
+            SaleVoidService.restockSale(sale_order, request)
+            AccountingService.deleteOrderTransactionsHistory(sale_order_id, request)
+
+            commonQuery.branchScopedQueryset(OrdersProduct, {"sale_order_id": sale_order_id}, request).delete()
+            commonQuery.branchScopedQueryset(OrderTax, {"sale_order_id": sale_order_id}, request).delete()
+            commonQuery.branchScopedQueryset(OrdersCoupon, {"sale_order_id": sale_order_id}, request).delete()
+            commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
+            commonQuery.branchScopedQueryset(OrderSetting, {"sale_order_id": sale_order_id}, request).delete()
+
+            sale_order = commonQuery.updateRecordById(
+                Order,
+                sale_order_id,
+                {
+                    "customer_id": data.get("customer_id"),
+                    "register_id": shift["register_id"] if shift else None,
+                    "order_type": order_type,
+                    "process_status": status_defaults["process_status"],
+                    "delivery_status": status_defaults["delivery_status"],
+                    "payment_status": "unpaid",
+                    "discount_amount": data.get("discount_amount") or 0,
+                    "discount_percentage": data.get("discount_percentage") or 0,
+                    "total_coupons": data.get("total_coupons") or 0,
+                    "shipping": data.get("shipping") or 0,
+                    "tax_amount": data.get("tax_amount") or 0,
+                    "tendered_amount": preserved_payment_summary["paid_amount"],
+                    "change_amount": 0,
+                    "note": data.get("note") or "",
+                    "final_payment_date": None,
+                },
+                request=request,
+                tenant_config=True,
+            )
+
+            subtotal = Decimal("0")
+            sale_items = []
+            for item in data.get("items") or []:
+                sale_item, line_total, _item_qty = SaleStockService.applySaleItem(item, sale_order, settings, request)
+                sale_items.append(sale_item)
+                subtotal += line_total
+
+            products_tax_value = sum((money(item.get("tax_amount")) for item in sale_items), Decimal("0"))
+            order_tax_config = SaleTaxService.resolveOrderTaxConfig(data, settings, request)
+            order_tax_result = {"total_tax": Decimal("0"), "taxes": []}
+            if order_tax_config["taxes"]:
+                taxable_amount = max(subtotal - money(data.get("discount_amount")), Decimal("0"))
+                order_tax_result = SaleTaxService.createOrderTaxes(
+                    sale_order["id"],
+                    order_tax_config["tax_type"],
+                    order_tax_config["taxes"],
+                    taxable_amount,
+                    request,
+                )
+                if order_tax_config["tax_type"] == "exclusive" and getattr(settings, "pos_preferred_price", "net_prices") == "net_prices":
+                    subtotal += order_tax_result["total_tax"]
+            total_tax_amount = products_tax_value + order_tax_result["total_tax"]
+
+            total = (
+                subtotal
+                - money(data.get("discount_amount"))
+                + money(data.get("shipping"))
+            )
+            coupon_result = SaleCouponService.applyCoupons(
+                sale_order,
+                data.get("coupon_codes") or [],
+                customer,
+                data.get("items") or [],
+                total,
+                request,
+            )
+            total -= coupon_result["discount_amount"]
+
+            new_payment_summary = OrderPaymentService.applyPayments(
+                sale_order,
+                OrderPaymentService.splitNewPayments(data.get("payments") or []),
+                shift,
+                customer,
+                settings,
+                request,
+            )
+            paid_amount = preserved_payment_summary["paid_amount"] + new_payment_summary["paid_amount"]
+            cash_paid_amount = preserved_payment_summary["cash_paid_amount"] + new_payment_summary["cash_paid_amount"]
+            due_amount = max(total - paid_amount, Decimal("0"))
+            change_amount = max(paid_amount - total, Decimal("0"))
+            SaleValidationService.ensureCashChangeSupported(change_amount, cash_paid_amount)
+            SaleValidationService.ensurePaymentRules(
+                total,
+                paid_amount,
+                due_amount,
+                customer,
+                settings,
+                request,
+            )
+
+            payment_status = "paid" if due_amount == 0 else ("partially_paid" if paid_amount > 0 else "unpaid")
+            updated_sale = commonQuery.updateRecordById(
+                Order,
+                sale_order_id,
+                {
+                    "subtotal": subtotal,
+                    "total": total,
+                    "total_with_tax": total,
+                    "total_without_tax": total - total_tax_amount,
+                    "tax_group_id": order_tax_config["tax_group_id"],
+                    "tax_type": order_tax_config["tax_type"],
+                    "tax_amount": total_tax_amount,
+                    "products_tax_value": products_tax_value,
+                    "tendered_amount": paid_amount,
+                    "change_amount": change_amount,
+                    "total_coupons": coupon_result["discount_amount"],
+                    "payment_status": payment_status,
+                    "final_payment_date": timezone.now() if due_amount == 0 else None,
+                },
+                request=request,
+                tenant_config=True,
+            )
+
+            if shift and change_amount > 0 and cash_paid_amount > 0:
+                RegisterService.deleteRegisterHistoryUsingOrder(sale_order_id, request)
+                for payment in OrderPaymentService.existingPayments(sale_order_id, request):
+                    if payment.get("identifier") == "cash-payment":
+                        RegisterService.recordOrderPayment(payment["id"], request)
+                SaleRegisterService.recordChangeGiven(updated_sale, shift, change_amount, request)
+
+            SaleService.saveOrderSettings(updated_sale["id"], request)
+            SaleDraftService.trackOrderCoupons(updated_sale["id"], request)
+            SaleStockService.recordSaleStock(updated_sale, request)
+            updated_customer = SaleCustomerService.applyCustomerImpact(updated_sale, request)
+            reward = SaleRewardService.processRewards(updated_sale, request) if settings.enable_customer_rewards else None
+            AccountingService.reflectEvent(
+                "order_unpaid",
+                total,
+                name=f"Order {updated_sale['code']}",
+                transaction_type="income",
+                source_type="sale",
+                source_id=updated_sale["id"],
+                transaction_date=timezone.now(),
+                description=updated_sale.get("note") or "Sale updated",
+                reference_number=updated_sale["code"],
+                request=request,
+            )
+            if paid_amount > 0:
+                AccountingService.reflectEvent(
+                    "order_from_unpaid_to_paid",
+                    min(paid_amount, total),
+                    name=f"Order payment {updated_sale['code']}",
+                    transaction_type="income",
+                    source_type="sale",
+                    source_id=updated_sale["id"],
+                    transaction_date=timezone.now(),
+                    description="Sale payment received",
+                    reference_number=updated_sale["code"],
+                    request=request,
+                )
+            if payment_status == "paid":
+                cogs_amount = sum(
+                    (
+                        money(item.get("cost_price")) * quantity(item.get("quantity"))
+                        for item in sale_items
+                    ),
+                    Decimal("0"),
+                )
+                AccountingService.reflectEvent(
+                    "order_cogs",
+                    cogs_amount,
+                    name=f"Order COGS {updated_sale['code']}",
+                    transaction_type="expense",
+                    source_type="sale",
+                    source_id=updated_sale["id"],
+                    transaction_date=timezone.now(),
+                    description="Cost of goods sold",
+                    reference_number=updated_sale["code"],
+                    request=request,
+                )
+            SaleService.resolveInstalments(updated_sale["id"], request)
+            ReportService.recomputeDashboardRange({}, request)
+
+            return successResponse(
+                "Sale updated successfully.",
+                data={
+                    **updated_sale,
+                    "items": sale_items,
+                    "applied_coupons": coupon_result["applied_coupons"],
+                    "customer": updated_customer,
                     "reward": reward,
                     "paid_amount": paid_amount,
                 },
