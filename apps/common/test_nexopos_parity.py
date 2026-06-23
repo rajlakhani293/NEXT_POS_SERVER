@@ -5,7 +5,7 @@ from django.test import TestCase
 
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
-from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Unit, UnitGroup
+from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
 from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.common.tenantDefaults import TenantDefaultsService
 from apps.organizations.models import Branch, Company
@@ -17,7 +17,7 @@ from apps.registers.models import Register, RegistersHistory
 from apps.registers.services import RegisterService
 from apps.rewards.models import RewardSystem, RewardSystemRule
 from apps.rewards.services import CustomerRewardService
-from apps.sales.models import Order, OrderPayment, OrdersProduct, OrdersProductsRefund, OrdersRefund
+from apps.sales.models import Order, OrderPayment, OrderSetting, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
 from apps.sales.services import SaleService
 from apps.settings.models import Job, Option, PaymentType
 from apps.settings.services import JobQueueService, OptionSettingService
@@ -155,6 +155,186 @@ class NexoPosParityFlowTest(TestCase):
             .values_list("identifier", flat=True)
         )
         self.assertEqual(identifiers, {"cash-payment", "bank-payment", "account-payment"})
+        options = {
+            option.key: option.value
+            for option in Option.objects.filter(company=self.company, branch=self.branch, status=0)
+        }
+        self.assertEqual(options["currency_symbol"], "₹")
+        self.assertEqual(options["currency_iso"], "INR")
+        self.assertEqual(options["currency_position"], "before")
+        self.assertEqual(options["currency_preferred"], "symbol")
+        self.assertEqual(options["pos_preferred_price"], "net_prices")
+        self.assertEqual(options["pos_vat"], "disabled")
+
+    def test_delivery_order_statuses_and_saved_settings_follow_nexopos(self):
+        self.stock_product(4)
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "pos_preferred_price",
+            "net_prices",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "pos_vat",
+            "products_vat",
+            user=self.user,
+        )
+
+        delivery_sale = SaleService.create(
+            {
+                "order_type": "delivery",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+        delivery_order = Order.objects.get(id=delivery_sale["id"])
+        self.assertEqual(delivery_order.process_status, "pending")
+        self.assertEqual(delivery_order.delivery_status, "pending")
+
+        saved_settings = {
+            setting.key: setting.value
+            for setting in OrderSetting.objects.filter(
+                company=self.company,
+                branch=self.branch,
+                sale_order=delivery_order,
+            )
+        }
+        self.assertEqual(
+            set(saved_settings.keys()),
+            {
+                "pos_preferred_price",
+                "pos_vat",
+                "order_type",
+                "discount_type",
+                "discount_value",
+                "tax_type",
+                "tax_group",
+                "note_visibility",
+            },
+        )
+        self.assertEqual(saved_settings["order_type"], "delivery")
+        self.assertEqual(saved_settings["pos_vat"], "products_vat")
+
+        SaleService.updateProcessingStatus(delivery_order.id, {"status": "ongoing"}, self.request)
+        SaleService.updateDeliveryStatus(delivery_order.id, {"status": "delivered"}, self.request)
+        delivery_order.refresh_from_db()
+        self.assertEqual(delivery_order.process_status, "ongoing")
+        self.assertEqual(delivery_order.delivery_status, "delivered")
+
+        takeaway_sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+        takeaway_order = Order.objects.get(id=takeaway_sale["id"])
+        self.assertEqual(takeaway_order.process_status, "not-available")
+        self.assertEqual(takeaway_order.delivery_status, "not-available")
+        with self.assertRaises(Exception):
+            SaleService.updateDeliveryStatus(takeaway_order.id, {"status": "delivered"}, self.request)
+
+    def test_product_vat_is_computed_from_product_tax_group_like_nexopos(self):
+        self.unit_quantity.quantity = Decimal("5")
+        self.unit_quantity.save(update_fields=["quantity"])
+        tax_group = TaxGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="GST 18",
+        )
+        Tax.objects.create(user=self.user, company=self.company, branch=self.branch, tax_group=tax_group, name="CGST 9", rate=9)
+        Tax.objects.create(user=self.user, company=self.company, branch=self.branch, tax_group=tax_group, name="SGST 9", rate=9)
+        self.product.tax_group = tax_group
+        self.product.tax_type = "exclusive"
+        self.product.save(update_fields=["tax_group", "tax_type"])
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_vat", "products_vat", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_preferred_price", "net_prices", user=self.user)
+
+        sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("118")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        sale_item = OrdersProduct.objects.get(sale_order=order)
+
+        self.assertEqual(order.total, Decimal("118.00000"))
+        self.assertEqual(order.products_tax_value, Decimal("18.00000"))
+        self.assertEqual(order.tax_amount, Decimal("18.00000"))
+        self.assertEqual(order.total_without_tax, Decimal("100.00000"))
+        self.assertEqual(sale_item.tax_amount, Decimal("18.00000"))
+        self.assertEqual(sale_item.total, Decimal("118.00000"))
+
+    def test_order_level_vat_creates_order_tax_rows_like_nexopos(self):
+        self.unit_quantity.quantity = Decimal("5")
+        self.unit_quantity.save(update_fields=["quantity"])
+        tax_group = TaxGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Order GST 18",
+        )
+        Tax.objects.create(user=self.user, company=self.company, branch=self.branch, tax_group=tax_group, name="CGST 9", rate=9)
+        Tax.objects.create(user=self.user, company=self.company, branch=self.branch, tax_group=tax_group, name="SGST 9", rate=9)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_vat", "flat_vat", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_preferred_price", "net_prices", user=self.user)
+
+        sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "tax_group_id": tax_group.id,
+                "tax_type": "exclusive",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("118")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        tax_rows = list(OrderTax.objects.filter(sale_order=order).order_by("tax_name"))
+
+        self.assertEqual(order.total, Decimal("118.00000"))
+        self.assertEqual(order.tax_amount, Decimal("18.00000"))
+        self.assertEqual(order.total_without_tax, Decimal("100.00000"))
+        self.assertEqual(len(tax_rows), 2)
+        self.assertEqual(tax_rows[0].tax_value, Decimal("9.00000"))
+        self.assertEqual(tax_rows[1].tax_value, Decimal("9.00000"))
 
     def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
         purchase = PurchaseOrderService.create(

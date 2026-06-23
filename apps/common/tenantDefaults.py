@@ -17,11 +17,19 @@ BUSINESS_SETTING_FIELDS = [
     "allow_decimal_quantities",
     "quick_product_enabled",
     "show_quantity",
+    "currency_symbol",
+    "currency_iso",
+    "currency_position",
+    "currency_preferred",
+    "currency_thousand_separator",
+    "currency_decimal_separator",
     "currency_precision",
     "hide_empty_categories",
     "unit_price_editable",
     "default_change_payment_type",
     "order_types",
+    "pos_preferred_price",
+    "pos_vat",
 ]
 
 
@@ -33,11 +41,19 @@ OPTION_KEY_MAP = {
     "allow_decimal_quantities": "allow_decimal_quantities",
     "quick_product_enabled": "quick_product",
     "show_quantity": "show_quantity",
+    "currency_symbol": "currency_symbol",
+    "currency_iso": "currency_iso",
+    "currency_position": "currency_position",
+    "currency_preferred": "currency_preferred",
+    "currency_thousand_separator": "currency_thousand_separator",
+    "currency_decimal_separator": "currency_decimal_separator",
     "currency_precision": "currency_precision",
     "hide_empty_categories": "hide_empty_categories",
     "unit_price_editable": "unit_price_editable",
     "order_types": "order_types",
     "default_change_payment_type": "registers_default_change_payment_type",
+    "pos_preferred_price": "pos_preferred_price",
+    "pos_vat": "pos_vat",
 }
 
 
@@ -48,6 +64,12 @@ STATIC_OPTION_DEFAULTS = {
     "allow_decimal_quantities": "yes",
     "quick_product": "yes",
     "show_quantity": "yes",
+    "currency_symbol": "₹",
+    "currency_iso": "INR",
+    "currency_position": "before",
+    "currency_preferred": "symbol",
+    "currency_thousand_separator": ",",
+    "currency_decimal_separator": ".",
     "currency_precision": 2,
     "hide_empty_categories": "yes",
     "unit_price_editable": "yes",
@@ -61,8 +83,10 @@ STATIC_OPTION_DEFAULTS = {
     "customers_rewards_enabled": "no",
     "customers_credit_enabled": "no",
     "registers_enabled": "no",
-    "pos_preferred_price": "sale_price",
+    "pos_preferred_price": "net_prices",
     "pos_vat": "disabled",
+    "pos_tax_group": "",
+    "pos_tax_type": "",
     "scale_barcode_enabled": "no",
     "scale_barcode_prefix": "2",
 }
@@ -75,7 +99,7 @@ DYNAMIC_OPTION_DEFAULTS = [
 
 
 DEFAULT_ORDER_SETTINGS = [
-    ("pos_preferred_price", "sale_price"),
+    ("pos_preferred_price", "net_prices"),
     ("pos_vat", "disabled"),
     ("order_type", "takeaway"),
     ("discount_type", ""),
@@ -187,11 +211,19 @@ def defaultBusinessSettings():
         "allow_decimal_quantities": True,
         "quick_product_enabled": True,
         "show_quantity": True,
+        "currency_symbol": "₹",
+        "currency_iso": "INR",
+        "currency_position": "before",
+        "currency_preferred": "symbol",
+        "currency_thousand_separator": ",",
+        "currency_decimal_separator": ".",
         "currency_precision": 2,
         "hide_empty_categories": True,
         "unit_price_editable": True,
         "default_change_payment_type": "cash-payment",
         "order_types": ["takeaway", "delivery"],
+        "pos_preferred_price": "net_prices",
+        "pos_vat": "disabled",
     }
 
 
@@ -300,9 +332,36 @@ def ensureOrderSettings(sale_order, request):
     from apps.common.commonQuery import commonQuery
 
     commonQuery.branchScopedQueryset(OrderSetting, {"sale_order": sale_order}, request).delete()
+    option_keys = [
+        key
+        for key, _default_value in DEFAULT_ORDER_SETTINGS
+        if key not in ["order_type", "discount_type", "discount_value", "tax_type", "tax_group", "note_visibility"]
+    ]
+    option_values = {
+        option.key: option.value
+        for option in commonQuery.branchScopedQueryset(
+            Option,
+            {"status": 0, "key__in": option_keys},
+            request,
+        )
+    }
+    order_values = {
+        "order_type": getattr(sale_order, "order_type", None) or getattr(sale_order, "type", None) or "takeaway",
+        "discount_type": getattr(sale_order, "discount_type", None) or "",
+        "discount_value": str(getattr(sale_order, "discount_percentage", None) or getattr(sale_order, "discount_amount", None) or 0),
+        "tax_type": getattr(sale_order, "tax_type", None) or "",
+        "tax_group": str(getattr(sale_order, "tax_group_id", None) or ""),
+        "note_visibility": getattr(sale_order, "note_visibility", None) or "hidden",
+    }
     settings = []
     for key, value in DEFAULT_ORDER_SETTINGS:
-        settings.append({"sale_order": sale_order, "key": key, "value": value})
+        settings.append(
+            {
+                "sale_order": sale_order,
+                "key": key,
+                "value": order_values[key] if key in order_values else option_values.get(key, value),
+            }
+        )
     commonQuery.bulkCreate(OrderSetting, settings, request=request, tenant_config=True)
     return settings
 

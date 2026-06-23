@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from apps.accounting.services import AccountingService
-from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity
+from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity, Tax
 from apps.catalog.services import ProductStockService
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
@@ -22,6 +22,7 @@ from apps.common.helpers import (
 )
 from apps.common.responses import successResponse
 from apps.common.domainActions import DomainActionService
+from apps.common.tenantDefaults import DEFAULT_ORDER_SETTINGS
 from apps.customers.models import (
     Customer,
     CustomerAccountHistory,
@@ -143,6 +144,120 @@ def parseDraftSnapshot(note):
         return {"note": note}
 
 
+class SaleTaxService:
+    @staticmethod
+    def normalizeTaxType(tax_type):
+        return tax_type if tax_type in ["inclusive", "exclusive"] else None
+
+    @staticmethod
+    def priceWithoutTax(tax_type, rate, value):
+        value = money(value)
+        rate = money(rate)
+        if tax_type == "inclusive" and rate > 0:
+            return (value / (Decimal("100") + rate)) * Decimal("100")
+        return value
+
+    @staticmethod
+    def priceWithTax(tax_type, rate, value):
+        value = money(value)
+        rate = money(rate)
+        if tax_type == "exclusive" and rate > 0:
+            return value + ((value * rate) / Decimal("100"))
+        return value
+
+    @staticmethod
+    def taxValue(tax_type, rate, value):
+        tax_type = SaleTaxService.normalizeTaxType(tax_type)
+        if tax_type == "inclusive":
+            return money(value) - SaleTaxService.priceWithoutTax(tax_type, rate, value)
+        if tax_type == "exclusive":
+            return SaleTaxService.priceWithTax(tax_type, rate, value) - money(value)
+        return Decimal("0")
+
+    @staticmethod
+    def taxRowsForGroup(tax_group_id, request):
+        if not tax_group_id:
+            return []
+        return commonQuery.findAllRecords(
+            Tax,
+            {"tax_group_id": tax_group_id, "status__in": [0, 1]},
+            {"attributes": ["id", "name", "rate"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+
+    @staticmethod
+    def summarizeRate(taxes):
+        return sum((money(tax.get("rate")) for tax in taxes), Decimal("0"))
+
+    @staticmethod
+    def splitTaxValue(total_tax, taxes):
+        rate = SaleTaxService.summarizeRate(taxes)
+        if rate <= 0:
+            return []
+        return [
+            {
+                "tax_id": tax.get("id"),
+                "tax_name": tax.get("name"),
+                "rate": money(tax.get("rate")),
+                "tax_value": (money(total_tax) * money(tax.get("rate"))) / rate,
+            }
+            for tax in taxes
+        ]
+
+    @staticmethod
+    def computeProductTax(item, product, line_base, settings, request):
+        if getattr(settings, "pos_vat", "disabled") != "products_vat":
+            return {"tax_amount": Decimal("0"), "tax_type": None, "tax_group_id": None, "price_net": line_base, "price_gross": line_base}
+
+        tax_group_id = item.get("tax_group_id") or product.get("tax_group_id")
+        tax_type = SaleTaxService.normalizeTaxType(item.get("tax_type") or product.get("tax_type"))
+        taxes = SaleTaxService.taxRowsForGroup(tax_group_id, request)
+        rate = SaleTaxService.summarizeRate(taxes)
+        tax_amount = SaleTaxService.taxValue(tax_type, rate, line_base)
+        return {
+            "tax_amount": tax_amount,
+            "tax_type": tax_type,
+            "tax_group_id": tax_group_id if taxes else None,
+            "price_net": SaleTaxService.priceWithoutTax(tax_type, rate, line_base),
+            "price_gross": SaleTaxService.priceWithTax(tax_type, rate, line_base),
+        }
+
+    @staticmethod
+    def resolveOrderTaxConfig(data, settings, request):
+        if getattr(settings, "pos_vat", "disabled") not in ["flat_vat", "variable_vat"]:
+            return {"tax_group_id": None, "tax_type": None, "taxes": []}
+
+        tax_group_id = data.get("tax_group_id") or getattr(settings, "pos_tax_group", None)
+        tax_type = SaleTaxService.normalizeTaxType(data.get("tax_type") or getattr(settings, "pos_tax_type", None))
+        taxes = SaleTaxService.taxRowsForGroup(tax_group_id, request)
+        if not taxes or not tax_type:
+            return {"tax_group_id": None, "tax_type": None, "taxes": []}
+        return {"tax_group_id": tax_group_id, "tax_type": tax_type, "taxes": taxes}
+
+    @staticmethod
+    def createOrderTaxes(sale_order_id, tax_type, taxes, taxable_amount, request):
+        total_tax = SaleTaxService.taxValue(tax_type, SaleTaxService.summarizeRate(taxes), taxable_amount)
+        commonQuery.branchScopedQueryset(OrderTax, {"sale_order_id": sale_order_id}, request).delete()
+        created = []
+        for row in SaleTaxService.splitTaxValue(total_tax, taxes):
+            created.append(
+                commonQuery.createRecord(
+                    OrderTax,
+                    {
+                        "sale_order_id": sale_order_id,
+                        "tax_id": row["tax_id"],
+                        "tax_name": row["tax_name"],
+                        "rate": row["rate"],
+                        "tax_value": row["tax_value"],
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+            )
+        return {"total_tax": total_tax, "taxes": created}
+
+
 class SaleStockService:
     @staticmethod
     def resolveUnitQuantity(product, item, request, required=False):
@@ -162,7 +277,7 @@ class SaleStockService:
         return product.get("stock_management") != "disabled" and product.get("type") == "materialized"
 
     @staticmethod
-    def applySaleItem(item, sale_order, request):
+    def applySaleItem(item, sale_order, settings, request):
         product = commonQuery.findOneRecord(
             Product,
             item["product_id"],
@@ -188,8 +303,10 @@ class SaleStockService:
 
         unit_price = money(item.get("unit_price") if item.get("unit_price") is not None else default_unit_price)
         discount_amount = money(item.get("discount_amount"))
-        tax_amount = money(item.get("tax_amount"))
-        line_total = (item_qty * unit_price) - discount_amount + tax_amount
+        line_base = (item_qty * unit_price) - discount_amount
+        tax_result = SaleTaxService.computeProductTax(item, product, line_base, settings, request)
+        tax_amount = tax_result["tax_amount"]
+        line_total = line_base + tax_amount if getattr(settings, "pos_preferred_price", "net_prices") == "net_prices" else line_base
 
         sale_item = commonQuery.createRecord(
             OrdersProduct,
@@ -202,6 +319,12 @@ class SaleStockService:
                 "unit_price": unit_price,
                 "discount_amount": discount_amount,
                 "tax_amount": tax_amount,
+                "tax_type": tax_result["tax_type"],
+                "tax_group_id": tax_result["tax_group_id"],
+                "price_net": tax_result["price_net"] / item_qty if item_qty else Decimal("0"),
+                "price_gross": tax_result["price_gross"] / item_qty if item_qty else Decimal("0"),
+                "total_price_net": tax_result["price_net"],
+                "total_price_gross": tax_result["price_gross"],
                 "total": line_total,
                 "cost_price": default_purchase_price or 0,
             },
@@ -283,6 +406,9 @@ class SaleStockService:
 
 
 class SaleValidationService:
+    PROCESS_STATUSES = ["pending", "ongoing", "ready", "not-available"]
+    DELIVERY_STATUSES = ["pending", "ongoing", "delivered", "error", "not-available"]
+
     @staticmethod
     def ensureCustomer(customer_id, request):
         if not customer_id:
@@ -318,6 +444,42 @@ class SaleValidationService:
         if normalized not in allowed_order_types:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "This order type is disabled in business settings.")
         return normalized
+
+    @staticmethod
+    def statusDefaultsForOrderType(order_type):
+        if SaleValidationService.normalizeOrderType(order_type) == "delivery":
+            return {"process_status": "pending", "delivery_status": "pending"}
+        return {"process_status": "not-available", "delivery_status": "not-available"}
+
+    @staticmethod
+    def ensureProcessingStatusAllowed(status, sale_order):
+        if sale_order.get("order_type") != "delivery":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Processing status is only available for delivery orders.")
+        if status not in SaleValidationService.PROCESS_STATUSES or status == "not-available":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid processing status.")
+        return status
+
+    @staticmethod
+    def ensureDeliveryStatusAllowed(status, sale_order):
+        if sale_order.get("order_type") != "delivery":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Delivery status is only available for delivery orders.")
+        if status not in SaleValidationService.DELIVERY_STATUSES or status == "not-available":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid delivery status.")
+        return status
+
+    @staticmethod
+    def orderSettingValue(key, sale_order, option_rows):
+        order_values = {
+            "order_type": sale_order.get("order_type") or sale_order.get("type") or "takeaway",
+            "discount_type": sale_order.get("discount_type") or "",
+            "discount_value": str(sale_order.get("discount_percentage") or sale_order.get("discount_amount") or 0),
+            "tax_type": sale_order.get("tax_type") or "",
+            "tax_group": str(sale_order.get("tax_group_id") or ""),
+            "note_visibility": sale_order.get("note_visibility") or "hidden",
+        }
+        if key in order_values:
+            return order_values[key]
+        return option_rows.get(key)
 
     @staticmethod
     def ensurePaymentRules(total, paid_amount, due_amount, customer, settings, request):
@@ -1536,17 +1698,25 @@ class SaleService:
         if sale_order is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
 
+        option_keys = [
+            key
+            for key, _default_value in DEFAULT_ORDER_SETTINGS
+            if key not in ["order_type", "discount_type", "discount_value", "tax_type", "tax_group", "note_visibility"]
+        ]
         option_rows = {
             option.key: option.value
             for option in commonQuery.branchScopedQueryset(
                 Option,
-                {"status": 0, "key__in": ["pos_preferred_price", "pos_vat"]},
+                {"status": 0, "key__in": option_keys},
                 request,
             )
         }
         settings_payload = [
-            ("pos_preferred_price", option_rows.get("pos_preferred_price", "sale_price")),
-            ("pos_vat", option_rows.get("pos_vat", "disabled")),
+            (
+                key,
+                SaleValidationService.orderSettingValue(key, sale_order, option_rows) or default_value,
+            )
+            for key, default_value in DEFAULT_ORDER_SETTINGS
         ]
         with transaction.atomic():
             commonQuery.branchScopedQueryset(OrderSetting, {"sale_order_id": sale_order_id}, request).delete()
@@ -2205,6 +2375,7 @@ class SaleService:
             order_type = SaleValidationService.ensureOrderTypeAllowed(data.get("order_type"), settings)
 
             sale_code = buildCode(Order, "", data.get("code"), request) if data.get("code") else generateOrderCode(request)
+            status_defaults = SaleValidationService.statusDefaultsForOrderType(order_type)
             sale_order = commonQuery.createRecord(
                 Order,
                 {
@@ -2212,6 +2383,8 @@ class SaleService:
                     "register_id": shift["register_id"] if shift else None,
                     "code": sale_code,
                     "order_type": order_type,
+                    "process_status": status_defaults["process_status"],
+                    "delivery_status": status_defaults["delivery_status"],
                     "payment_status": "unpaid",
                     "discount_amount": data.get("discount_amount") or 0,
                     "discount_percentage": data.get("discount_percentage") or 0,
@@ -2230,11 +2403,27 @@ class SaleService:
             total_items = 0
             sale_items = []
             for item in data.get("items") or []:
-                sale_item, line_total, item_qty = SaleStockService.applySaleItem(item, sale_order, request)
+                sale_item, line_total, item_qty = SaleStockService.applySaleItem(item, sale_order, settings, request)
                 sale_items.append(sale_item)
                 subtotal += line_total
                 total_quantity += item_qty
                 total_items += 1
+
+            products_tax_value = sum((money(item.get("tax_amount")) for item in sale_items), Decimal("0"))
+            order_tax_config = SaleTaxService.resolveOrderTaxConfig(data, settings, request)
+            order_tax_result = {"total_tax": Decimal("0"), "taxes": []}
+            if order_tax_config["taxes"]:
+                taxable_amount = max(subtotal - money(data.get("discount_amount")), Decimal("0"))
+                order_tax_result = SaleTaxService.createOrderTaxes(
+                    sale_order["id"],
+                    order_tax_config["tax_type"],
+                    order_tax_config["taxes"],
+                    taxable_amount,
+                    request,
+                )
+                if getattr(settings, "pos_preferred_price", "net_prices") == "net_prices":
+                    subtotal += order_tax_result["total_tax"]
+            total_tax_amount = products_tax_value + order_tax_result["total_tax"]
 
             total = (
                 subtotal
@@ -2282,6 +2471,12 @@ class SaleService:
                 {
                     "subtotal": subtotal,
                     "total": total,
+                    "total_with_tax": total,
+                    "total_without_tax": total - total_tax_amount,
+                    "tax_group_id": order_tax_config["tax_group_id"],
+                    "tax_type": order_tax_config["tax_type"],
+                    "tax_amount": total_tax_amount,
+                    "products_tax_value": products_tax_value,
                     "tendered_amount": paid_amount,
                     "change_amount": change_amount,
                     "total_coupons": coupon_result["discount_amount"],
@@ -2639,11 +2834,12 @@ class SaleService:
     @staticmethod
     def updateProcessingStatus(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        status = SaleValidationService.ensureProcessingStatusAllowed(data.get("status"), sale_order)
         updated = commonQuery.updateRecordById(
             Order,
             sale_order_id,
             {
-                "process_status": data.get("status") or "",
+                "process_status": status,
                 "note": data.get("note") or sale_order.get("note") or "",
             },
             request=request,
@@ -2654,11 +2850,12 @@ class SaleService:
     @staticmethod
     def updateDeliveryStatus(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        status = SaleValidationService.ensureDeliveryStatusAllowed(data.get("status"), sale_order)
         updated = commonQuery.updateRecordById(
             Order,
             sale_order_id,
             {
-                "delivery_status": data.get("status") or "",
+                "delivery_status": status,
                 "note": data.get("note") or sale_order.get("note") or "",
             },
             request=request,

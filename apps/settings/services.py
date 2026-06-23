@@ -31,6 +31,17 @@ from apps.settings.models import FailedJob, Job, Media, Notification, PaymentTyp
 
 class OptionSettingService:
     OPTION_KEY_MAP = OPTION_KEY_MAP
+    STRING_SETTING_FIELDS = {
+        "currency_symbol",
+        "currency_iso",
+        "currency_position",
+        "currency_preferred",
+        "currency_thousand_separator",
+        "currency_decimal_separator",
+        "default_change_payment_type",
+        "pos_preferred_price",
+        "pos_vat",
+    }
 
     @staticmethod
     def defaultValues():
@@ -126,8 +137,8 @@ class OptionSettingService:
                 if precision < 0 or precision > 6:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Currency precision must be between 0 and 6.")
                 setting_data[field] = precision
-            elif field == "default_change_payment_type":
-                setting_data[field] = data.get(field) or "cash-payment"
+            elif field in OptionSettingService.STRING_SETTING_FIELDS:
+                setting_data[field] = str(data.get(field) or OptionSettingService.defaultValues().get(field) or "")
             else:
                 setting_data[field] = bool(data.get(field))
         setting_data["order_types"] = OptionSettingService.normalizeOrderTypes(data.get("order_types"))

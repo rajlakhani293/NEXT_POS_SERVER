@@ -4,7 +4,7 @@ from typing import List, Literal, Optional
 from ninja import Field, Schema
 
 OrderType = Literal["takeaway", "delivery"]
-SaleStatus = Literal["pending", "ongoing", "complete", "shipped", "delivered"]
+SaleStatus = Literal["pending", "ongoing", "ready", "delivered", "error", "not-available"]
 ReturnType = Literal["refund", "exchange", "credit_note"]
 ReturnCondition = Literal["unspoiled", "damaged"]
 
@@ -31,6 +31,8 @@ class SaleCreateIn(Schema):
     customer_id: Optional[int] = None
     register_id: Optional[int] = None
     order_type: OrderType = "takeaway"
+    tax_group_id: Optional[int] = None
+    tax_type: Optional[Literal["inclusive", "exclusive"]] = None
     discount_amount: Decimal = Field(Decimal("0"), ge=0)
     discount_percentage: Decimal = Field(Decimal("0"), ge=0)
     total_coupons: Decimal = Field(Decimal("0"), ge=0)

@@ -3,6 +3,10 @@ from typing import List, Literal, Optional
 from ninja import Field, Schema
 
 OrderType = Literal["takeaway", "delivery"]
+CurrencyPosition = Literal["before", "after"]
+CurrencyPreferred = Literal["iso", "symbol"]
+PosPreferredPrice = Literal["gross_prices", "net_prices"]
+PosVat = Literal["disabled", "flat_vat", "variable_vat", "products_vat"]
 
 
 class OptionSettingIn(Schema):
@@ -13,11 +17,19 @@ class OptionSettingIn(Schema):
     allow_decimal_quantities: bool = True
     quick_product_enabled: bool = True
     show_quantity: bool = True
+    currency_symbol: str = "₹"
+    currency_iso: str = "INR"
+    currency_position: CurrencyPosition = "before"
+    currency_preferred: CurrencyPreferred = "symbol"
+    currency_thousand_separator: str = ","
+    currency_decimal_separator: str = "."
     currency_precision: int = 2
     hide_empty_categories: bool = True
     unit_price_editable: bool = True
     default_change_payment_type: str = "cash-payment"
     order_types: List[OrderType] = Field(default_factory=lambda: ["takeaway", "delivery"])
+    pos_preferred_price: PosPreferredPrice = "net_prices"
+    pos_vat: PosVat = "disabled"
 
 
 class PaymentTypeOut(Schema):
