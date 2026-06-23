@@ -1,9 +1,8 @@
+# type: ignore
 from decimal import Decimal
 from types import SimpleNamespace
-
 from django.test import TestCase
 from django.utils import timezone
-
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
 from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
@@ -18,9 +17,9 @@ from apps.registers.models import Register, RegistersHistory
 from apps.registers.services import RegisterService
 from apps.rewards.models import RewardSystem, RewardSystemRule
 from apps.rewards.services import CustomerRewardService
-from apps.sales.models import Order, OrderInstalment, OrderPayment, OrderSetting, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
+from apps.sales.models import Order, OrderInstalment, OrderPayment, OrderSetting, OrderStorage, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
 from apps.sales.services import SaleService
-from apps.settings.models import Job, Notification, Option, PaymentType
+from apps.settings.models import FailedJob, Job, Notification, Option, PaymentType
 from apps.settings.services import JobQueueService, OptionSettingService
 
 
@@ -1217,6 +1216,47 @@ class NexoPosParityFlowTest(TestCase):
         run_result = JobQueueService.runNext(CustomerRewardService.jobHandlers())
         self.assertEqual(run_result, {"status": "completed", "job_id": job.id})
         self.assertFalse(Job.objects.filter(id=job.id).exists())
+
+    def test_order_storage_purge_job_matches_nexopos_with_branch_safe_scope(self):
+        other_branch = Branch.objects.create(
+            company=self.company,
+            name="Second Branch",
+            code="second-branch",
+        )
+        OrderStorage.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            session_identifier="main-cart",
+            quantity=1,
+        )
+        other_storage = OrderStorage.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=other_branch,
+            session_identifier="other-cart",
+            quantity=1,
+        )
+
+        job = JobQueueService.enqueue("purge_order_storage", {}, request=self.request)
+        run_result = JobQueueService.runNext(SaleService.jobHandlers())
+
+        self.assertEqual(run_result, {"status": "completed", "job_id": job.id})
+        self.assertFalse(Job.objects.filter(id=job.id).exists())
+        self.assertFalse(OrderStorage.objects.filter(company=self.company, branch=self.branch).exists())
+        self.assertTrue(OrderStorage.objects.filter(id=other_storage.id).exists())
+
+    def test_missing_background_job_handler_moves_job_to_failed_jobs(self):
+        job = JobQueueService.enqueue("unknown_nexopos_job", {"sample": True}, request=self.request)
+
+        run_result = JobQueueService.runNext(SaleService.jobHandlers())
+
+        self.assertEqual(run_result, {"status": "failed", "job_id": job.id, "reason": "missing_handler"})
+        self.assertFalse(Job.objects.filter(id=job.id).exists())
+        failed_job = FailedJob.objects.get()
+        self.assertIn("unknown_nexopos_job", failed_job.payload)
+        self.assertEqual(failed_job.company_id, self.company.id)
+        self.assertEqual(failed_job.branch_id, self.branch.id)
 
     def test_exchange_return_requires_linked_sale_and_reduces_original_order_product(self):
         self.unit_quantity.quantity = Decimal("10")
