@@ -295,6 +295,29 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(sale_item.tax_amount, Decimal("18.00000"))
         self.assertEqual(sale_item.total, Decimal("118.00000"))
 
+        refund = SaleService.createReturn(
+            order.id,
+            {
+                "return_type": "refund",
+                "payment_type": "cash-payment",
+                "items": [
+                    {
+                        "sale_item_id": sale_item.id,
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("100"),
+                        "condition": "unspoiled",
+                    }
+                ],
+            },
+            self.request,
+        ).data["return_order"]
+        order.refresh_from_db()
+
+        self.assertEqual(refund["tax_amount"], Decimal("18.00000"))
+        self.assertEqual(refund["total"], Decimal("118.00000"))
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertEqual(order.total, Decimal("0.00000"))
+
     def test_order_level_vat_creates_order_tax_rows_like_nexopos(self):
         self.unit_quantity.quantity = Decimal("5")
         self.unit_quantity.save(update_fields=["quantity"])
@@ -335,6 +358,34 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(len(tax_rows), 2)
         self.assertEqual(tax_rows[0].tax_value, Decimal("9.00000"))
         self.assertEqual(tax_rows[1].tax_value, Decimal("9.00000"))
+
+        sale_item = OrdersProduct.objects.get(sale_order=order)
+        refund = SaleService.createReturn(
+            order.id,
+            {
+                "return_type": "refund",
+                "payment_type": "cash-payment",
+                "items": [
+                    {
+                        "sale_item_id": sale_item.id,
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("100"),
+                        "condition": "unspoiled",
+                    }
+                ],
+            },
+            self.request,
+        ).data["return_order"]
+        order.refresh_from_db()
+        tax_rows = list(OrderTax.objects.filter(sale_order=order).order_by("tax_name"))
+
+        self.assertEqual(refund["tax_amount"], Decimal("18.00000"))
+        self.assertEqual(refund["total"], Decimal("118.00000"))
+        self.assertEqual(order.payment_status, "refunded")
+        self.assertEqual(order.total, Decimal("0.00000"))
+        self.assertEqual(order.tax_amount, Decimal("0.00000"))
+        self.assertEqual(tax_rows[0].tax_value, Decimal("0.00000"))
+        self.assertEqual(tax_rows[1].tax_value, Decimal("0.00000"))
 
     def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
         purchase = PurchaseOrderService.create(

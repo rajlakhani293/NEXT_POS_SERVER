@@ -306,7 +306,11 @@ class SaleStockService:
         line_base = (item_qty * unit_price) - discount_amount
         tax_result = SaleTaxService.computeProductTax(item, product, line_base, settings, request)
         tax_amount = tax_result["tax_amount"]
-        line_total = line_base + tax_amount if getattr(settings, "pos_preferred_price", "net_prices") == "net_prices" else line_base
+        line_total = (
+            line_base + tax_amount
+            if tax_result["tax_type"] == "exclusive" and getattr(settings, "pos_preferred_price", "net_prices") == "net_prices"
+            else line_base
+        )
 
         sale_item = commonQuery.createRecord(
             OrdersProduct,
@@ -1337,6 +1341,19 @@ class SaleReturnValidationService:
         return total
 
     @staticmethod
+    def computeRefundTax(sale_order, sale_item, refund_qty, line_total):
+        original_qty = quantity(sale_item.get("quantity"))
+        item_tax = money(sale_item.get("tax_amount"))
+        if original_qty > 0 and item_tax > 0:
+            return (item_tax / original_qty) * refund_qty
+
+        order_tax = money(sale_order.get("tax_amount")) - money(sale_order.get("products_tax_value"))
+        order_base = money(sale_order.get("total_without_tax"))
+        if order_tax > 0 and order_base > 0:
+            return (order_tax / order_base) * line_total
+        return Decimal("0")
+
+    @staticmethod
     def validateItems(sale_order, items, request):
         if not items:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one return item is required.")
@@ -1361,9 +1378,7 @@ class SaleReturnValidationService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Refund unit price cannot exceed original unit price.")
 
             line_total = refund_qty * unit_price
-            line_tax = Decimal("0")
-            if quantity(sale_item.get("quantity")) > 0 and money(sale_item.get("tax_amount")) > 0:
-                line_tax = (money(sale_item.get("tax_amount")) / quantity(sale_item.get("quantity"))) * refund_qty
+            line_tax = SaleReturnValidationService.computeRefundTax(sale_order, sale_item, refund_qty, line_total)
 
             total_refund += line_total + line_tax
             total_tax += line_tax
@@ -1596,7 +1611,35 @@ class SaleService:
         )
 
         subtotal = sum((money(item.get("total")) for item in items), Decimal("0"))
-        tax_amount = sum((money(item.get("tax_amount")) for item in items), Decimal("0"))
+        products_tax_value = sum((money(item.get("tax_amount")) for item in items), Decimal("0"))
+        order_tax_rows = commonQuery.findAllRecords(
+            OrderTax,
+            {"sale_order_id": sale_order_id},
+            {"attributes": ["tax_id", "tax_name", "rate"]},
+            request=request,
+            tenant_config=True,
+        )
+        order_tax_amount = Decimal("0")
+        if order_tax_rows and sale_order.get("tax_type"):
+            taxable_amount = max(subtotal - money(sale_order.get("discount_amount")), Decimal("0"))
+            order_tax_result = SaleTaxService.createOrderTaxes(
+                sale_order_id,
+                sale_order.get("tax_type"),
+                [
+                    {
+                        "id": row.get("tax_id"),
+                        "name": row.get("tax_name"),
+                        "rate": row.get("rate"),
+                    }
+                    for row in order_tax_rows
+                ],
+                taxable_amount,
+                request,
+            )
+            order_tax_amount = order_tax_result["total_tax"]
+            if sale_order.get("tax_type") == "exclusive" and order_tax_amount > 0:
+                subtotal += order_tax_amount
+        tax_amount = products_tax_value + order_tax_amount
         total_cogs = sum((money(item.get("cost_price")) * quantity(item.get("quantity")) for item in items), Decimal("0"))
         coupon_total = sum((money(coupon.get("discount_amount")) for coupon in coupons), Decimal("0"))
         refunded_total = sum((money(refund.get("total")) for refund in refunds), Decimal("0"))
@@ -1623,6 +1666,9 @@ class SaleService:
             {
                 "subtotal": subtotal,
                 "tax_amount": tax_amount,
+                "products_tax_value": products_tax_value,
+                "total_with_tax": total,
+                "total_without_tax": total - tax_amount,
                 "total_coupons": coupon_total,
                 "total_cogs": total_cogs,
                 "total": total,
@@ -2421,7 +2467,7 @@ class SaleService:
                     taxable_amount,
                     request,
                 )
-                if getattr(settings, "pos_preferred_price", "net_prices") == "net_prices":
+                if order_tax_config["tax_type"] == "exclusive" and getattr(settings, "pos_preferred_price", "net_prices") == "net_prices":
                     subtotal += order_tax_result["total_tax"]
             total_tax_amount = products_tax_value + order_tax_result["total_tax"]
 
