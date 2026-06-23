@@ -2,6 +2,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
@@ -17,7 +18,7 @@ from apps.registers.models import Register, RegistersHistory
 from apps.registers.services import RegisterService
 from apps.rewards.models import RewardSystem, RewardSystemRule
 from apps.rewards.services import CustomerRewardService
-from apps.sales.models import Order, OrderPayment, OrderSetting, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
+from apps.sales.models import Order, OrderInstalment, OrderPayment, OrderSetting, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
 from apps.sales.services import SaleService
 from apps.settings.models import Job, Option, PaymentType
 from apps.settings.services import JobQueueService, OptionSettingService
@@ -629,6 +630,154 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("5.0"))
         self.assertEqual(customer.owed_amount, Decimal("0.00000"))
         self.assertFalse(RegistersHistory.objects.filter(order_id=order.id).exists())
+
+    def test_collect_due_updates_payment_customer_register_and_accounting_like_nexopos(self):
+        self.stock_product(5)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
+        customer = self.create_customer(username="due-customer")
+        register = RegisterService.getDefaultRegister(self.request)
+        RegisterService.openRegister(
+            {"register_id": register["id"], "amount": Decimal("0"), "note": "Opening"},
+            self.request,
+        )
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("50")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        customer.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+        self.assertEqual(order.payment_status, "partially_paid")
+        self.assertEqual(customer.owed_amount, Decimal("150.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
+
+        collected = SaleService.collectDue(
+            order.id,
+            {
+                "note": "Final due",
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("150")}],
+            },
+            self.request,
+        ).data
+        order.refresh_from_db()
+        customer.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(collected["collected_amount"], Decimal("150.00000"))
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.tendered_amount, Decimal("200.00000"))
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
+        self.assertEqual(OrderPayment.objects.filter(sale_order=order).count(), 2)
+        self.assertEqual(
+            CustomerAccountHistory.objects.filter(customer=customer, operation="payment", order_id=order.id).count(),
+            1,
+        )
+        self.assertEqual(
+            RegistersHistory.objects.filter(order_id=order.id, entry_type=RegistersHistory.ACTION_ORDER_PAYMENT).count(),
+            2,
+        )
+        self.assertGreaterEqual(
+            TransactionHistory.objects.filter(order_id=order.id, type="order_from_unpaid_to_paid").count(),
+            2,
+        )
+
+    def test_installment_payment_marks_line_and_finalizes_sale_like_nexopos(self):
+        self.stock_product(5)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
+        customer = self.create_customer(username="installment-customer")
+        register = RegisterService.getDefaultRegister(self.request)
+        RegisterService.openRegister(
+            {"register_id": register["id"], "amount": Decimal("0"), "note": "Opening"},
+            self.request,
+        )
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("50")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        installments = SaleService.createInstallments(
+            order.id,
+            {
+                "total_installments": 2,
+                "final_payment_date": timezone.now(),
+                "lines": [
+                    {"due_date": timezone.now(), "amount": Decimal("50")},
+                    {"due_date": timezone.now(), "amount": Decimal("100")},
+                ],
+            },
+            self.request,
+        ).data
+        self.assertEqual(len(installments), 2)
+
+        first_installment = OrderInstalment.objects.filter(sale_order=order).order_by("amount").first()
+        paid_response = SaleService.payInstallment(
+            order.id,
+            first_installment.id,
+            {"amount": Decimal("50"), "payment_type": "cash-payment", "note": "First installment"},
+            self.request,
+        ).data
+        first_installment.refresh_from_db()
+        order.refresh_from_db()
+        customer.refresh_from_db()
+
+        self.assertTrue(first_installment.paid)
+        self.assertIsNotNone(first_installment.payment_id)
+        self.assertEqual(order.payment_status, "partially_paid")
+        self.assertEqual(order.tendered_amount, Decimal("100.00000"))
+        self.assertEqual(customer.owed_amount, Decimal("100.00000"))
+        self.assertEqual(paid_response["totals_summary"]["due_amount"], Decimal("100.00000"))
+        with self.assertRaises(Exception):
+            SaleService.updateInstallment(order.id, first_installment.id, {"amount": Decimal("60")}, self.request)
+
+        second_installment = OrderInstalment.objects.filter(sale_order=order, paid=False).first()
+        SaleService.payInstallment(
+            order.id,
+            second_installment.id,
+            {"amount": Decimal("100"), "payment_type": "cash-payment", "note": "Final installment"},
+            self.request,
+        )
+        second_installment.refresh_from_db()
+        order.refresh_from_db()
+        customer.refresh_from_db()
+
+        self.assertTrue(second_installment.paid)
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.tendered_amount, Decimal("200.00000"))
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertIsNotNone(order.final_payment_date)
+        self.assertEqual(
+            RegistersHistory.objects.filter(order_id=order.id, entry_type=RegistersHistory.ACTION_ORDER_PAYMENT).count(),
+            3,
+        )
 
     def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
         purchase = PurchaseOrderService.create(

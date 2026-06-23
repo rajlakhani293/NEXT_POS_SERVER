@@ -3330,6 +3330,8 @@ class SaleService:
         )
         if installment is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Installment not found.")
+        if installment.get("paid"):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid installment cannot be edited.")
         update_data = dict(data or {})
         if "due_date" in update_data:
             update_data["date"] = update_data.pop("due_date")
