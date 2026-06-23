@@ -295,6 +295,21 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(sale_item.tax_amount, Decimal("18.00000"))
         self.assertEqual(sale_item.total, Decimal("118.00000"))
 
+        detail = SaleService.getSale(order.id, self.request).data
+        receipt = SaleService.getReceipt(order.id, self.request).data
+        self.assertEqual(detail["items"][0]["tax_group_id"], tax_group.id)
+        self.assertEqual(detail["items"][0]["tax_type"], "exclusive")
+        self.assertEqual(detail["items"][0]["price_net"], Decimal("100.00000"))
+        self.assertEqual(detail["items"][0]["price_gross"], Decimal("118.00000"))
+        self.assertEqual(detail["payments"][0]["label"], "Cash")
+        self.assertEqual(detail["settings_map"]["pos_vat"], "products_vat")
+        self.assertEqual(detail["totals_summary"]["paid_amount"], Decimal("118.00000"))
+        self.assertEqual(detail["totals_summary"]["due_amount"], Decimal("0"))
+        self.assertEqual(detail["cashier"]["id"], self.user.id)
+        self.assertEqual(receipt["items"][0]["tax_amount"], Decimal("18.00000"))
+        self.assertEqual(receipt["payments"][0]["payment_type"], "cash-payment")
+        self.assertEqual(receipt["settings_map"]["pos_preferred_price"], "net_prices")
+
         refund = SaleService.createReturn(
             order.id,
             {
@@ -358,6 +373,10 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(len(tax_rows), 2)
         self.assertEqual(tax_rows[0].tax_value, Decimal("9.00000"))
         self.assertEqual(tax_rows[1].tax_value, Decimal("9.00000"))
+        receipt = SaleService.getReceipt(order.id, self.request).data
+        self.assertEqual(len(receipt["taxes"]), 2)
+        self.assertEqual(receipt["taxes"][0]["tax_value"], Decimal("9.00000"))
+        self.assertEqual(receipt["tax_type"], "exclusive")
 
         sale_item = OrdersProduct.objects.get(sale_order=order)
         refund = SaleService.createReturn(

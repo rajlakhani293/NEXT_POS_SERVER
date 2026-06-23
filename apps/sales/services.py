@@ -2073,10 +2073,20 @@ class SaleService:
                     "product__barcode",
                     "unit_id",
                     "unit__name",
+                    "unit_quantity_id",
+                    "product_category_id",
+                    "product_category__name",
+                    "tax_group_id",
+                    "tax_group__name",
+                    "tax_type",
                     "quantity",
                     "unit_price",
                     "discount_amount",
                     "tax_amount",
+                    "price_net",
+                    "price_gross",
+                    "total_price_net",
+                    "total_price_gross",
                     "total",
                     "cost_price",
                     "item_status",
@@ -2112,6 +2122,57 @@ class SaleService:
             tenant_config=True,
         )
         payments = normalizeOrderPayments(payments)
+        payment_labels = {
+            item["identifier"]: item["label"]
+            for item in commonQuery.findAllRecords(
+                PaymentType,
+                {"status__in": [0, 1]},
+                {"attributes": ["identifier", "label"]},
+                request=request,
+                tenant_config=True,
+            )
+        }
+        for payment in payments:
+            payment["label"] = payment_labels.get(payment.get("identifier"), payment.get("identifier"))
+
+        taxes = commonQuery.findAllRecords(
+            OrderTax,
+            {"sale_order_id": sale_order_id},
+            {
+                "attributes": [
+                    "id",
+                    "tax_id",
+                    "tax_name",
+                    "rate",
+                    "tax_value",
+                ],
+                "order": ["id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+        order_settings = commonQuery.findAllRecords(
+            OrderSetting,
+            {"sale_order_id": sale_order_id},
+            {
+                "attributes": ["id", "key", "value"],
+                "order": ["id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        settings_map = {setting["key"]: setting["value"] for setting in order_settings}
+
+        cashier = None
+        if sale_order.get("user_id"):
+            cashier = commonQuery.findOneRecord(
+                User,
+                sale_order["user_id"],
+                options={"attributes": ["id", "username", "full_name", "email"]},
+                request=request,
+                tenant_config=True,
+            )
 
         applied_coupons = commonQuery.findAllRecords(
             OrdersCoupon,
@@ -2177,6 +2238,7 @@ class SaleService:
             "paid_amount": sum((money(payment.get("value")) for payment in payments), Decimal("0")),
             "refunded_amount": sum((money(refund.get("total")) for refund in refunds), Decimal("0")),
         }
+        totals["due_amount"] = max(money(sale_order.get("total")) - totals["paid_amount"], Decimal("0"))
 
         instalments = commonQuery.findAllRecords(
             OrderInstalment,
@@ -2192,8 +2254,12 @@ class SaleService:
         return {
             **sale_order,
             "customer": customer,
+            "cashier": cashier,
             "items": items,
             "payments": payments,
+            "taxes": taxes,
+            "settings": order_settings,
+            "settings_map": settings_map,
             "applied_coupons": applied_coupons,
             "refunds": refunds,
             "totals_summary": totals,
@@ -2224,13 +2290,23 @@ class SaleService:
             "total_coupons": sale_data.get("total_coupons"),
             "shipping": sale_data.get("shipping"),
             "tax_amount": sale_data.get("tax_amount"),
+            "products_tax_value": sale_data.get("products_tax_value"),
+            "tax_group_id": sale_data.get("tax_group_id"),
+            "tax_type": sale_data.get("tax_type"),
             "total": sale_data.get("total"),
+            "total_with_tax": sale_data.get("total_with_tax"),
+            "total_without_tax": sale_data.get("total_without_tax"),
             "tendered_amount": sale_data.get("tendered_amount"),
             "change_amount": sale_data.get("change_amount"),
             "due_amount": saleDueAmount(sale_data),
+            "cashier": sale_data.get("cashier"),
             "items": sale_data.get("items") or [],
             "payments": sale_data.get("payments") or [],
+            "taxes": sale_data.get("taxes") or [],
+            "settings": sale_data.get("settings") or [],
+            "settings_map": sale_data.get("settings_map") or {},
             "applied_coupons": sale_data.get("applied_coupons") or [],
+            "totals_summary": sale_data.get("totals_summary") or {},
         }
         return successResponse("Sale receipt retrieved successfully.", data=receipt)
 
