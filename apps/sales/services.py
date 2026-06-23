@@ -1932,11 +1932,16 @@ class SaleService:
                 )
             }
         elif payment_status == "partially_paid":
+            due_amount = saleDueAmount(sale_order)
             payload = {
                 "purchases_amount": max(
                     money(customer.get("purchases_amount")) - money(sale_order.get("tendered_amount")),
                     Decimal("0"),
-                )
+                ),
+                "owed_amount": max(
+                    money(customer.get("owed_amount")) - due_amount,
+                    Decimal("0"),
+                ),
             }
         else:
             due_amount = saleDueAmount(sale_order)
@@ -3012,6 +3017,7 @@ class SaleService:
                 sale_order_id,
                 {
                     "payment_status": "void",
+                    "voidance_reason": data.get("note") or data.get("reason") or sale_order.get("voidance_reason"),
                     "note": (sale_order.get("note") or "") + (
                         f"\nVoid Note: {data.get('note')}" if data.get("note") else ""
                     ),
@@ -3048,6 +3054,8 @@ class SaleService:
 
                 AccountingService.deleteOrderTransactionsHistory(sale_order_id, request)
                 commonQuery.branchScopedQueryset(OrderSetting, {"sale_order_id": sale_order_id}, request).delete()
+                SaleDraftService.reverseAppliedCoupons(sale_order_id, request)
+                SaleDraftService.reverseRewards(sale_order, request)
 
                 if sale_order.get("payment_status") != "void":
                     sale_items = commonQuery.findAllRecords(
@@ -3618,27 +3626,88 @@ class SaleService:
             request=request,
             tenant_config=True,
         )
-        for refund in refunds:
-            refund["items"] = commonQuery.findAllRecords(
-                OrdersProductsRefund,
-                {"return_order_id": refund["id"]},
-                {
-                    "attributes": [
-                        "id",
-                        "sale_item_id",
-                        "sale_item__product__name",
-                        "quantity",
-                        "unit_price",
-                        "tax_amount",
-                        "total",
-                        "condition",
-                        "description",
-                    ],
-                },
+        refunds = [SaleService.buildRefundDetail(refund["id"], request, refund=refund) for refund in refunds]
+        return successResponse("Sale refunds retrieved successfully.", data=refunds)
+
+    @staticmethod
+    def buildRefundDetail(refund_id, request, refund=None):
+        refund = refund or commonQuery.findOneRecord(
+            OrdersRefund,
+            refund_id,
+            request=request,
+            tenant_config=True,
+        )
+        if refund is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Refund not found.")
+
+        sale_order = SaleService.buildSaleDetail(refund["sale_order_id"], request)
+        payment_type = None
+        if refund.get("payment_method"):
+            payment_type = commonQuery.findOneRecord(
+                PaymentType,
+                {"identifier": refund["payment_method"], "status__in": [0, 1]},
+                options={"attributes": ["id", "identifier", "label"]},
                 request=request,
                 tenant_config=True,
             )
-        return successResponse("Sale refunds retrieved successfully.", data=refunds)
+
+        items = commonQuery.findAllRecords(
+            OrdersProductsRefund,
+            {"return_order_id": refund["id"]},
+            {
+                "attributes": [
+                    "id",
+                    "sale_order_id",
+                    "return_order_id",
+                    "sale_item_id",
+                    "product_id",
+                    "product__name",
+                    "product__sku",
+                    "product__barcode",
+                    "unit_id",
+                    "unit__name",
+                    "quantity",
+                    "unit_price",
+                    "tax_amount",
+                    "total",
+                    "condition",
+                    "description",
+                    "created_at",
+                ],
+                "order": ["id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+
+        subtotal = sum((money(item.get("total")) - money(item.get("tax_amount")) for item in items), Decimal("0"))
+        total_quantity = sum((quantity(item.get("quantity")) for item in items), Decimal("0"))
+        return {
+            **refund,
+            "sale_order": sale_order,
+            "customer": sale_order.get("customer"),
+            "cashier": sale_order.get("cashier"),
+            "items": items,
+            "refunded_products": items,
+            "payment_type": payment_type,
+            "payment_method_label": payment_type.get("label") if payment_type else refund.get("payment_method"),
+            "subtotal": subtotal,
+            "total_items": len(items),
+            "total_quantity": total_quantity,
+            "totals_summary": {
+                "subtotal": subtotal,
+                "tax_amount": money(refund.get("tax_amount")),
+                "shipping": money(refund.get("shipping")),
+                "total": money(refund.get("total")),
+            },
+        }
+
+    @staticmethod
+    def getRefundReceipt(refund_id, request):
+        return successResponse(
+            "Sale refund receipt retrieved successfully.",
+            data=SaleService.buildRefundDetail(refund_id, request),
+        )
 
     @staticmethod
     def getRefundedItems(sale_order_id, request):

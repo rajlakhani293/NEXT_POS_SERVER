@@ -180,6 +180,12 @@ def getSaleRefunds(request, sale_order_id: int):
     return SaleService.getRefunds(sale_order_id, request)
 
 
+@router.get("/refunds/{refund_id}/receipt", response=ApiResponse)
+@permission_required("returns_view")
+def getSaleRefundReceipt(request, refund_id: int):
+    return SaleService.getRefundReceipt(refund_id, request)
+
+
 @router.get("/{sale_order_id}/products/refunded", response=ApiResponse)
 @permission_required("returns_view")
 def getSaleRefundedProducts(request, sale_order_id: int):

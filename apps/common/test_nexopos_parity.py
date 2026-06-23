@@ -332,6 +332,13 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(refund["total"], Decimal("118.00000"))
         self.assertEqual(order.payment_status, "refunded")
         self.assertEqual(order.total, Decimal("0.00000"))
+        refund_receipt = SaleService.getRefundReceipt(refund["id"], self.request).data
+        self.assertEqual(refund_receipt["sale_order"]["code"], order.code)
+        self.assertEqual(refund_receipt["payment_method_label"], "Cash")
+        self.assertEqual(refund_receipt["items"][0]["product__name"], "Test Product")
+        self.assertEqual(refund_receipt["items"][0]["unit__name"], "Piece")
+        self.assertEqual(refund_receipt["items"][0]["tax_amount"], Decimal("18.00000"))
+        self.assertEqual(refund_receipt["totals_summary"]["total"], Decimal("118.00000"))
 
     def test_order_level_vat_creates_order_tax_rows_like_nexopos(self):
         self.unit_quantity.quantity = Decimal("5")
@@ -524,6 +531,104 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(OrdersProduct.objects.get(sale_order=order).quantity, Decimal("2.00000"))
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
         self.assertEqual(customer.owed_amount, Decimal("150.00000"))
+
+    def test_unpaid_sale_void_keeps_order_trace_and_reason_like_nexopos(self):
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
+        customer = self.create_customer(username="void-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+
+        SaleService.void(order.id, {"note": "Wrong cart"}, self.request)
+        order.refresh_from_db()
+        customer.refresh_from_db()
+
+        self.assertEqual(order.payment_status, "void")
+        self.assertEqual(order.voidance_reason, "Wrong cart")
+        self.assertIn("Void Note: Wrong cart", order.note)
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertTrue(Order.objects.filter(id=order.id).exists())
+
+    def test_sale_delete_reverses_related_records_and_soft_deletes_order_like_nexopos(self):
+        self.stock_product(5)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
+        customer = self.create_customer(username="delete-customer")
+        coupon = CouponService.create(
+            {
+                "name": "Delete Flow Coupon",
+                "code": "DELETE10",
+                "type": "flat_discount",
+                "discount_value": Decimal("10"),
+                "minimum_cart_value": Decimal("0"),
+                "maximum_cart_value": Decimal("0"),
+                "limit_usage": 1,
+                "product_ids": [self.product.id],
+            },
+            self.request,
+        ).data
+        register = RegisterService.getDefaultRegister(self.request)
+        RegisterService.openRegister(
+            {"register_id": register["id"], "amount": Decimal("0"), "note": "Opening"},
+            self.request,
+        )
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "coupon_codes": ["DELETE10"],
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("2"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("50")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        issued_coupon = CustomerCoupon.objects.get(coupon_id=coupon["id"], customer_id=customer.id)
+        self.unit_quantity.refresh_from_db()
+        customer.refresh_from_db()
+        self.assertEqual(order.payment_status, "partially_paid")
+        self.assertEqual(issued_coupon.usage, 1)
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
+        self.assertEqual(customer.owed_amount, Decimal("140.00000"))
+
+        SaleService.delete({"ids": [order.id]}, self.request)
+        order.refresh_from_db()
+        issued_coupon.refresh_from_db()
+        self.unit_quantity.refresh_from_db()
+        customer.refresh_from_db()
+
+        self.assertEqual(order.status, 2)
+        self.assertEqual(OrdersProduct.objects.filter(sale_order=order).count(), 0)
+        self.assertEqual(OrderPayment.objects.filter(sale_order=order).count(), 0)
+        self.assertEqual(OrdersCoupon.objects.filter(sale_order=order).count(), 0)
+        self.assertEqual(issued_coupon.usage, 0)
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("5.0"))
+        self.assertEqual(customer.owed_amount, Decimal("0.00000"))
+        self.assertFalse(RegistersHistory.objects.filter(order_id=order.id).exists())
 
     def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
         purchase = PurchaseOrderService.create(
@@ -729,6 +834,10 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("9.0"))
         self.assertTrue(OrdersRefund.objects.filter(id=refund["id"], sale_order=order).exists())
         self.assertTrue(OrdersProductsRefund.objects.filter(return_order_id=refund["id"], sale_item=sale_item).exists())
+        refund_list = SaleService.getRefunds(order.id, self.request).data
+        self.assertEqual(refund_list[0]["customer"]["id"], customer.id)
+        self.assertEqual(refund_list[0]["payment_method_label"], "Cash")
+        self.assertEqual(refund_list[0]["total_quantity"], Decimal("1.00000"))
         self.assertTrue(
             ProductHistory.objects.filter(
                 product=self.product,
