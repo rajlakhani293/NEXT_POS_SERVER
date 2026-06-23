@@ -15,7 +15,7 @@ from apps.accounts.schemas import (
     UserUpdateIn,
 )
 from apps.accounts.services import AccountsService
-from apps.common.authz import permission_required
+from apps.common.authz import permissionRequired
 from apps.common.responses import ApiResponse, successResponse
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 
@@ -73,7 +73,7 @@ def deleteWorkspace(request):
 
 
 @router.get("/roles", auth=auth_bearer, response=ApiResponse)
-@permission_required("roles_view")
+@permissionRequired("roles_view")
 def listRoles(request):
     """List roles for the current company."""
     data = AccountsService.listRoles(request.user)
@@ -81,7 +81,7 @@ def listRoles(request):
 
 
 @router.get("/permissions", auth=auth_bearer, response=ApiResponse)
-@permission_required("roles_view")
+@permissionRequired("roles_view")
 def listPermissions(request):
     data = AccountsService.buildPermissionDefinitions()
     return successResponse("Permissions fetched successfully.", data=data)
@@ -94,7 +94,7 @@ def requestPermissionAccess(request, payload: PermissionAccessRequestIn):
 
 
 @router.post("/permissions-access/get-transactions", auth=auth_bearer, response=ApiResponse)
-@permission_required("permissions_access_view")
+@permissionRequired("permissions_access_view")
 def listPermissionAccess(request, payload: Optional[dict] = None):
     data = AccountsService.listPermissionAccess(request.user, payload)
     return successResponse("Permission access records fetched successfully.", data=data)
@@ -113,7 +113,7 @@ def markPermissionAccessUsed(request, access_id: int):
 
 
 @router.post("/roles", auth=auth_bearer, response=ApiResponse)
-@permission_required("roles_create")
+@permissionRequired("roles_create")
 def createRole(request, payload: RoleIn):
     """Create a new company-scoped role with assigned permissions."""
     data = AccountsService.createRole(request.user, payload)
@@ -121,7 +121,7 @@ def createRole(request, payload: RoleIn):
 
 
 @router.get("/roles/{role_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("roles_view")
+@permissionRequired("roles_view")
 def getRoleById(request, role_id: int):
     """Return one company role with assigned permissions."""
     data = AccountsService.getRole(request.user, role_id)
@@ -129,7 +129,7 @@ def getRoleById(request, role_id: int):
 
 
 @router.put("/roles/{role_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("roles_update")
+@permissionRequired("roles_update")
 def updateRole(request, role_id: int, payload: RoleUpdateIn):
     """Update a role and its permission set."""
     data = AccountsService.updateRole(request.user, role_id, payload)
@@ -137,7 +137,7 @@ def updateRole(request, role_id: int, payload: RoleUpdateIn):
 
 
 @router.delete("/roles/{role_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("roles_delete")
+@permissionRequired("roles_delete")
 def deleteRole(request, role_id: int):
     """Soft delete a company role if it is not in active use."""
     data = AccountsService.deleteRole(request.user, role_id)
@@ -145,7 +145,7 @@ def deleteRole(request, role_id: int):
 
 
 @router.post("/users/{user_id}/assign-role", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_update")
+@permissionRequired("users_update")
 def assignRole(request, user_id: int, payload: RoleAssignIn):
     """Assign a role to a user and sync cashier/manager flags."""
     data = AccountsService.assignRole(request.user, user_id, payload.role_id)
@@ -153,49 +153,49 @@ def assignRole(request, user_id: int, payload: RoleAssignIn):
 
 
 @router.post("/users/", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_create")
+@permissionRequired("users_create")
 def createUser(request, payload: UserIn):
     data = AccountsService.createUser(request.user, payload)
     return successResponse("User created successfully.", data=data)
 
 
 @router.post("/users/get-transactions", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_view")
+@permissionRequired("users_view")
 def listUsers(request, payload: Optional[dict] = None):
     data = AccountsService.listUsers(request.user, payload)
     return successResponse("Users fetched successfully.", data=data)
 
 
 @router.get("/users/dropdown-list", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_view")
+@permissionRequired("users_view")
 def userDropdown(request):
     data = AccountsService.userDropdown(request.user)
     return successResponse("Dropdown list retrieved successfully.", data=data)
 
 
 @router.delete("/users/delete", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_delete")
+@permissionRequired("users_delete")
 def deleteUsers(request, payload: BulkIdsSchema):
     data = AccountsService.deleteUsers(request.user, payloadData(payload))
     return successResponse("Users deleted successfully.", data=data)
 
 
 @router.patch("/users/status", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_update")
+@permissionRequired("users_update")
 def updateUserStatus(request, payload: StatusUpdateSchema):
     data = AccountsService.updateUserStatus(request.user, payloadData(payload))
     return successResponse("User status updated successfully.", data=data)
 
 
 @router.get("/users/{user_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_view")
+@permissionRequired("users_view")
 def getUserById(request, user_id: int):
     data = AccountsService.getUser(request.user, user_id)
     return successResponse("User fetched successfully.", data=data)
 
 
 @router.put("/users/{user_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("users_update")
+@permissionRequired("users_update")
 def updateUser(request, user_id: int, payload: UserUpdateIn):
     data = AccountsService.updateUser(request.user, user_id, payload)
     return successResponse("User updated successfully.", data=data)

@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserRoleRelation
 from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
-from apps.common.authz import get_user_permission_codenames
+from apps.common.authz import getUserPermissionCodenames
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -165,7 +165,7 @@ class AccountsService:
         roles = AccountsService.getUserRoles(user)
         return {
             **user_data,
-            "permissions": sorted(list(get_user_permission_codenames(user))),
+            "permissions": sorted(list(getUserPermissionCodenames(user))),
             "role": AccountsService.serializeRole(user.role) if getattr(user, "role", None) else None,
             "roles": [AccountsService.serializeRole(role) for role in roles],
         }
@@ -218,7 +218,7 @@ class AccountsService:
         permission = data.get("permission")
         if not permission:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Permission is required.")
-        if permission in get_user_permission_codenames(user):
+        if permission in getUserPermissionCodenames(user):
             return {"has_permission": True, "access": None}
 
         now = timezone.now()
@@ -319,7 +319,7 @@ class AccountsService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "The requested permission access has expired.")
         if access.permission != data.get("permission"):
             raise api_error(403, ErrorCodes.PERMISSION_DENIED, "The requested permission access is not valid.")
-        if access.permission not in get_user_permission_codenames(user):
+        if access.permission not in getUserPermissionCodenames(user):
             raise api_error(403, ErrorCodes.PERMISSION_DENIED, "You do not have access to approve this permission.")
         access.access_status = PermissionAccess.GRANTED
         access.granter = user

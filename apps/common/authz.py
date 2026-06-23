@@ -4,7 +4,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 
 
-def get_user_permission_codenames(user):
+def getUserPermissionCodenames(user):
     if user is None or not getattr(user, "is_authenticated", False):
         return set()
 
@@ -32,8 +32,8 @@ def get_user_permission_codenames(user):
     return permissions
 
 
-def user_has_permissions(user, required_permissions, match="all"):
-    effective_permissions = get_user_permission_codenames(user)
+def userHasPermissions(user, required_permissions, match="all"):
+    effective_permissions = getUserPermissionCodenames(user)
     if "*" in effective_permissions:
         return True
 
@@ -46,9 +46,9 @@ def user_has_permissions(user, required_permissions, match="all"):
     return all(perm in effective_permissions for perm in required)
 
 
-def require_permissions(request, required_permissions, match="all"):
+def requirePermissions(request, required_permissions, match="all"):
     user = getattr(request, "user", None)
-    if not user_has_permissions(user, required_permissions, match=match):
+    if not userHasPermissions(user, required_permissions, match=match):
         raise api_error(
             403,
             ErrorCodes.PERMISSION_DENIED,
@@ -57,11 +57,11 @@ def require_permissions(request, required_permissions, match="all"):
     return True
 
 
-def permission_required(*required_permissions, match="all"):
+def permissionRequired(*required_permissions, match="all"):
     def decorator(func):
         @wraps(func)
         def wrapper(request, *args, **kwargs):
-            require_permissions(request, required_permissions, match=match)
+            requirePermissions(request, required_permissions, match=match)
             return func(request, *args, **kwargs)
 
         return wrapper

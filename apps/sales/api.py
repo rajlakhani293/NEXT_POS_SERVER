@@ -1,7 +1,7 @@
 # type: ignore
 from ninja import Router
 from apps.accounts.auth import auth_bearer
-from apps.common.authz import permission_required
+from apps.common.authz import permissionRequired
 from apps.common.responses import ApiResponse, successResponse
 from apps.common.schemas import BulkIdsSchema, payloadData
 from apps.sales.schemas import (
@@ -24,67 +24,67 @@ router = Router(tags=["sales"], auth=auth_bearer)
 
 
 @router.post("/", response=ApiResponse)
-@permission_required("sales_create")
+@permissionRequired("sales_create")
 def createSale(request, payload: SaleCreateIn):
     return SaleService.create(payloadData(payload), request)
 
 
 @router.post("/hold", response=ApiResponse)
-@permission_required("sales_create")
+@permissionRequired("sales_create")
 def holdSale(request, payload: SaleHoldIn):
     return SaleService.hold(payloadData(payload), request)
 
 
 @router.post("/get-transactions", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def listSales(request, payload: SaleListIn):
     return SaleService.listSales(payloadData(payload), request)
 
 
 @router.delete("/delete", response=ApiResponse)
-@permission_required("sales_delete")
+@permissionRequired("sales_delete")
 def deleteSales(request, payload: BulkIdsSchema):
     return SaleService.delete(payloadData(payload), request)
 
 
 @router.post("/drafts/get-transactions", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def listHeldSales(request, payload: SaleListIn):
     return SaleService.listHeldCarts(payloadData(payload), request)
 
 
 @router.get("/drafts/{draft_id}", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def getHeldSale(request, draft_id: int):
     return SaleService.getHeldCart(draft_id, request)
 
 
 @router.delete("/drafts/{draft_id}", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def deleteHeldSale(request, draft_id: int):
     return SaleService.deleteHeldCart(draft_id, request)
 
 
 @router.post("/drafts/clear-expired", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def clearExpiredHeldSales(request):
     return SaleService.enqueueClearExpiredHeldCarts({}, request)
 
 
 @router.post("/storage/purge", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def purgeOrderStorage(request):
     return SaleService.enqueuePurgeOrderStorage({}, request)
 
 
 @router.post("/layaway/track-expired", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def trackExpiredLaidAway(request):
     return SaleService.enqueueTrackLaidAwayOrders({}, request)
 
 
 @router.get("/permissions-check", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def permissionsCheck(request):
     return successResponse(
         "Sales permission check passed.",
@@ -93,67 +93,67 @@ def permissionsCheck(request):
 
 
 @router.get("/{sale_order_id}", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def getSale(request, sale_order_id: int):
     return SaleService.getSale(sale_order_id, request)
 
 
 @router.put("/{sale_order_id}", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def updateSale(request, sale_order_id: int, payload: SaleUpdateIn):
     return SaleService.update(sale_order_id, payloadData(payload), request)
 
 
 @router.get("/{sale_order_id}/receipt", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def getSaleReceipt(request, sale_order_id: int):
     return SaleService.getReceipt(sale_order_id, request)
 
 
 @router.post("/{sale_order_id}/refund", response=ApiResponse)
-@permission_required("refund_order")
+@permissionRequired("refund_order")
 def createSaleReturn(request, sale_order_id: int, payload: SaleReturnCreateIn):
     return SaleService.createReturn(sale_order_id, payloadData(payload), request)
 
 
 @router.post("/{sale_order_id}/void", response=ApiResponse)
-@permission_required("sales_void")
+@permissionRequired("sales_void")
 def voidSale(request, sale_order_id: int, payload: SaleVoidIn):
     return SaleService.void(sale_order_id, payloadData(payload), request)
 
 
 @router.post("/{sale_order_id}/collect-due", response=ApiResponse)
-@permission_required("payments_collect_due")
+@permissionRequired("payments_collect_due")
 def collectSaleDue(request, sale_order_id: int, payload: SaleCollectDueIn):
     return SaleService.collectDue(sale_order_id, payloadData(payload), request)
 
 
 @router.post("/{sale_order_id}/processing", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def updateSaleProcessing(request, sale_order_id: int, payload: SaleStatusUpdateIn):
     return SaleService.updateProcessingStatus(sale_order_id, payloadData(payload), request)
 
 
 @router.post("/{sale_order_id}/delivery", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def updateSaleDelivery(request, sale_order_id: int, payload: SaleStatusUpdateIn):
     return SaleService.updateDeliveryStatus(sale_order_id, payloadData(payload), request)
 
 
 @router.get("/{sale_order_id}/instalments", response=ApiResponse)
-@permission_required("sales_view")
+@permissionRequired("sales_view")
 def getSaleInstallments(request, sale_order_id: int):
     return SaleService.getInstallments(sale_order_id, request)
 
 
 @router.post("/{sale_order_id}/instalments", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def createSaleInstallments(request, sale_order_id: int, payload: OrderInstalmentsCreateIn):
     return SaleService.createInstallments(sale_order_id, payloadData(payload), request)
 
 
 @router.put("/{sale_order_id}/instalments/{installment_id}", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def updateSaleInstallment(
     request,
     sale_order_id: int,
@@ -164,13 +164,13 @@ def updateSaleInstallment(
 
 
 @router.delete("/{sale_order_id}/instalments/{installment_id}", response=ApiResponse)
-@permission_required("sales_update")
+@permissionRequired("sales_update")
 def deleteSaleInstallment(request, sale_order_id: int, installment_id: int):
     return SaleService.deleteInstallment(sale_order_id, installment_id, request)
 
 
 @router.post("/{sale_order_id}/instalments/{installment_id}/pay", response=ApiResponse)
-@permission_required("payments_create")
+@permissionRequired("payments_create")
 def paySaleInstallment(
     request,
     sale_order_id: int,
@@ -181,18 +181,18 @@ def paySaleInstallment(
 
 
 @router.get("/{sale_order_id}/refunds", response=ApiResponse)
-@permission_required("returns_view")
+@permissionRequired("returns_view")
 def getSaleRefunds(request, sale_order_id: int):
     return SaleService.getRefunds(sale_order_id, request)
 
 
 @router.get("/refunds/{refund_id}/receipt", response=ApiResponse)
-@permission_required("returns_view")
+@permissionRequired("returns_view")
 def getSaleRefundReceipt(request, refund_id: int):
     return SaleService.getRefundReceipt(refund_id, request)
 
 
 @router.get("/{sale_order_id}/products/refunded", response=ApiResponse)
-@permission_required("returns_view")
+@permissionRequired("returns_view")
 def getSaleRefundedProducts(request, sale_order_id: int):
     return SaleService.getRefundedItems(sale_order_id, request)

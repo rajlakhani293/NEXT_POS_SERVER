@@ -3,7 +3,7 @@ from typing import Optional
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
-from apps.common.authz import permission_required
+from apps.common.authz import permissionRequired
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.responses import ApiResponse, successResponse
@@ -23,7 +23,7 @@ def sessionData(request):
 
 
 @router.get("/company", auth=auth_bearer, response=ApiResponse)
-@permission_required("settings_view")
+@permissionRequired("settings_view")
 def getCompany(request):
     """Return company profile data for the company settings page."""
     data = OrganizationsService.getCurrentOrganization(request.user)
@@ -31,7 +31,7 @@ def getCompany(request):
 
 
 @router.put("/company", auth=auth_bearer, response=ApiResponse)
-@permission_required("settings_update")
+@permissionRequired("settings_update")
 def updateCompany(request):
     logo = None
     try:
@@ -58,7 +58,7 @@ def updateCompany(request):
 
 
 @router.post("/branches/", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_create")
+@permissionRequired("branches_create")
 def createBranch(request, payload: BranchIn):
     data = OrganizationsService.createBranch(
         request.user,
@@ -69,42 +69,42 @@ def createBranch(request, payload: BranchIn):
 
 
 @router.post("/branches/get-transactions", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_view")
+@permissionRequired("branches_view")
 def getBranches(request, payload: Optional[dict] = None):
     data = OrganizationsService.listBranches(payload, request)
     return successResponse("Branches retrieved successfully.", data=data)
 
 
 @router.get("/branches/dropdown-list", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_view")
+@permissionRequired("branches_view")
 def branchDropdown(request):
     data = OrganizationsService.branchDropdown(request)
     return successResponse("Dropdown list retrieved successfully.", data=data)
 
 
 @router.delete("/branches/delete", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_delete")
+@permissionRequired("branches_delete")
 def deleteBranches(request, payload: BulkIdsSchema):
     data = OrganizationsService.deleteBranches(payloadData(payload), request)
     return successResponse("Branches deleted successfully.", data=data)
 
 
 @router.patch("/branches/status", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_update")
+@permissionRequired("branches_update")
 def updateBranchStatus(request, payload: StatusUpdateSchema):
     data = OrganizationsService.updateBranchStatus(payloadData(payload), request)
     return successResponse("Branch status updated successfully.", data=data)
 
 
 @router.get("/branches/{branch_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_view")
+@permissionRequired("branches_view")
 def getBranchById(request, branch_id: int):
     data = OrganizationsService.getBranch(branch_id, request)
     return successResponse("Branch retrieved successfully.", data=data)
 
 
 @router.put("/branches/{branch_id}", auth=auth_bearer, response=ApiResponse)
-@permission_required("branches_update")
+@permissionRequired("branches_update")
 def updateBranch(request, branch_id: int, payload: BranchPatchIn):
     data = OrganizationsService.updateBranch(
         request.user,
