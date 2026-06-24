@@ -64,6 +64,8 @@ def permissionRequired(*required_permissions, match="all"):
             requirePermissions(request, required_permissions, match=match)
             return func(request, *args, **kwargs)
 
+        wrapper._required_permissions = required_permissions
+        wrapper._permission_match = match
         return wrapper
 
     return decorator

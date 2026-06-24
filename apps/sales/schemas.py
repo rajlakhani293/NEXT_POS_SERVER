@@ -10,7 +10,8 @@ ReturnCondition = Literal["unspoiled", "damaged"]
 
 
 class SaleItemIn(Schema):
-    product_id: int
+    product_id: Optional[int] = None
+    barcode: Optional[str] = None
     unit_id: Optional[int] = None
     unit_quantity_id: Optional[int] = None
     quantity: Decimal = Field(Decimal("1"), gt=0)

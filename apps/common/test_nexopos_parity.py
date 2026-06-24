@@ -165,6 +165,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(options["currency_preferred"], "symbol")
         self.assertEqual(options["pos_preferred_price"], "net_prices")
         self.assertEqual(options["pos_vat"], "disabled")
+        self.assertEqual(options["store_language"], "en")
 
     def test_delivery_order_statuses_and_saved_settings_follow_nexopos(self):
         self.stock_product(4)
@@ -1602,3 +1603,379 @@ class NexoPosParityFlowTest(TestCase):
                 operation_type=ProductHistory.ACTION_RETURNED,
             ).exists()
         )
+
+    def test_recurring_transactions_trigger_and_daily_skip_like_nexopos(self):
+        from apps.accounting.models import Transaction, TransactionBalanceDay
+        from apps.accounting.services import TransactionService
+        
+        # 1. Create a transaction account
+        account = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Recurring Revenue",
+            category_identifier="revenue",
+            account="rec-rev-001",
+            status=0,
+        )
+        
+        # 2. Create a recurring active transaction
+        recurring_tx = Transaction.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            account=account,
+            name="Daily Service Retainer",
+            value=Decimal("150.00"),
+            recurring=True,
+            active=True,
+            type=Transaction.TYPE_RECURRING,
+            occurrence="every_x_days",
+            occurrence_value=1,
+            scheduled_date=timezone.now(),
+            status=0,
+        )
+        
+        # Verify initial balance is 0
+        balance_day = TransactionBalanceDay.objects.filter(branch=self.branch).first()
+        initial_balance = balance_day.closing_balance if balance_day else Decimal("0.0")
+        self.assertEqual(Decimal(str(initial_balance)), Decimal("0.0"))
+        
+        # 3. Trigger recurring transactions
+        res = TransactionService.triggerRecurringTransactions({}, self.request)
+        self.assertEqual(res.data["processed_count"], 1)
+        self.assertEqual(res.data["skipped_count"], 0)
+        
+        # Verify transaction history was created
+        history = TransactionHistory.objects.filter(
+            transaction_id=recurring_tx.id,
+            status=0
+        ).first()
+        self.assertIsNotNone(history)
+        self.assertEqual(Decimal(str(history.value)), Decimal("150.00"))
+        self.assertEqual(history.transaction_status, TransactionHistory.STATUS_ACTIVE_TEXT)
+        
+        # Verify branch balance was updated
+        balance_day = TransactionBalanceDay.objects.filter(branch=self.branch).first()
+        self.assertIsNotNone(balance_day)
+        self.assertEqual(Decimal(str(balance_day.closing_balance)), Decimal("150.00"))
+        
+        # 4. Trigger again on the same day (should skip because it was already processed today)
+        res_skipped = TransactionService.triggerRecurringTransactions({}, self.request)
+        self.assertEqual(res_skipped.data["processed_count"], 0)
+        self.assertEqual(res_skipped.data["skipped_count"], 1)
+        
+        # Branch balance remains unchanged
+        balance_day.refresh_from_db()
+        self.assertEqual(Decimal(str(balance_day.closing_balance)), Decimal("150.00"))
+
+    def test_scheduler_enqueues_specific_jobs_based_on_time(self):
+        import json
+        from django.core.management import call_command
+        from unittest.mock import patch
+        import datetime
+        from django.utils import timezone
+        from apps.settings.models import Job
+        
+        Job.objects.all().delete()
+        
+        mock_now = timezone.make_aware(datetime.datetime(2026, 6, 24, 0, 2, 0))
+        with patch("django.utils.timezone.localtime", return_value=mock_now):
+            call_command("run_scheduler", force=True)
+            
+        enqueued = Job.objects.filter(branch=self.branch)
+        payloads = []
+        for j in enqueued:
+            try:
+                payloads.append(json.loads(j.payload).get("job"))
+            except:
+                pass
+        self.assertIn("detect_low_stock_products", payloads)
+
+        before_count = Job.objects.count()
+        with patch("django.utils.timezone.localtime", return_value=mock_now):
+            call_command("run_scheduler")
+        self.assertEqual(Job.objects.count(), before_count)
+
+        Job.objects.all().delete()
+        purge_now = timezone.make_aware(datetime.datetime(2026, 6, 24, 15, 0, 0))
+        with patch("django.utils.timezone.localtime", return_value=purge_now):
+            call_command("run_scheduler", force=True)
+
+        payloads = [json.loads(job.payload).get("job") for job in Job.objects.filter(branch=self.branch)]
+        self.assertIn("detect_scheduled_transactions", payloads)
+        self.assertIn("ensure_combined_product_history", payloads)
+        self.assertIn("purge_order_storage", payloads)
+
+    def test_scale_barcode_and_plu_flows(self):
+        # 1. Create a Scale Range
+        scale_range = ScaleRange.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Meat & Veggies Range",
+            range_start=10000,
+            range_end=20000,
+            next_scale_plu=10150,
+            status=0
+        )
+        
+        # 2. Setup Category & Product linked to Scale Range
+        category = Category.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Fresh Produce",
+            scale_range=scale_range,
+            status=0
+        )
+        product = Product.objects.create(
+            company=self.company,
+            branch=self.branch,
+            category=category,
+            name="Green Apples",
+            sku="GREEN-APPLES",
+            barcode="GREEN-APPLES-BAR",
+            product_type="materialized",
+            stock_management="disabled",
+            status=0
+        )
+        
+        # 3. Create ProductUnitQuantity
+        unit_group = UnitGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Weight Units",
+            status=0
+        )
+        unit = Unit.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            group=unit_group,
+            name="Kilograms",
+            identifier="kg",
+            value=1,
+            base_unit=True,
+            status=0
+        )
+        unit_quantity = ProductUnitQuantity.objects.create(
+            company=self.company,
+            branch=self.branch,
+            product=product,
+            unit=unit,
+            sale_price=Decimal("12.50"),
+            cogs=Decimal("8.00"),
+            status=0
+        )
+        
+        # 4. Generate PLU
+        from apps.catalog.services import ProductService
+        generated_plu = ProductService.generateScalePLU(product.id, unit_quantity.id, self.request)
+        # Should be zfill(5) of next_scale_plu = 10150 -> "10150"
+        self.assertEqual(generated_plu, "10150")
+        
+        # Scale Range next_scale_plu should increment to 10151
+        scale_range.refresh_from_db()
+        self.assertEqual(scale_range.next_scale_plu, 10151)
+        
+        # Assign generated scale PLU to unit quantity
+        unit_quantity.scale_plu = generated_plu
+        unit_quantity.save()
+        
+        # 5. Enable and configure scale options
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_enabled", "yes", self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_prefix", "2", self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_product_length", 5, self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_value_length", 5, self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_type", "weight", self.user)
+        
+        # 6. Test product search using scale barcode
+        # 2 + 10150 + 01250 + 3 check digit = 210150012503 (weight is 1250g = 1.250kg)
+        barcode_ref = "210150012503"
+        response = ProductService.searchUsingBarcode(barcode_ref, self.request)
+        self.assertTrue(response.success)
+        self.assertEqual(response.data["matched_unit_quantity"]["id"], unit_quantity.id)
+        self.assertEqual(Decimal(str(response.data["scale_value"])), Decimal("1.250"))
+        
+        # 7. Test Checkout integration
+        # Create checkout order
+        register = Register.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Register A",
+            status=0
+        )
+        # Open shift
+        from apps.registers.services import RegisterService
+        RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_OPENING,
+            Decimal("100.00"),
+            self.request,
+            note="Open"
+        )
+        
+        checkout_payload = {
+            "customer_id": None,
+            "register_id": register.id,
+            "order_type": "takeaway",
+            "discount_amount": 0,
+            "items": [
+                {
+                    "barcode": "210150012503", # scale barcode
+                    "unit_price": Decimal("12.50"),
+                }
+            ],
+            "payments": [
+                {
+                    "payment_type": "cash-payment",
+                    "amount": Decimal("15.625"), # 1.250 * 12.50 = 15.625
+                }
+            ],
+            "tendered_amount": Decimal("15.625"),
+        }
+        
+        from apps.sales.services import SaleService
+        sale_res = SaleService.create(checkout_payload, self.request)
+        self.assertTrue(sale_res.success)
+        
+        sale_order_id = sale_res.data["id"]
+        # Verify sale product quantity is 1.250
+        ordered_item = OrdersProduct.objects.filter(sale_order_id=sale_order_id).first()
+        self.assertIsNotNone(ordered_item)
+        self.assertEqual(Decimal(str(ordered_item.quantity)), Decimal("1.250"))
+        self.assertEqual(Decimal(str(ordered_item.unit_price)), Decimal("12.50"))
+        # total = 1.250 * 12.50 = 15.625
+        self.assertEqual(Decimal(str(ordered_item.total)), Decimal("15.625"))
+
+    def test_background_job_monitoring_and_retry_flows(self):
+        # 1. Enqueue a job
+        job = JobQueueService.enqueue("purge_order_storage", {"sample": True}, request=self.request)
+        
+        # 2. List pending jobs and verify it's there
+        res_pending = JobQueueService.listPendingJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_pending["total"], 1)
+        self.assertEqual(res_pending["items"][0]["id"], job.id)
+        
+        # 3. Simulate failure to move it to FailedJob
+        JobQueueService.fail(job, "Purge connection failed.")
+        
+        # 4. List pending jobs again, should be empty
+        res_pending_after = JobQueueService.listPendingJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_pending_after["total"], 0)
+        
+        # 5. List failed jobs and verify
+        res_failed = JobQueueService.listFailedJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_failed["total"], 1)
+        failed_job_id = res_failed["items"][0]["id"]
+        self.assertIn("purge_order_storage", res_failed["items"][0]["payload"])
+        self.assertEqual(res_failed["items"][0]["exception"], "Purge connection failed.")
+        
+        # 6. Retry the failed job
+        retry_res = JobQueueService.retryFailedJob(failed_job_id, self.request)
+        self.assertTrue(retry_res.success)
+        
+        # 7. Check failed queue is now empty and job is back in pending queue
+        res_failed_after = JobQueueService.listFailedJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_failed_after["total"], 0)
+        
+        res_pending_final = JobQueueService.listPendingJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_pending_final["total"], 1)
+        new_job_id = res_pending_final["items"][0]["id"]
+        
+        # 8. Fail the job again to test delete/dismiss failed job
+        new_job = Job.objects.get(id=new_job_id)
+        JobQueueService.fail(new_job, "Failed again.")
+        
+        # Check failed queue has 1 item again
+        res_failed_2 = JobQueueService.listFailedJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_failed_2["total"], 1)
+        failed_job_id_2 = res_failed_2["items"][0]["id"]
+        
+        # Delete failed job
+        delete_res = JobQueueService.deleteFailedJob(failed_job_id_2, self.request)
+        self.assertTrue(delete_res.success)
+        
+        # Verify failed queue is empty
+        res_failed_final = JobQueueService.listFailedJobs({"page": 1, "limit": 10}, self.request)
+        self.assertEqual(res_failed_final["total"], 0)
+
+    def test_pos_grid_navigation_api(self):
+        from apps.catalog.services import CategoryService
+        from django.contrib.contenttypes.models import ContentType
+        from django.contrib.auth.models import Permission
+        content_type = ContentType.objects.get_for_model(Category)
+        p_view, _ = Permission.objects.get_or_create(
+            codename="products_view",
+            content_type=content_type,
+            defaults={"name": "Can view products"},
+        )
+        self.user.user_permissions.add(p_view)
+
+        # Create categories
+        parent_cat = Category.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Parent Category",
+            displays_on_pos=True,
+            status=0
+        )
+        child_cat = Category.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Child Category",
+            parent=parent_cat,
+            displays_on_pos=True,
+            status=0
+        )
+        
+        # Create products
+        pinned_product = Product.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Pinned Apple",
+            pinned=True,
+            status=0
+        )
+        child_product = Product.objects.create(
+            company=self.company,
+            branch=self.branch,
+            name="Child Orange",
+            category=child_cat,
+            pinned=False,
+            status=0
+        )
+
+        # Query POS categories for root level (parent_id=None)
+        res_root = CategoryService.getPOSCategories(self.request, parent_id=None)
+        self.assertTrue(res_root.success)
+        data_root = res_root.data
+        
+        root_category_ids = {category["id"] for category in data_root["categories"]}
+        self.assertIn(parent_cat.id, root_category_ids)
+        self.assertEqual(len(data_root["pinnedProducts"]), 1)
+        self.assertEqual(data_root["pinnedProducts"][0]["id"], pinned_product.id)
+        self.assertEqual(len(data_root["products"]), 0)
+
+        # Query POS categories for parent category level
+        res_parent = CategoryService.getPOSCategories(self.request, parent_id=parent_cat.id)
+        self.assertTrue(res_parent.success)
+        data_parent = res_parent.data
+        
+        self.assertEqual(len(data_parent["categories"]), 1)
+        self.assertEqual(data_parent["categories"][0]["id"], child_cat.id)
+        self.assertEqual(data_parent["currentCategory"]["id"], parent_cat.id)
+        self.assertIsNone(data_parent["previousCategory"])
+        self.assertEqual(len(data_parent["products"]), 0)
+
+        # Query POS categories for child category level
+        res_child = CategoryService.getPOSCategories(self.request, parent_id=child_cat.id)
+        self.assertTrue(res_child.success)
+        data_child = res_child.data
+        
+        self.assertEqual(len(data_child["categories"]), 0)
+        self.assertEqual(data_child["currentCategory"]["id"], child_cat.id)
+        self.assertEqual(data_child["previousCategory"]["id"], parent_cat.id)
+        self.assertEqual(len(data_child["products"]), 1)
+        self.assertEqual(data_child["products"][0]["id"], child_product.id)
+

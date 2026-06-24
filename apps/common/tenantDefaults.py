@@ -30,6 +30,7 @@ BUSINESS_SETTING_FIELDS = [
     "order_types",
     "pos_preferred_price",
     "pos_vat",
+    "store_language",
 ]
 
 
@@ -54,6 +55,7 @@ OPTION_KEY_MAP = {
     "default_change_payment_type": "registers_default_change_payment_type",
     "pos_preferred_price": "pos_preferred_price",
     "pos_vat": "pos_vat",
+    "store_language": "store_language",
 }
 
 

@@ -78,6 +78,19 @@ def getCategoryById(request, category_id: int):
 def updateCategory(request, category_id: int, payload: CategoryUpdateIn):
     return CategoryService.update(payloadData(payload, exclude_none=True), request, category_id)
 
+
+@router.get("/categories/pos", response=ApiResponse)
+@permissionRequired("products_view")
+def getPOSCategoriesRoot(request):
+    return CategoryService.getPOSCategories(request, parent_id=None)
+
+
+@router.get("/categories/pos/{parent_id}", response=ApiResponse)
+@permissionRequired("products_view")
+def getPOSCategoriesSub(request, parent_id: str):
+    return CategoryService.getPOSCategories(request, parent_id=parent_id)
+
+
 @router.post("/unit-groups/", response=ApiResponse)
 @permissionRequired("products_create")
 def createUnitGroup(request, payload: UnitGroupIn):

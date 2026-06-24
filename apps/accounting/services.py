@@ -1218,6 +1218,9 @@ class TransactionService:
     @staticmethod
     def triggerRecurringTransactions(data, request):
         base_datetime = normalizeTransactionDate((data or {}).get("date") or timezone.now())
+        if timezone.is_naive(base_datetime):
+            base_datetime = timezone.make_aware(base_datetime)
+        base_datetime = timezone.localtime(base_datetime)
         base_date = base_datetime.date()
         transactions = commonQuery.findAllRecords(
             Transaction,
@@ -1244,11 +1247,14 @@ class TransactionService:
             if due_date != base_date:
                 skipped.append(transaction_record["id"])
                 continue
+            from datetime import datetime
+            start_of_day = timezone.make_aware(datetime.combine(base_date, datetime.min.time()))
+            end_of_day = timezone.make_aware(datetime.combine(base_date, datetime.max.time()))
             exists = commonQuery.branchScopedQueryset(
                 TransactionHistory,
                 {
                     "transaction_id": transaction_record["id"],
-                    "trigger_date__date": base_date,
+                    "trigger_date__range": (start_of_day, end_of_day),
                     "status": 0,
                 },
                 request,

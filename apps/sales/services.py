@@ -277,10 +277,76 @@ class SaleStockService:
         return product.get("stock_management") != "disabled" and product.get("type") == "materialized"
 
     @staticmethod
+    def resolveBarcodeItem(item, request):
+        barcode = item.get("barcode")
+        product_id = item.get("product_id")
+        
+        if barcode:
+            from apps.catalog.services import ProductService
+            from apps.common.commonQuery import safeAuthContext
+            from apps.catalog.models import ProductUnitQuantity, Product
+            
+            ctx = safeAuthContext(request)
+            company = ctx.get("company_id")
+            branch = ctx.get("branch_id")
+            
+            if ProductService.isScaleBarcode(barcode, company, branch):
+                parsed = ProductService.parseScaleBarcode(barcode, company, branch)
+                scale_plu = parsed["product_code"]
+                scale_qty = parsed["value"]
+                
+                # Overwrite quantity from scale barcode
+                item["quantity"] = scale_qty
+                
+                unit_quantity = commonQuery.findOneRecord(
+                    ProductUnitQuantity,
+                    {"scale_plu": scale_plu},
+                    request=request,
+                    tenant_config=True,
+                )
+                if unit_quantity is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, f"Product with scale PLU '{scale_plu}' not found.")
+                
+                product_id = unit_quantity["product_id"]
+                item["product_id"] = product_id
+                item["unit_quantity_id"] = unit_quantity["id"]
+                item["unit_id"] = unit_quantity["unit_id"]
+            else:
+                unit_quantity = commonQuery.findOneRecord(
+                    ProductUnitQuantity,
+                    {"barcode": barcode},
+                    request=request,
+                    tenant_config=True,
+                )
+                if unit_quantity:
+                    product_id = unit_quantity["product_id"]
+                    item["product_id"] = product_id
+                    item["unit_quantity_id"] = unit_quantity["id"]
+                    item["unit_id"] = unit_quantity["unit_id"]
+                else:
+                    product_rec = commonQuery.findOneRecord(
+                        Product,
+                        {"barcode": barcode},
+                        request=request,
+                        tenant_config=True,
+                    )
+                    if product_rec:
+                        product_id = product_rec["id"]
+                        item["product_id"] = product_id
+                    else:
+                        raise api_error(404, ErrorCodes.NOT_FOUND, f"Product with barcode '{barcode}' not found.")
+                        
+        if not product_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Product ID or Barcode is required.")
+        
+        return product_id
+
+    @staticmethod
     def applySaleItem(item, sale_order, settings, request):
+        product_id = SaleStockService.resolveBarcodeItem(item, request)
         product = commonQuery.findOneRecord(
             Product,
-            item["product_id"],
+            product_id,
             request=request,
             tenant_config=True,
         )
@@ -1019,9 +1085,10 @@ class SaleDraftService:
         subtotal = Decimal("0")
 
         for item in items or []:
+            product_id = SaleStockService.resolveBarcodeItem(item, request)
             product = commonQuery.findOneRecord(
                 Product,
-                item.get("product_id"),
+                product_id,
                 request=request,
                 tenant_config=True,
             )

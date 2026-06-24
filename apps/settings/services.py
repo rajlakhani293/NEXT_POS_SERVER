@@ -1,7 +1,9 @@
 # type: ignore
+import datetime
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.db import transaction
@@ -26,6 +28,7 @@ from apps.common.tenantDefaults import (
     ensureDefaultOptions,
     ensureOptionValue,
 )
+from apps.organizations.models import Branch
 from apps.settings.models import FailedJob, Job, Media, Notification, PaymentType, paymentTypeValues
 
 
@@ -41,6 +44,7 @@ class OptionSettingService:
         "default_change_payment_type",
         "pos_preferred_price",
         "pos_vat",
+        "store_language",
     }
 
     @staticmethod
@@ -62,6 +66,14 @@ class OptionSettingService:
     @staticmethod
     def ensureOptionValue(company, branch, key, value, user=None):
         return ensureOptionValue(company, branch, key, value, user=user)
+
+    @staticmethod
+    def getOptionValue(company, branch, key, default=None):
+        from apps.settings.models import Option
+        option = Option.objects.filter(company=company, branch=branch, key=key, status=0).first()
+        if option is None:
+            return default
+        return decodeOptionValue(option)
 
     @staticmethod
     def ensureOptions(company, branch, user=None):
@@ -648,6 +660,29 @@ class JobQueueService:
     DEFAULT_QUEUE = "default"
 
     @staticmethod
+    def handlers():
+        from apps.accounting.services import TransactionService
+        from apps.catalog.services import CategoryService, ProductStockService
+        from apps.customers.services import CustomerAccountService
+        from apps.purchases.services import PurchaseOrderService
+        from apps.registers.services import RegisterService
+        from apps.reports.services import ReportService
+        from apps.rewards.services import CustomerRewardService
+        from apps.sales.services import SaleService
+
+        handlers = {}
+        handlers.update(TransactionService.jobHandlers())
+        handlers.update(CategoryService.jobHandlers())
+        handlers.update(ProductStockService.jobHandlers())
+        handlers.update(CustomerAccountService.jobHandlers())
+        handlers.update(PurchaseOrderService.jobHandlers())
+        handlers.update(RegisterService.jobHandlers())
+        handlers.update(ReportService.jobHandlers())
+        handlers.update(CustomerRewardService.jobHandlers())
+        handlers.update(SaleService.jobHandlers())
+        return handlers
+
+    @staticmethod
     def timestamp(value=None):
         if value is None:
             return int(time.time())
@@ -674,6 +709,23 @@ class JobQueueService:
         except json.JSONDecodeError:
             decoded = {}
         return decoded if isinstance(decoded, dict) else {}
+
+    @staticmethod
+    def payloadMatches(payload, job_name):
+        return JobQueueService.decodePayload(payload).get("job") == job_name
+
+    @staticmethod
+    def hasJobSince(job_name, branch, since):
+        since_ts = JobQueueService.timestamp(since)
+        if any(
+            JobQueueService.payloadMatches(job.payload, job_name)
+            for job in Job.objects.filter(branch=branch, created_at__gte=since_ts)
+        ):
+            return True
+        return any(
+            JobQueueService.payloadMatches(failed.payload, job_name)
+            for failed in FailedJob.objects.filter(branch=branch, failed_at__gte=since)
+        )
 
     @staticmethod
     def enqueue(job_name, data=None, *, request=None, queue=None, available_at=None):
@@ -764,3 +816,172 @@ class JobQueueService:
             return {"status": "failed", "job_id": job_id, "reason": str(exc)}
         JobQueueService.complete(job)
         return {"status": "completed", "job_id": job_id}
+
+    @staticmethod
+    def listPendingJobs(data, request):
+        field_config = [
+            ["id", False, True],
+            ["queue", True, True],
+            ["payload", True, False],
+            ["attempts", False, True],
+            ["available_at", False, True],
+            ["created_at", False, True],
+            ["reserved_at", False, True],
+        ]
+        return commonQuery.fetchPaginatedData(
+            Job,
+            data,
+            field_config,
+            {
+                "attributes": ["id", "queue", "payload", "attempts", "reserved_at", "available_at", "created_at", "status"],
+                "order": ["-id"],
+            },
+            request=request,
+            tenant_config={"company_id": True, "branch_id": True},
+        )
+
+    @staticmethod
+    def listFailedJobs(data, request):
+        field_config = [
+            ["id", False, True],
+            ["queue", True, True],
+            ["connection", True, True],
+            ["payload", True, False],
+            ["exception", True, False],
+            ["failed_at", False, True],
+        ]
+        return commonQuery.fetchPaginatedData(
+            FailedJob,
+            data,
+            field_config,
+            {
+                "attributes": ["id", "queue", "connection", "payload", "exception", "failed_at", "status"],
+                "order": ["-id"],
+            },
+            request=request,
+            tenant_config={"company_id": True, "branch_id": True},
+        )
+
+    @staticmethod
+    def retryFailedJob(failed_job_id, request):
+        failed_job = commonQuery.branchScopedQueryset(
+            FailedJob,
+            {"id": failed_job_id, "status": 0},
+            request,
+        ).first()
+        if failed_job is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Failed job not found.")
+        
+        with transaction.atomic():
+            commonQuery.createInstance(
+                Job,
+                {
+                    "queue": failed_job.queue or JobQueueService.DEFAULT_QUEUE,
+                    "payload": failed_job.payload,
+                    "attempts": 0,
+                    "reserved_at": None,
+                    "available_at": JobQueueService.timestamp(),
+                    "created_at": JobQueueService.timestamp(),
+                    "status": 0,
+                },
+                request=request,
+                tenant_config=True,
+            )
+            failed_job.delete()
+        
+        return successResponse("Failed job retried successfully.")
+
+    @staticmethod
+    def deleteFailedJob(failed_job_id, request):
+        failed_job = commonQuery.branchScopedQueryset(
+            FailedJob,
+            {"id": failed_job_id, "status": 0},
+            request,
+        ).first()
+        if failed_job is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Failed job not found.")
+        failed_job.delete()
+        return successResponse("Failed job deleted successfully.")
+
+
+class SchedulerService:
+    SCHEDULES = [
+        {"job": "detect_scheduled_transactions", "cadence": "every_five_minutes", "label": "Every 5 minutes"},
+        {"job": "ensure_combined_product_history", "cadence": "hourly", "label": "Hourly"},
+        {"job": "detect_low_stock_products", "cadence": "daily_at", "hour": 0, "minute": 2, "label": "Daily at 00:02"},
+        {"job": "stock_awaiting_procurements", "cadence": "daily_at", "hour": 0, "minute": 5, "label": "Daily at 00:05"},
+        {
+            "job": "trigger_recurring_transactions",
+            "cadence": "daily_at",
+            "hour": 0,
+            "minute": 10,
+            "label": "Daily at 00:10",
+            "data": lambda now: {"date": now.date().isoformat()},
+        },
+        {"job": "track_laid_away_orders", "cadence": "daily_at", "hour": 13, "minute": 0, "label": "Daily at 13:00"},
+        {"job": "clear_hold_orders", "cadence": "daily_at", "hour": 14, "minute": 0, "label": "Daily at 14:00"},
+        {"job": "purge_order_storage", "cadence": "daily_at", "hour": 15, "minute": 0, "label": "Daily at 15:00"},
+    ]
+
+    @staticmethod
+    def shouldRun(schedule, now):
+        cadence = schedule["cadence"]
+        if cadence == "every_five_minutes":
+            return now.minute % 5 == 0
+        if cadence == "hourly":
+            return now.minute == 0
+        if cadence == "daily_at":
+            return now.hour == schedule["hour"] and now.minute == schedule["minute"]
+        return False
+
+    @staticmethod
+    def sinceFor(schedule, now):
+        if schedule["cadence"] == "every_five_minutes":
+            slot_minute = now.minute - (now.minute % 5)
+            return now.replace(minute=slot_minute, second=0, microsecond=0)
+        if schedule["cadence"] == "hourly":
+            return now.replace(minute=0, second=0, microsecond=0)
+        return timezone.make_aware(datetime.datetime.combine(now.date(), datetime.time.min))
+
+    @staticmethod
+    def branchRequest(branch):
+        user = User.objects.filter(branch=branch, status=0).order_by("-is_superuser", "id").first()
+        if user is None:
+            return None
+        return SimpleNamespace(user=user)
+
+    @staticmethod
+    def enqueueDue(now=None, force=False):
+        now = timezone.localtime(now or timezone.now())
+        enqueued = []
+        skipped = []
+
+        for branch in Branch.objects.filter(status=0).select_related("company"):
+            request = SchedulerService.branchRequest(branch)
+            if request is None:
+                skipped.append({"branch_id": branch.id, "reason": "missing_active_user"})
+                continue
+
+            for schedule in SchedulerService.SCHEDULES:
+                if not SchedulerService.shouldRun(schedule, now):
+                    continue
+
+                job_name = schedule["job"]
+                since = SchedulerService.sinceFor(schedule, now)
+                if not force and JobQueueService.hasJobSince(job_name, branch, since):
+                    skipped.append({"branch_id": branch.id, "job": job_name, "reason": "already_enqueued"})
+                    continue
+
+                data_builder = schedule.get("data")
+                data = data_builder(now) if callable(data_builder) else {}
+                job = JobQueueService.enqueue(job_name, data, request=request)
+                enqueued.append(
+                    {
+                        "branch_id": branch.id,
+                        "job_id": job.id,
+                        "job": job_name,
+                        "schedule": schedule["label"],
+                    }
+                )
+
+        return {"checked_at": now.isoformat(), "enqueued": enqueued, "skipped": skipped}

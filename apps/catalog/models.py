@@ -17,6 +17,44 @@ class ScaleRange(TenantAwareModel):
     def __str__(self):
         return self.name
 
+    def getNextPLU(self):
+        if self.next_scale_plu > self.range_end:
+            raise Exception(f"PLU range '{self.name}' is exhausted. Current: {self.next_scale_plu}, End: {self.range_end}")
+        length = len(str(self.range_start))
+        return str(self.next_scale_plu).zfill(length)
+
+    def incrementNextPLU(self):
+        self.next_scale_plu = self.next_scale_plu + 1
+        self.save(update_fields=["next_scale_plu", "updated_at"])
+
+    def isPLUAvailable(self, plu):
+        plu_int = int(plu)
+        if plu_int < self.range_start or plu_int > self.range_end:
+            return False
+        # Avoid circular import
+        from apps.catalog.models import ProductUnitQuantity
+        return not ProductUnitQuantity.objects.filter(scale_plu=plu).exists()
+
+    def containsPLU(self, plu):
+        plu_int = int(plu)
+        return self.range_start <= plu_int <= self.range_end
+
+    def getCapacity(self):
+        return self.range_end - self.range_start + 1
+
+    def getUsedCount(self):
+        length = len(str(self.range_start))
+        range_start_str = str(self.range_start).zfill(length)
+        range_end_str = str(self.range_end).zfill(length)
+        from apps.catalog.models import ProductUnitQuantity
+        return ProductUnitQuantity.objects.filter(
+            scale_plu__range=(range_start_str, range_end_str),
+            scale_plu__isnull=False,
+        ).count()
+
+    def getAvailableCount(self):
+        return self.getCapacity() - self.getUsedCount()
+
 
 class Category(TenantAwareModel):
     name = models.CharField(max_length=150)

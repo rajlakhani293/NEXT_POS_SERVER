@@ -13,6 +13,8 @@ from apps.settings.schemas import (
     PaymentTypeCreateIn,
     PaymentTypeListIn,
     PaymentTypeUpdateIn,
+    JobListIn,
+    FailedJobListIn,
 )
 from apps.settings.services import JobQueueService, MediaService, NotificationService, OptionSettingService, PaymentTypeService
 
@@ -38,27 +40,35 @@ def updateOptionSettings(request, payload: OptionSettingIn):
 @router.post("/jobs/run-next", response=ApiResponse)
 @permissionRequired("settings_update")
 def runNextJob(request):
-    from apps.accounting.services import TransactionService
-    from apps.catalog.services import CategoryService, ProductStockService
-    from apps.customers.services import CustomerAccountService
-    from apps.purchases.services import PurchaseOrderService
-    from apps.registers.services import RegisterService
-    from apps.reports.services import ReportService
-    from apps.rewards.services import CustomerRewardService
-    from apps.sales.services import SaleService
-
-    handlers = {}
-    handlers.update(TransactionService.jobHandlers())
-    handlers.update(CategoryService.jobHandlers())
-    handlers.update(ProductStockService.jobHandlers())
-    handlers.update(CustomerAccountService.jobHandlers())
-    handlers.update(PurchaseOrderService.jobHandlers())
-    handlers.update(RegisterService.jobHandlers())
-    handlers.update(ReportService.jobHandlers())
-    handlers.update(CustomerRewardService.jobHandlers())
-    handlers.update(SaleService.jobHandlers())
-    result = JobQueueService.runNext(handlers)
+    result = JobQueueService.runNext(JobQueueService.handlers())
     return successResponse("Job processed successfully." if result else "No pending job found.", data=result)
+
+
+@router.post("/jobs/pending/get-transactions", response=ApiResponse)
+@permissionRequired("settings_view")
+def listPendingJobs(request, payload: JobListIn):
+    data = JobQueueService.listPendingJobs(payloadData(payload), request)
+    return successResponse("Pending jobs retrieved successfully.", data=data)
+
+
+@router.post("/jobs/failed/get-transactions", response=ApiResponse)
+@permissionRequired("settings_view")
+def listFailedJobs(request, payload: FailedJobListIn):
+    data = JobQueueService.listFailedJobs(payloadData(payload), request)
+    return successResponse("Failed jobs retrieved successfully.", data=data)
+
+
+@router.post("/jobs/failed/{failed_job_id}/retry", response=ApiResponse)
+@permissionRequired("settings_update")
+def retryFailedJob(request, failed_job_id: int):
+    return JobQueueService.retryFailedJob(failed_job_id, request)
+
+
+@router.delete("/jobs/failed/{failed_job_id}", response=ApiResponse)
+@permissionRequired("settings_update")
+def deleteFailedJob(request, failed_job_id: int):
+    return JobQueueService.deleteFailedJob(failed_job_id, request)
+
 
 
 @paymentsRouter.post("/types/", response=ApiResponse)

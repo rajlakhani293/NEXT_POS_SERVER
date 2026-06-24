@@ -200,6 +200,96 @@ class CategoryService:
             ),
         }
 
+    @staticmethod
+    def getPOSCategories(request, parent_id=None):
+        from apps.catalog.models import Product
+        from apps.common.helpers import serializeModelInstance
+
+        # Clean/normalize parent_id
+        if parent_id in ["0", 0, "", "null", "None"]:
+            parent_id = None
+        else:
+            try:
+                parent_id = int(parent_id)
+            except (ValueError, TypeError):
+                parent_id = None
+
+        # 1. Pinned products (always returned)
+        pinned_qs = commonQuery.branchScopedQueryset(
+            Product,
+            {"pinned": True, "status": 0},
+            request=request
+        ).prefetch_related("gallery", "tax_group", "tax_group__taxes", "unit_quantities", "unit_quantities__unit")
+
+        pinned_products = []
+        for p in pinned_qs:
+            p_data = serializeModelInstance(p)
+            p_data["galleries"] = list(p.gallery.all().values())
+            p_data["unit_quantities"] = []
+            for uq in p.unit_quantities.filter(status=0, visible=True):
+                uq_data = serializeModelInstance(uq)
+                if uq.unit:
+                    uq_data["unit"] = serializeModelInstance(uq.unit)
+                p_data["unit_quantities"].append(uq_data)
+            pinned_products.append(p_data)
+
+        # 2. Categories query
+        cat_filters = {"displays_on_pos": True, "status": 0}
+        if parent_id is None:
+            cat_filters["parent_id"] = None
+        else:
+            cat_filters["parent_id"] = parent_id
+
+        categories_qs = commonQuery.branchScopedQueryset(
+            Category,
+            cat_filters,
+            request=request
+        ).order_by("position", "name")
+        categories_data = [serializeModelInstance(cat) for cat in categories_qs]
+
+        # 3. Current and previous category
+        current_category = None
+        previous_category = None
+        products_data = []
+
+        if parent_id is not None:
+            curr_cat_obj = commonQuery.branchScopedQueryset(
+                Category,
+                {"id": parent_id, "status": 0},
+                request=request
+            ).first()
+            if curr_cat_obj:
+                current_category = serializeModelInstance(curr_cat_obj)
+                if curr_cat_obj.parent:
+                    previous_category = serializeModelInstance(curr_cat_obj.parent)
+
+                # 4. Products query for this category
+                products_qs = commonQuery.branchScopedQueryset(
+                    Product,
+                    {"category_id": parent_id, "status": 0},
+                    request=request
+                ).prefetch_related("gallery", "tax_group", "tax_group__taxes", "unit_quantities", "unit_quantities__unit").order_by("position", "created_at")
+                
+                for p in products_qs:
+                    p_data = serializeModelInstance(p)
+                    p_data["galleries"] = list(p.gallery.all().values())
+                    p_data["unit_quantities"] = []
+                    for uq in p.unit_quantities.filter(status=0, visible=True):
+                        uq_data = serializeModelInstance(uq)
+                        if uq.unit:
+                            uq_data["unit"] = serializeModelInstance(uq.unit)
+                        p_data["unit_quantities"].append(uq_data)
+                    products_data.append(p_data)
+
+        return successResponse("POS Categories retrieved successfully.", data={
+            "products": products_data,
+            "categories": categories_data,
+            "previousCategory": previous_category,
+            "currentCategory": current_category,
+            "pinnedProducts": pinned_products,
+        })
+
+
 
 class UnitGroupService:
     @staticmethod
@@ -691,6 +781,30 @@ class ProductService:
     def searchUsingBarcode(reference, request):
         if not reference:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Barcode is required.")
+        
+        from apps.common.commonQuery import safeAuthContext
+        ctx = safeAuthContext(request)
+        company = ctx.get("company_id")
+        branch = ctx.get("branch_id")
+
+        if ProductService.isScaleBarcode(reference, company, branch):
+            parsed = ProductService.parseScaleBarcode(reference, company, branch)
+            product_code = parsed["product_code"]
+            scale_value = parsed["value"]
+            unit_quantity = commonQuery.findOneRecord(
+                ProductUnitQuantity,
+                {"scale_plu": product_code},
+                options={"include": [{"path": "product", "fields": ["id", "name", "sku", "barcode", "product_type", "unit_group_id", "status"]}, {"path": "unit", "fields": ["id", "name", "identifier"]}]},
+                request=request,
+                tenant_config=True,
+            )
+            if unit_quantity is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, f"Product with scale PLU '{product_code}' not found.")
+            data = ProductService.attachDisplayData(dict(unit_quantity.get("product") or {}), request)
+            data["matched_unit_quantity"] = dict(unit_quantity)
+            data["scale_value"] = scale_value
+            return successResponse("Product retrieved successfully.", data=data)
+
         product = commonQuery.findOneRecord(Product, {"barcode": reference}, request=request, tenant_config=True)
         if product:
             data = ProductService.attachDisplayData(dict(product), request)
@@ -763,6 +877,116 @@ class ProductService:
             tenant_config=True,
         )
         return successResponse("Product retrieved successfully.", data=data)
+
+    @staticmethod
+    def isScaleBarcodeEnabled(company, branch):
+        from apps.settings.services import OptionSettingService
+        val = OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_enabled", "no")
+        return val in [True, "yes"]
+
+    @staticmethod
+    def isScaleBarcode(barcode, company, branch):
+        if not ProductService.isScaleBarcodeEnabled(company, branch):
+            return False
+        from apps.settings.services import OptionSettingService
+        prefix = str(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_prefix", "2"))
+        if not str(barcode).startswith(prefix):
+            return False
+        product_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_product_length", 5))
+        value_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_value_length", 5))
+        expected_length = len(prefix) + product_length + value_length + 1
+        if len(str(barcode)) != expected_length:
+            return False
+        return str(barcode).isdigit()
+
+    @staticmethod
+    def parseScaleBarcode(barcode, company, branch):
+        if not ProductService.isScaleBarcode(barcode, company, branch):
+            raise Exception("Invalid scale barcode format")
+        from apps.settings.services import OptionSettingService
+        prefix = str(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_prefix", "2"))
+        product_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_product_length", 5))
+        value_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_value_length", 5))
+        barcode_type = OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_type", "weight")
+        
+        prefix_len = len(prefix)
+        product_code = str(barcode)[prefix_len : prefix_len + product_length]
+        raw_value = str(barcode)[prefix_len + product_length : prefix_len + product_length + value_length]
+        
+        try:
+            val_float = float(raw_value)
+        except ValueError:
+            val_float = 0.0
+
+        if barcode_type == "weight":
+            value = val_float / 1000.0  # grams to kg
+        else:
+            value = val_float / 100.0   # cents to main currency
+            
+        return {
+            "product_code": product_code,
+            "value": value,
+            "type": barcode_type,
+            "original_barcode": barcode,
+        }
+
+    @staticmethod
+    def generateScalePLU(product_id, unit_quantity_id, request):
+        product = commonQuery.findOneInstance(
+            Product,
+            product_id,
+            options={"select_related": ["category", "category__scale_range"]},
+            request=request,
+            tenant_config=True,
+        )
+        if not product:
+            raise Exception("Product not found.")
+        if not product.category:
+            raise Exception("Product must have a category to generate PLU code.")
+        if not product.category.scale_range:
+            raise Exception(f"Category '{product.category.name}' does not have a PLU range assigned.")
+            
+        scale_range = product.category.scale_range
+        plu = scale_range.getNextPLU()
+        
+        # Check if unique
+        from apps.catalog.models import ProductUnitQuantity
+        existing = commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {"scale_plu": plu},
+            request=request,
+        ).exclude(id=unit_quantity_id).first()
+        
+        if existing:
+            scale_range.incrementNextPLU()
+            return ProductService.generateScalePLU(product_id, unit_quantity_id, request)
+            
+        scale_range.incrementNextPLU()
+        return plu
+
+    @staticmethod
+    def validateAndFormatPLU(plu, company, branch, product_length=None):
+        if product_length is None:
+            from apps.settings.services import OptionSettingService
+            product_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_product_length", 5))
+            
+        import re
+        plu_clean = re.sub(r"[^0-9]", "", str(plu))
+        if not plu_clean:
+            raise Exception("PLU code cannot be empty.")
+            
+        plu_padded = plu_clean.zfill(product_length)
+        if len(plu_padded) > product_length:
+            raise Exception(f"PLU code is too long. Maximum length is {product_length} digits.")
+        return plu_padded
+
+    @staticmethod
+    def isPLUUnique(plu, exclude_unit_quantity_id=None, request=None):
+        from apps.catalog.models import ProductUnitQuantity
+        qs = commonQuery.branchScopedQueryset(ProductUnitQuantity, {"scale_plu": plu}, request=request)
+        if exclude_unit_quantity_id:
+            qs = qs.exclude(id=exclude_unit_quantity_id)
+        return not qs.exists()
 
 
 class ProductStockService:

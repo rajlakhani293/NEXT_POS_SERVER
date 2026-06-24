@@ -23,7 +23,7 @@ class SharedSchemaTests(SimpleTestCase):
         first_sale.coupon_codes.append("WELCOME")
         self.assertEqual(second_sale.coupon_codes, [])
 
-        first_notification = NotificationIn(title="One")
-        second_notification = NotificationIn(title="Two")
-        first_notification.payload["source"] = "test"
-        self.assertEqual(second_notification.payload, {})
+        first_notification = NotificationIn(title="One", actions={})
+        second_notification = NotificationIn(title="Two", actions={})
+        first_notification.actions["source"] = "test"
+        self.assertEqual(second_notification.actions, {})

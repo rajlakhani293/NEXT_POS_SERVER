@@ -30,6 +30,7 @@ class OptionSettingIn(Schema):
     order_types: List[OrderType] = Field(default_factory=lambda: ["takeaway", "delivery"])
     pos_preferred_price: PosPreferredPrice = "net_prices"
     pos_vat: PosVat = "disabled"
+    store_language: str = "en"
 
 
 class PaymentTypeOut(Schema):
@@ -77,3 +78,20 @@ class NotificationIn(Schema):
     source_type: str = "system"
     dismissable: bool = True
     actions: Optional[dict] = None
+
+
+class JobListIn(Schema):
+    page: int = Field(1, ge=1)
+    limit: int = Field(10, ge=1, le=100)
+    search: Optional[str] = ""
+    sortBy: Optional[str] = "id"
+    sortDirection: Optional[str] = "descending"
+
+
+class FailedJobListIn(Schema):
+    page: int = Field(1, ge=1)
+    limit: int = Field(10, ge=1, le=100)
+    search: Optional[str] = ""
+    sortBy: Optional[str] = "id"
+    sortDirection: Optional[str] = "descending"
+

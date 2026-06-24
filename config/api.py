@@ -18,6 +18,7 @@ from apps.reports.api import router as reports_router
 from apps.rewards.api import router as rewards_router
 from apps.sales.api import router as sales_router
 from apps.settings.api import router as settings_router
+from apps.expenses.api import router as expenses_router
 from apps.common.responses import errorResponse, successResponse
 
 
@@ -35,6 +36,7 @@ api.add_router("/promotions/", promotions_router)
 api.add_router("/rewards/", rewards_router)
 api.add_router("/reports/", reports_router)
 api.add_router("/settings/", settings_router)
+api.add_router("/expenses/", expenses_router)
 
 
 def format_validation_errors(errors):
