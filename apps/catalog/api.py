@@ -341,3 +341,16 @@ def updateProduct(
     image: File[Optional[UploadedFile]] = None,
 ):
     return ProductService.update(payloadData(payload, exclude_none=True), request, product_id, image=image)
+
+
+@router.post("/products/{product_id}/gallery", response=ApiResponse)
+@permissionRequired("products_update")
+def addProductGalleryImage(request, product_id: int, image: UploadedFile = File(...)):
+    return ProductService.addGalleryImage(product_id, image, request)
+
+
+@router.delete("/products/{product_id}/gallery/{gallery_id}", response=ApiResponse)
+@permissionRequired("products_update")
+def deleteProductGalleryImage(request, product_id: int, gallery_id: int):
+    return ProductService.deleteGalleryImage(product_id, gallery_id, request)
+

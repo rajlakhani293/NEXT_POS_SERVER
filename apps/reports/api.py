@@ -141,3 +141,10 @@ def cashierReport(request, payload: Optional[dict] = None):
 @permissionRequired("reports_view")
 def customerStatement(request, customer_id: int, payload: Optional[dict] = None):
     return ReportService.customerStatement(customer_id, payload, request)
+
+
+@router.post("/annual-report", response=ApiResponse)
+@permissionRequired("reports_view")
+def annualReport(request, payload: Optional[dict] = None):
+    return ReportService.annualReport(payload, request)
+

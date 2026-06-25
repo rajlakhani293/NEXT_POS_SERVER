@@ -70,7 +70,6 @@ def deleteFailedJob(request, failed_job_id: int):
     return JobQueueService.deleteFailedJob(failed_job_id, request)
 
 
-
 @paymentsRouter.post("/types/", response=ApiResponse)
 @permissionRequired("payments_create")
 def createPaymentType(request, payload: PaymentTypeCreateIn):

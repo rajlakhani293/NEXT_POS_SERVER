@@ -31,6 +31,19 @@ BUSINESS_SETTING_FIELDS = [
     "pos_preferred_price",
     "pos_vat",
     "store_language",
+    "registration_enabled",
+    "store_name",
+    "scale_barcode_enabled",
+    "scale_barcode_prefix",
+    "scale_barcode_product_length",
+    "scale_barcode_value_length",
+    "scale_barcode_type",
+    "orders_code_type",
+    "orders_allow_unpaid",
+    "orders_strict_instalments",
+    "orders_quotation_expiration",
+    "pos_tax_group",
+    "pos_tax_type",
 ]
 
 
@@ -56,6 +69,19 @@ OPTION_KEY_MAP = {
     "pos_preferred_price": "pos_preferred_price",
     "pos_vat": "pos_vat",
     "store_language": "store_language",
+    "registration_enabled": "registration_enabled",
+    "store_name": "store_name",
+    "scale_barcode_enabled": "scale_barcode_enabled",
+    "scale_barcode_prefix": "scale_barcode_prefix",
+    "scale_barcode_product_length": "scale_barcode_product_length",
+    "scale_barcode_value_length": "scale_barcode_value_length",
+    "scale_barcode_type": "scale_barcode_type",
+    "orders_code_type": "orders_code_type",
+    "orders_allow_unpaid": "orders_allow_unpaid",
+    "orders_strict_instalments": "orders_strict_instalments",
+    "orders_quotation_expiration": "orders_quotation_expiration",
+    "pos_tax_group": "pos_tax_group",
+    "pos_tax_type": "pos_tax_type",
 }
 
 
@@ -77,6 +103,8 @@ STATIC_OPTION_DEFAULTS = {
     "unit_price_editable": "yes",
     "order_types": ["takeaway", "delivery"],
     "scale_barcode_product_length": 4,
+    "scale_barcode_value_length": 5,
+    "scale_barcode_type": "weight",
     "orders_code_type": "sequential",
     "orders_allow_unpaid": "no",
     "orders_allow_partial": "no",
@@ -226,6 +254,19 @@ def defaultBusinessSettings():
         "order_types": ["takeaway", "delivery"],
         "pos_preferred_price": "net_prices",
         "pos_vat": "disabled",
+        "registration_enabled": "no",
+        "store_name": "POS",
+        "scale_barcode_enabled": False,
+        "scale_barcode_prefix": "2",
+        "scale_barcode_product_length": 4,
+        "scale_barcode_value_length": 5,
+        "scale_barcode_type": "weight",
+        "orders_code_type": "sequential",
+        "orders_allow_unpaid": False,
+        "orders_strict_instalments": False,
+        "orders_quotation_expiration": "never",
+        "pos_tax_group": "",
+        "pos_tax_type": "",
     }
 
 

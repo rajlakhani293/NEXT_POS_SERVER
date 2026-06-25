@@ -1783,11 +1783,11 @@ class NexoPosParityFlowTest(TestCase):
         unit_quantity.save()
         
         # 5. Enable and configure scale options
-        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_enabled", "yes", self.user)
-        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_prefix", "2", self.user)
-        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_product_length", 5, self.user)
-        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_value_length", 5, self.user)
-        OptionSettingService.ensureOptionValue(self.company, self.branch, "ns_scale_barcode_type", "weight", self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "scale_barcode_enabled", "yes", self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "scale_barcode_prefix", "2", self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "scale_barcode_product_length", 5, self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "scale_barcode_value_length", 5, self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "scale_barcode_type", "weight", self.user)
         
         # 6. Test product search using scale barcode
         # 2 + 10150 + 01250 + 3 check digit = 210150012503 (weight is 1250g = 1.250kg)
@@ -1978,4 +1978,3 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(data_child["previousCategory"]["id"], parent_cat.id)
         self.assertEqual(len(data_child["products"]), 1)
         self.assertEqual(data_child["products"][0]["id"], child_product.id)
-

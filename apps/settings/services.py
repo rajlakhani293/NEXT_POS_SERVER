@@ -45,6 +45,19 @@ class OptionSettingService:
         "pos_preferred_price",
         "pos_vat",
         "store_language",
+        "registration_enabled",
+        "store_name",
+        "scale_barcode_prefix",
+        "scale_barcode_type",
+        "orders_code_type",
+        "orders_quotation_expiration",
+        "pos_tax_group",
+        "pos_tax_type",
+    }
+    INTEGER_SETTING_FIELDS = {
+        "currency_precision",
+        "scale_barcode_product_length",
+        "scale_barcode_value_length",
     }
 
     @staticmethod
@@ -144,11 +157,11 @@ class OptionSettingService:
             if field not in OPTION_KEY_MAP:
                 setting_data[field] = bool(data.get(field))
                 continue
-            if field == "currency_precision":
-                precision = int(data.get(field, 2))
-                if precision < 0 or precision > 6:
+            if field in OptionSettingService.INTEGER_SETTING_FIELDS:
+                val = int(data.get(field) or OptionSettingService.defaultValues().get(field) or 0)
+                if field == "currency_precision" and (val < 0 or val > 6):
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Currency precision must be between 0 and 6.")
-                setting_data[field] = precision
+                setting_data[field] = val
             elif field in OptionSettingService.STRING_SETTING_FIELDS:
                 setting_data[field] = str(data.get(field) or OptionSettingService.defaultValues().get(field) or "")
             else:

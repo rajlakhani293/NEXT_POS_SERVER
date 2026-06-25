@@ -187,6 +187,110 @@ class ReportService:
             )
             .order_by("day")
         )
+        prev_weekly_sales = list(
+            commonQuery.scopedQueryset(
+                Order,
+                {
+                    **base,
+                    "created_at__gte": timezone.now() - timedelta(days=13),
+                    "created_at__lt": timezone.now() - timedelta(days=6),
+                },
+                request,
+                tenant_config={},
+            )
+            .annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(
+                total_sales=Coalesce(Sum("total"), zero),
+                order_count=Count("id"),
+            )
+            .order_by("day")
+        )
+
+        # Get active shift
+        from apps.registers.models import Register, RegistersHistory
+
+        register = commonQuery.findOneInstance(
+            Register,
+            {"used_by_id": request.user.id, "register_status": Register.STATUS_OPENED},
+            request=request,
+            tenant_config=True,
+        )
+        shift_data = None
+        if register:
+            last_opening = (
+                commonQuery.branchScopedQueryset(
+                    RegistersHistory,
+                    {"register_id": register.id, "entry_type": RegistersHistory.ACTION_OPENING},
+                    request,
+                )
+                .exclude(status=2)
+                .order_by("-id")
+                .first()
+            )
+            opened_at = last_opening.created_at if last_opening else register.created_at
+            opening_cash = last_opening.amount if last_opening else 0
+
+            entries_qs = commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {
+                    "register_id": register.id,
+                    "created_at__gte": opened_at,
+                },
+                request,
+            ).exclude(status=2)
+
+            sales_collected = entries_qs.filter(entry_type=RegistersHistory.ACTION_ORDER_PAYMENT).aggregate(total=Sum("amount"))["total"] or 0
+            refund_out = entries_qs.filter(entry_type=RegistersHistory.ACTION_REFUND).aggregate(total=Sum("amount"))["total"] or 0
+
+            shift_data = {
+                "id": register.id,
+                "register_id": register.id,
+                "register__name": register.name,
+                "cashier__full_name": request.user.full_name or request.user.username,
+                "opened_at": opened_at.isoformat() if opened_at else None,
+                "opening_cash": float(opening_cash),
+                "expected_cash": float(register.balance),
+                "total_sales_amount": float(sales_collected),
+                "total_refund_amount": float(refund_out),
+            }
+
+        # Cashier profile stats
+        today_date = timezone.localdate()
+        today_start = timezone.make_aware(timezone.datetime.combine(today_date, timezone.datetime.min.time()))
+        today_end = timezone.make_aware(timezone.datetime.combine(today_date, timezone.datetime.max.time()))
+
+        user_orders = commonQuery.scopedQueryset(Order, base, request, tenant_config={}).filter(user_id=request.user.id)
+        user_orders_today = user_orders.filter(created_at__range=(today_start, today_end))
+
+        cashier_metrics = user_orders.aggregate(
+            total_orders=Count("id"),
+            total_sales_amount=Coalesce(Sum("total", filter=Q(payment_status__in=["paid", "partially_paid"])), zero),
+            total_refunds_amount=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
+        )
+
+        cashier_metrics_today = user_orders_today.aggregate(
+            today_orders=Count("id"),
+            today_sales_amount=Coalesce(Sum("total", filter=Q(payment_status__in=["paid", "partially_paid"])), zero),
+            today_refunds_amount=Coalesce(Sum("total", filter=Q(payment_status__in=["refunded", "partially_refunded"])), zero),
+        )
+
+        user_customers = commonQuery.scopedQueryset(Customer, base, request, tenant_config={})
+        user_customers_today = user_customers.filter(date_joined__range=(today_start, today_end))
+
+        cashier_stats = {
+            "cashier_name": request.user.full_name or request.user.username,
+            "member_since": request.user.date_joined.strftime("%Y-%m-%d") if hasattr(request.user, "date_joined") and request.user.date_joined else "",
+            "total_orders": cashier_metrics["total_orders"],
+            "today_orders": cashier_metrics_today["today_orders"],
+            "total_sales": float(cashier_metrics["total_sales_amount"]),
+            "today_sales": float(cashier_metrics_today["today_sales_amount"]),
+            "total_refunds": float(cashier_metrics["total_refunds_amount"]),
+            "today_refunds": float(cashier_metrics_today["today_refunds_amount"]),
+            "total_customers": user_customers.count(),
+            "today_customers": user_customers_today.count(),
+        }
+
         return successResponse(
             "Dashboard summary retrieved successfully.",
             data={
@@ -199,12 +303,89 @@ class ReportService:
                 "best_cashiers": best_cashiers,
                 "recent_orders": recent_orders,
                 "weekly_sales": weekly_sales,
-                "shift": None,
+                "prev_weekly_sales": prev_weekly_sales,
+                "shift": shift_data,
+                "cashier_stats": cashier_stats,
+            },
+        )
+
+    @staticmethod
+    def annualReport(data, request):
+        from django.db.models.functions import TruncMonth
+        from apps.accounting.models import TransactionHistory
+
+        year = int((data or {}).get("year") or timezone.localdate().year)
+        base = tenantFilter(request)
+        zero = Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5))
+
+        # Sales per month
+        sales_qs = (
+            commonQuery.scopedQueryset(Order, base, request, tenant_config={})
+            .filter(created_at__year=year)
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(
+                total_sales=Coalesce(Sum("total"), zero),
+                total_taxes=Coalesce(Sum("tax_amount"), zero),
+                total_discounts=Coalesce(Sum("discount_amount"), zero),
+                order_count=Count("id"),
+            )
+            .order_by("month")
+        )
+
+        # Expenses per month via transaction history (debit side)
+        expenses_qs = (
+            TransactionHistory.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                created_at__year=year,
+                action_type="debit",
+            )
+            .annotate(month=TruncMonth("created_at"))
+            .values("month")
+            .annotate(total_expenses=Coalesce(Sum("amount"), zero))
+            .order_by("month")
+        )
+
+        MONTH_NAMES = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ]
+
+        # Build full 12-month skeleton
+        months: dict = {i: {"month": i, "label": MONTH_NAMES[i - 1], "total_sales": Decimal("0"), "total_taxes": Decimal("0"), "total_discounts": Decimal("0"), "total_expenses": Decimal("0"), "net_income": Decimal("0"), "order_count": 0} for i in range(1, 13)}
+
+        for row in sales_qs:
+            m = row["month"].month
+            months[m]["total_sales"] = row["total_sales"]
+            months[m]["total_taxes"] = row["total_taxes"]
+            months[m]["total_discounts"] = row["total_discounts"]
+            months[m]["order_count"] = row["order_count"]
+
+        for row in expenses_qs:
+            m = row["month"].month
+            months[m]["total_expenses"] = row["total_expenses"]
+
+        for m in months.values():
+            m["net_income"] = m["total_sales"] - m["total_expenses"]
+
+        return successResponse(
+            "Annual report retrieved successfully.",
+            data={
+                "year": year,
+                "months": list(months.values()),
+                "totals": {
+                    "total_sales": sum(m["total_sales"] for m in months.values()),
+                    "total_taxes": sum(m["total_taxes"] for m in months.values()),
+                    "total_expenses": sum(m["total_expenses"] for m in months.values()),
+                    "net_income": sum(m["net_income"] for m in months.values()),
+                },
             },
         )
 
     @staticmethod
     def refreshDashboardSnapshot(data, request):
+
         target_date = timezone.localdate()
         if data and data.get("date"):
             target_date = timezone.datetime.fromisoformat(str(data.get("date"))).date()

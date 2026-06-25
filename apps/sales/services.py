@@ -75,6 +75,17 @@ def generateOrderCode(request, created_at=None):
         with transaction.atomic():
             return generateOrderCode(request, created_at)
 
+    from apps.settings.services import OptionSettingService
+    code_type = OptionSettingService.getOptionValue(request.user.company, request.user.branch, "orders_code_type", "sequential")
+
+    if code_type == "random":
+        import uuid
+        while True:
+            code = uuid.uuid4().hex[:8].upper()
+            exists = commonQuery.branchScopedQueryset(Order, {"code": code}, request).exists()
+            if not exists:
+                return code
+
     now = timezone.localtime(created_at or timezone.now())
     today = now.date()
     day_start = timezone.make_aware(

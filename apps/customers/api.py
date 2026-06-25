@@ -111,3 +111,10 @@ def adjustCustomerCredit(request, customer_id: int, payload: CustomerCreditIn):
 @permissionRequired("customers_view")
 def getCustomerCreditLedger(request, customer_id: int, payload: Optional[dict] = None):
     return CustomerService.creditLedger(customer_id, payload, request)
+
+
+@router.post("/{customer_id}/orders", response=ApiResponse)
+@permissionRequired("customers_view")
+def getCustomerOrderHistory(request, customer_id: int, payload: Optional[dict] = None):
+    return CustomerService.orderHistory(customer_id, payload, request)
+

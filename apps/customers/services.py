@@ -425,6 +425,38 @@ class CustomerService:
         )
         return successResponse("Customer credit ledger retrieved successfully.", data=result)
 
+    @staticmethod
+    def orderHistory(customer_id, data, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        from apps.sales.models import Order
+        result = commonQuery.fetchPaginatedData(
+            Order,
+            data,
+            [["code", True, True], ["payment_status", True, True], ["order_type", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "code",
+                    "order_type",
+                    "payment_status",
+                    "process_status",
+                    "delivery_status",
+                    "subtotal",
+                    "tax_amount",
+                    "shipping",
+                    "total",
+                    "created_at",
+                ]
+            },
+            request=request,
+            tenant_config=True,
+            custom_where={"customer_id": customer_id},
+        )
+        return successResponse("Customer order history retrieved successfully.", data=result)
+
+
 
 class CustomerAccountService:
     DEDUCT_OPERATIONS = ["deduct", "payment"]

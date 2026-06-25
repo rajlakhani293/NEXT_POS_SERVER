@@ -240,11 +240,22 @@ class CategoryService:
         else:
             cat_filters["parent_id"] = parent_id
 
+        from apps.settings.services import OptionSettingService
+        from django.db.models import Count, Q
+        hide_empty = OptionSettingService.getOptionValue(request.user.company, request.user.branch, "hide_empty_categories", False)
+
         categories_qs = commonQuery.branchScopedQueryset(
             Category,
             cat_filters,
             request=request
-        ).order_by("position", "name")
+        )
+        if hide_empty:
+            categories_qs = categories_qs.annotate(
+                prod_count=Count("products", filter=Q(products__status=0)),
+                sub_count=Count("children", filter=Q(children__status=0))
+            ).filter(Q(prod_count__gt=0) | Q(sub_count__gt=0))
+
+        categories_qs = categories_qs.order_by("position", "name")
         categories_data = [serializeModelInstance(cat) for cat in categories_qs]
 
         # 3. Current and previous category
@@ -881,7 +892,7 @@ class ProductService:
     @staticmethod
     def isScaleBarcodeEnabled(company, branch):
         from apps.settings.services import OptionSettingService
-        val = OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_enabled", "no")
+        val = OptionSettingService.getOptionValue(company, branch, "scale_barcode_enabled", "no")
         return val in [True, "yes"]
 
     @staticmethod
@@ -889,11 +900,11 @@ class ProductService:
         if not ProductService.isScaleBarcodeEnabled(company, branch):
             return False
         from apps.settings.services import OptionSettingService
-        prefix = str(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_prefix", "2"))
+        prefix = str(OptionSettingService.getOptionValue(company, branch, "scale_barcode_prefix", "2"))
         if not str(barcode).startswith(prefix):
             return False
-        product_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_product_length", 5))
-        value_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_value_length", 5))
+        product_length = int(OptionSettingService.getOptionValue(company, branch, "scale_barcode_product_length", 5))
+        value_length = int(OptionSettingService.getOptionValue(company, branch, "scale_barcode_value_length", 5))
         expected_length = len(prefix) + product_length + value_length + 1
         if len(str(barcode)) != expected_length:
             return False
@@ -904,10 +915,10 @@ class ProductService:
         if not ProductService.isScaleBarcode(barcode, company, branch):
             raise Exception("Invalid scale barcode format")
         from apps.settings.services import OptionSettingService
-        prefix = str(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_prefix", "2"))
-        product_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_product_length", 5))
-        value_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_value_length", 5))
-        barcode_type = OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_type", "weight")
+        prefix = str(OptionSettingService.getOptionValue(company, branch, "scale_barcode_prefix", "2"))
+        product_length = int(OptionSettingService.getOptionValue(company, branch, "scale_barcode_product_length", 5))
+        value_length = int(OptionSettingService.getOptionValue(company, branch, "scale_barcode_value_length", 5))
+        barcode_type = OptionSettingService.getOptionValue(company, branch, "scale_barcode_type", "weight")
         
         prefix_len = len(prefix)
         product_code = str(barcode)[prefix_len : prefix_len + product_length]
@@ -968,7 +979,7 @@ class ProductService:
     def validateAndFormatPLU(plu, company, branch, product_length=None):
         if product_length is None:
             from apps.settings.services import OptionSettingService
-            product_length = int(OptionSettingService.getOptionValue(company, branch, "ns_scale_barcode_product_length", 5))
+            product_length = int(OptionSettingService.getOptionValue(company, branch, "scale_barcode_product_length", 5))
             
         import re
         plu_clean = re.sub(r"[^0-9]", "", str(plu))
@@ -987,6 +998,34 @@ class ProductService:
         if exclude_unit_quantity_id:
             qs = qs.exclude(id=exclude_unit_quantity_id)
         return not qs.exists()
+
+    @staticmethod
+    def addGalleryImage(product_id, image, request):
+        product = commonQuery.findOneRecord(Product, product_id, request=request, tenant_config=True)
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        
+        image_url = saveProductImage(image, request)
+        if not image_url:
+            raise api_error(400, ErrorCodes.INVALID_DATA, "Failed to save image file.")
+            
+        gallery_entry = commonQuery.createRecord(
+            ProductGallery,
+            {"product_id": product_id, "url": image_url, "featured": False},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Gallery image uploaded successfully.", data=dict(gallery_entry))
+
+    @staticmethod
+    def deleteGalleryImage(product_id, gallery_id, request):
+        gallery = commonQuery.findOneRecord(ProductGallery, gallery_id, request=request, tenant_config=True)
+        if gallery is None or gallery["product_id"] != product_id:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Gallery image not found.")
+        
+        commonQuery.deleteRecord(ProductGallery, gallery_id, request=request, tenant_config=True)
+        return successResponse("Gallery image deleted successfully.")
+
 
 
 class ProductStockService:
