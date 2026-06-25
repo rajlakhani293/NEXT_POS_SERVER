@@ -1,10 +1,6 @@
 # type: ignore
-from types import SimpleNamespace
-
 from django.db import transaction
 from django.db.models import Sum
-
-from apps.accounts.models import User
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error

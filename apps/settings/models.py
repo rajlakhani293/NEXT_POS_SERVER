@@ -11,10 +11,6 @@ PAYMENT_TYPES = [
 ]
 
 
-def paymentTypeOptions():
-    return [{"value": value, "label": label} for value, label in PAYMENT_TYPES]
-
-
 def paymentTypeValues():
     return [value for value, _label in PAYMENT_TYPES]
 

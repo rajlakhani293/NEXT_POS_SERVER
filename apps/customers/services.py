@@ -1,6 +1,5 @@
 # type: ignore
 from decimal import Decimal
-from types import SimpleNamespace
 
 from django.db import transaction
 from django.utils.text import slugify

@@ -1,5 +1,4 @@
 # type:ignore
-from types import SimpleNamespace
 from datetime import timedelta
 from django.db import transaction
 from django.db.models import F, Q, Sum

@@ -1,6 +1,5 @@
 # type: ignore
 import json
-from decimal import Decimal
 from django.test import TestCase
 from django.utils import timezone
 from django.contrib.auth.models import Permission

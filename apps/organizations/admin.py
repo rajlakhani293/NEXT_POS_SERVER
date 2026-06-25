@@ -6,7 +6,9 @@ from apps.organizations.models import Branch, Company
 
 @admin.register(Company)
 class CompanyAdmin(SmartModelAdmin):
-    pass
+    list_display = ("id", "name", "code", "email", "phone", "status")
+    search_fields = ("name", "code", "email", "phone")
+    list_filter = ("status",)
 
 
 @admin.register(Branch)

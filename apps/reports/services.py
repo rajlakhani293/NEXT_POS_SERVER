@@ -1,7 +1,6 @@
 # type: ignore
 from datetime import timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, FloatField, Q, Sum, Value
 from django.db.models.functions import Coalesce
@@ -14,8 +13,8 @@ from apps.common.exceptions import api_error
 from apps.common.helpers import jsonsafe
 from apps.common.responses import successResponse
 from apps.accounting.models import TransactionAccount, TransactionHistory
-from apps.accounts.models import Role, User
-from apps.catalog.models import Product, ProductHistory, ProductHistoryCombined, ProductUnitQuantity
+from apps.accounts.models import Role
+from apps.catalog.models import ProductHistory, ProductHistoryCombined, ProductUnitQuantity
 from apps.customers.models import Customer, CustomerAccountHistory
 from apps.purchases.models import Procurement, Provider
 from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek

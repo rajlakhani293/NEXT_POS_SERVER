@@ -1,6 +1,5 @@
 # type: ignore
 from decimal import Decimal
-from types import SimpleNamespace
 from uuid import uuid4
 
 from django.core.cache import cache
@@ -9,7 +8,6 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from apps.accounting.services import AccountingService
-from apps.accounts.models import User
 from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity, TaxGroup, Unit
 from apps.catalog.services import ProductStockService
 from apps.common.commonQuery import commonQuery
@@ -19,7 +17,6 @@ from apps.common.helpers import (
     decimalValue as money,
     decimalValue as qty,
     validateTenantRelationId,
-    validateTenantRelationIds,
     validateUniqueFields,
 )
 from apps.common.responses import successResponse

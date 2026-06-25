@@ -65,10 +65,6 @@ class OptionSettingService:
         return defaultBusinessSettings()
 
     @staticmethod
-    def ensureCompanySettings(company):
-        return OptionSettingService.defaultValues()
-
-    @staticmethod
     def ensureSettings(user):
         return ensureDefaultOptions(
             company=user.company,
@@ -86,18 +82,6 @@ class OptionSettingService:
         option = Option.objects.filter(company=company, branch=branch, key=key, status=0).first()
         if option is None:
             return default
-        return decodeOptionValue(option)
-
-    @staticmethod
-    def ensureOptions(company, branch, user=None):
-        return ensureDefaultOptions(company=company, branch=branch, user=user)
-
-    @staticmethod
-    def ensureOption(company, branch, user=None):
-        return OptionSettingService.ensureOptions(company=company, branch=branch, user=user)
-
-    @staticmethod
-    def decodeOption(option):
         return decodeOptionValue(option)
 
     @staticmethod

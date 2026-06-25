@@ -41,18 +41,6 @@ def providerPayable(request, payload: Optional[dict] = None):
     return ReportService.supplierPayable(payload, request)
 
 
-@router.post("/supplier-payable", response=ApiResponse, deprecated=True, include_in_schema=False)
-@permissionRequired("reports_view")
-def supplierPayableAlias(request, payload: Optional[dict] = None):
-    return ReportService.supplierPayable(payload, request)
-
-
-@router.post("/Provider-payable", response=ApiResponse, deprecated=True, include_in_schema=False)
-@permissionRequired("reports_view")
-def providerPayableLegacy(request, payload: Optional[dict] = None):
-    return ReportService.supplierPayable(payload, request)
-
-
 @router.post("/stock-ledger", response=ApiResponse)
 @permissionRequired("reports_view")
 def stockLedger(request, payload: Optional[dict] = None):
@@ -147,4 +135,3 @@ def customerStatement(request, customer_id: int, payload: Optional[dict] = None)
 @permissionRequired("reports_view")
 def annualReport(request, payload: Optional[dict] = None):
     return ReportService.annualReport(payload, request)
-
