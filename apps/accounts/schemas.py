@@ -1,5 +1,5 @@
 # type: ignore
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Optional
 
@@ -75,22 +75,37 @@ class PermissionAccessApproveIn(Schema):
 class UserIn(Schema):
     username: str = Field(..., min_length=3, example="counterstaff")
     password: str = Field(..., min_length=8, example="StrongPassword123!")
-    full_name: str = Field(..., example="Counter Staff")
+    full_name: str = Field("", example="Counter Staff")
+    first_name: str = Field("", example="Counter")
+    last_name: str = Field("", example="Staff")
     phone: str = Field("", example="9999999999")
     email: str = Field("", example="staff@example.com")
+    active: bool = True
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
-    status: ActiveStatus = 0
+    group_id: Optional[int] = None
+    birth_date: Optional[date] = None
+    credit_limit_amount: Optional[Decimal] = Decimal("0")
+    gender: str = Field("", example="male")
+    pobox: str = Field("", example="12345")
 
 
 class UserUpdateIn(Schema):
     username: Optional[str] = Field(None, min_length=3)
     password: Optional[str] = Field(None, min_length=8)
     full_name: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
+    active: Optional[bool] = None
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
+    group_id: Optional[int] = None
+    birth_date: Optional[date] = None
+    credit_limit_amount: Optional[Decimal] = None
+    gender: Optional[str] = None
+    pobox: Optional[str] = None
     status: Optional[ActiveStatus] = None
 
 

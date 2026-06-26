@@ -468,8 +468,10 @@ class TaxGroupService:
     @staticmethod
     def getAll(data, request):
         fieldConfig = [["name", True, True], ["description", True, True]]
-        options = {"attributes": ["id", "name", "description", "status"]}
+        options = {"attributes": ["id", "name", "description", "status", "created_at", "user__username"]}
         result = commonQuery.fetchPaginatedData(TaxGroup, data, fieldConfig, options, request=request, tenant_config=True)
+        for item in result["items"]:
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Tax groups retrieved successfully.", data=result)
 
     @staticmethod
@@ -541,10 +543,24 @@ class TaxService:
     @staticmethod
     def getAll(data, request):
         fieldConfig = [["name", True, True], ["rate", False, True]]
-        options = {"attributes": ["id", "name", "description", "rate", "tax_group_id", "tax_group__name", "status"]}
+        options = {
+            "attributes": [
+                "id",
+                "name",
+                "description",
+                "rate",
+                "tax_group_id",
+                "tax_group__name",
+                "status",
+                "created_at",
+                "user__username",
+            ]
+        }
         result = commonQuery.fetchPaginatedData(Tax, data, fieldConfig, options, request=request, tenant_config=True)
         for item in result["items"]:
+            item["parent_name"] = item.get("tax_group__name")
             item["tax_group_name"] = item.pop("tax_group__name", None)
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Taxes retrieved successfully.", data=result)
 
     @staticmethod

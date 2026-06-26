@@ -744,8 +744,8 @@ class AccountsService:
 
     @staticmethod
     def listUsers(user: User, data):
-        field_config = [["full_name", True, True], ["phone", True, False], ["email", True, False]]
-        return commonQuery.fetchPaginatedData(
+        field_config = [["username", True, True], ["full_name", True, False]]
+        result = commonQuery.fetchPaginatedData(
             User,
             data,
             field_config,
@@ -754,18 +754,32 @@ class AccountsService:
                     "id",
                     "username",
                     "full_name",
-                    "phone",
                     "email",
-                    "branch_id",
-                    "branch__name",
-                    "role_id",
-                    "role__name",
+                    "account_amount",
+                    "owed_amount",
+                    "purchases_amount",
                     "status",
+                    "created_at",
                 ]
             },
             tenant_config={},
             custom_where={"company_id": user.company_id},
         )
+
+        # Batch-fetch roles for each user in page (matching NexoPOS rolesNames)
+        user_ids = [item["id"] for item in result["items"]]
+        relations = (
+            UserRoleRelation.objects.filter(user_id__in=user_ids, status=0)
+            .select_related("role")
+        )
+        roles_map: dict = {}
+        for rel in relations:
+            roles_map.setdefault(rel.user_id, []).append(rel.role.name)
+        for item in result["items"]:
+            names = roles_map.get(item["id"], [])
+            item["roles_names"] = ", ".join(names) if names else "Not Assigned"
+
+        return result
 
     @staticmethod
     def userDropdown(user: User):
@@ -842,10 +856,17 @@ class AccountsService:
             company_id=user.company_id,
             branch=branch,
             role=role,
-            full_name=full_name,
+            full_name=data.get("full_name") or full_name,
+            first_name=data.get("first_name") or "",
+            last_name=data.get("last_name") or "",
             phone=phone,
             email=email,
-            status=data.get("status", 0),
+            gender=data.get("gender") or "",
+            pobox=data.get("pobox") or "",
+            birth_date=data.get("birth_date"),
+            credit_limit_amount=data.get("credit_limit_amount") or 0,
+            status=0 if data.get("active", True) else 1,
+            is_active=bool(data.get("active", True)),
         )
         if role:
             AccountsService.setUserRoles(target_user, [role])
@@ -903,13 +924,28 @@ class AccountsService:
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
             AccountsService.setUserRoles(target_user, [role])
 
-        for field in ["username", "full_name", "phone", "email"]:
+        for field in ["username", "full_name", "first_name", "last_name", "phone", "email", "gender", "pobox"]:
             if field in data:
                 setattr(target_user, field, data[field] or "")
+        if "birth_date" in data:
+            target_user.birth_date = data["birth_date"]
+        if "credit_limit_amount" in data and data["credit_limit_amount"] is not None:
+            target_user.credit_limit_amount = data["credit_limit_amount"]
+        if "active" in data and data["active"] is not None:
+            target_user.status = 0 if data["active"] else 1
+            target_user.is_active = bool(data["active"])
+        if "status" in data and data["status"] is not None:
+            target_user.status = data["status"]
+        if data.get("group_id"):
+            from apps.customers.models import CustomerGroup
+            group = commonQuery.scopedQueryset(
+                CustomerGroup,
+                {"company_id": user.company_id, "id": data["group_id"]},
+                tenant_config={},
+            ).first()
+            target_user.group = group
         if data.get("password"):
             target_user.set_password(data["password"])
-        if "status" in data:
-            target_user.status = data["status"]
         target_user.save()
         return AccountsService.serializeUser(target_user)
 

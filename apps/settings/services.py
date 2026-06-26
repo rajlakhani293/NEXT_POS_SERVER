@@ -233,17 +233,20 @@ class PaymentTypeService:
     @staticmethod
     def listPaymentTypes(data, request):
         field_config = [["label", True, True], ["identifier", True, True], ["description", True, False]]
-        return commonQuery.fetchPaginatedData(
+        res = commonQuery.fetchPaginatedData(
             PaymentType,
             data,
             field_config,
             {
-                "attributes": ["id", "label", "identifier", "description", "readonly", "priority", "status"],
+                "attributes": ["id", "label", "identifier", "description", "readonly", "priority", "status", "created_at", "user__username"],
                 "order": ["priority", "label"],
             },
             request=request,
             tenant_config={"company_id": True, "branch_id": True},
         )
+        for item in res["items"]:
+            item["user_username"] = item.pop("user__username", None)
+        return res
 
     @staticmethod
     def createPaymentType(data, request):
