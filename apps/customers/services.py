@@ -219,6 +219,7 @@ class CustomerService:
                 "owed_amount",
                 "account_amount",
                 "status",
+                "group_id",
             ],
         }
         result = commonQuery.fetchPaginatedData(
@@ -229,8 +230,15 @@ class CustomerService:
             request=request,
             tenant_config=True,
         )
+        group_ids = {item.get("group_id") for item in result.get("items", []) if item.get("group_id")}
+        group_map = {}
+        if group_ids:
+            groups = CustomerGroup.objects.filter(id__in=group_ids).values("id", "name")
+            group_map = {g["id"]: g["name"] for g in groups}
+
         for item in result.get("items", []):
             item["name"] = f"{item.get('first_name') or ''} {item.get('last_name') or ''}".strip()
+            item["group_name"] = group_map.get(item.get("group_id"))
         return successResponse("Customers retrieved successfully.", data=result)
 
     @staticmethod
@@ -632,6 +640,7 @@ class CustomerGroupService:
                 "minimal_credit_payment",
                 "reward_system_id",
                 "status",
+                "created_at",
             ],
         }
         result = commonQuery.fetchPaginatedData(
@@ -642,6 +651,14 @@ class CustomerGroupService:
             request=request,
             tenant_config=True,
         )
+        reward_ids = {item.get("reward_system_id") for item in result.get("items", []) if item.get("reward_system_id")}
+        reward_map = {}
+        if reward_ids:
+            rewards = RewardSystem.objects.filter(id__in=reward_ids).values("id", "name")
+            reward_map = {r["id"]: r["name"] for r in rewards}
+
+        for item in result.get("items", []):
+            item["reward_name"] = reward_map.get(item.get("reward_system_id")) or "N/A"
         return successResponse("Customer groups retrieved successfully.", data=result)
 
     @staticmethod
