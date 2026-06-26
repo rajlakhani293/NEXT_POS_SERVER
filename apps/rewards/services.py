@@ -273,7 +273,7 @@ class RewardSystemService:
     def getAll(data, request):
         fieldConfig = [["name", True, True]]
         options = {
-            "attributes": ["id", "name", "coupon_id", "target", "description", "status"],
+            "attributes": ["id", "name", "coupon_id", "target", "description", "status", "created_at"],
         }
         result = commonQuery.fetchPaginatedData(
             RewardSystem,
@@ -284,6 +284,26 @@ class RewardSystemService:
             tenant_config=True,
         )
         result["items"] = attachRewardRules(result["items"], request)
+
+        # Batch-fetch coupon names for all coupon_ids in the page
+        coupon_ids = [item["coupon_id"] for item in result["items"] if item.get("coupon_id")]
+        coupon_name_map = {}
+        if coupon_ids:
+            coupons = commonQuery.findAllRecords(
+                Coupon,
+                {"id__in": coupon_ids},
+                {"attributes": ["id", "name"]},
+                request=request,
+                tenant_config=True,
+            )
+            coupon_name_map = {c["id"]: c["name"] for c in coupons}
+
+        # Enrich each item: add coupon_name and append rule count to name (matching NexoPOS setActions)
+        for item in result["items"]:
+            item["coupon_name"] = coupon_name_map.get(item.get("coupon_id")) or "-"
+            rule_count = len(item.get("rules") or [])
+            item["name"] = f"{item['name']} ({rule_count})"
+
         return successResponse("Reward systems retrieved successfully.", data=result)
 
     @staticmethod
