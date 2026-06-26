@@ -7,9 +7,9 @@ from apps.common.commonQuery import commonQuery
 
 class Role(TenantAwareModel):
     ADMIN = "admin"
-    STOREADMIN = "store-administrator"
-    STORECASHIER = "store-cashier"
-    STORECUSTOMER = "store-customer"
+    STOREADMIN = "nexopos.store.administrator"
+    STORECASHIER = "nexopos.store.cashier"
+    STORECUSTOMER = "nexopos.store.customer"
     USER = "user"
     DRIVER = "driver"
 
@@ -31,6 +31,9 @@ class Role(TenantAwareModel):
 
     @classmethod
     def findByNamespace(cls, namespace, company_id=None, branch_id=None):
+        from apps.accounts.permission_catalog import ROLE_NAMESPACE_ALIASES
+
+        namespace = ROLE_NAMESPACE_ALIASES.get(namespace, namespace)
         queryset = commonQuery.scopedQueryset(cls, {"namespace": namespace, "status__in": [0, 1]}, tenant_config={})
         if company_id is not None:
             queryset = queryset.filter(company_id=company_id)

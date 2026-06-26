@@ -2575,7 +2575,7 @@ class SaleService:
             
             from apps.settings.services import NotificationService
             NotificationService.dispatchForRoleNamespaces(
-                ["admin", "store-administrator"],
+                ["admin", "nexopos.store.administrator"],
                 title="Unpaid Orders Turned Due",
                 description=f"{updated_count} order(s) either unpaid or partially paid has turned due. This occurs if none has been completed before the expected payment date.",
                 identifier="ns.due-orders-notifications",

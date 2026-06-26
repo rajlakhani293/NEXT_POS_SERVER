@@ -11,7 +11,13 @@ from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
 from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserRoleRelation
-from apps.accounts.permission_catalog import PERMISSION_CATALOG, ROLE_CATALOG
+from apps.accounts.permission_catalog import (
+    NEXOPOS_PERMISSION_CATALOG,
+    PERMISSION_ALIASES,
+    PERMISSION_CATALOG,
+    ROLE_CATALOG,
+    ROLE_NAMESPACE_ALIASES,
+)
 from apps.common.authz import getUserPermissionCodenames
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
@@ -23,7 +29,8 @@ from apps.settings.services import OptionSettingService
 
 
 def normalizeRoleNamespace(value):
-    return (value or "").strip().lower().replace(" ", "-")
+    namespace = (value or "").strip().lower().replace(" ", "-")
+    return ROLE_NAMESPACE_ALIASES.get(namespace, namespace)
 
 
 class AccountsService:
@@ -40,6 +47,22 @@ class AccountsService:
                         "name": label,
                     }
                 )
+        for namespace in NEXOPOS_PERMISSION_CATALOG:
+            label = namespace.replace("nexopos.", "").replace(".", " ").replace("-", " ").replace("_", " ").title()
+            definitions.append(
+                {
+                    "codename": namespace,
+                    "name": label,
+                }
+            )
+        for alias, namespace in PERMISSION_ALIASES.items():
+            label = alias.replace("_", " ").title()
+            definitions.append(
+                {
+                    "codename": alias,
+                    "name": label,
+                }
+            )
         return definitions
 
     @staticmethod
@@ -93,6 +116,12 @@ class AccountsService:
                 for codename in role_blueprint["permissions"]
                 if codename in permission_map
             ]
+            alias_permissions = [
+                permission_map[alias]
+                for alias, namespace in PERMISSION_ALIASES.items()
+                if namespace in role_blueprint["permissions"] and alias in permission_map
+            ]
+            permissions = list({permission.id: permission for permission in permissions + alias_permissions}.values())
             role.permissions.set(permissions)
             seeded_roles.append(
                 {

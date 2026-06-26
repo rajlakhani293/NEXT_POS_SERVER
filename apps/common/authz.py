@@ -29,7 +29,16 @@ def getUserPermissionCodenames(user):
             .exclude(permissions__codename__isnull=True)
         )
 
-    return permissions
+    from apps.accounts.permission_catalog import PERMISSION_ALIASES
+
+    expanded = set(permissions)
+    for alias, namespace in PERMISSION_ALIASES.items():
+        if alias in permissions:
+            expanded.add(namespace)
+        if namespace in permissions:
+            expanded.add(alias)
+
+    return expanded
 
 
 def userHasPermissions(user, required_permissions, match="all"):
@@ -37,7 +46,19 @@ def userHasPermissions(user, required_permissions, match="all"):
     if "*" in effective_permissions:
         return True
 
-    required = [perm for perm in required_permissions if perm]
+    from apps.accounts.permission_catalog import PERMISSION_ALIASES
+
+    required = []
+    for perm in required_permissions:
+        if not perm:
+            continue
+        required.append(perm)
+        if perm in PERMISSION_ALIASES:
+            required.append(PERMISSION_ALIASES[perm])
+        else:
+            alias = next((key for key, value in PERMISSION_ALIASES.items() if value == perm), None)
+            if alias:
+                required.append(alias)
     if not required:
         return True
 

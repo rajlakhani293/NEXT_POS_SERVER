@@ -8,7 +8,7 @@ from apps.common.models import TenantAwareModel
 from apps.promotions.models import Coupon
 from apps.rewards.models import RewardSystem
 
-CUSTOMER_ROLE_CODE = "store-customer"
+CUSTOMER_ROLE_CODE = "nexopos.store.customer"
 
 
 class CustomerGroup(TenantAwareModel):

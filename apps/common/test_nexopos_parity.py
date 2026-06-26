@@ -101,7 +101,7 @@ class NexoPosParityFlowTest(TestCase):
         customer_role = Role.objects.get(
             company=self.company,
             branch=self.branch,
-            namespace="store-customer",
+            namespace="nexopos.store.customer",
         )
         customer = User.objects.create_user(
             username=username,
