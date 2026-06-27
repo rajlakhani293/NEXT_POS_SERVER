@@ -782,11 +782,15 @@ class TransactionAccountService:
                     "sub_category__name",
                     "description",
                     "status",
+                    "user__username",
+                    "created_at",
                 ]
             },
             request=request,
             tenant_config=BRANCH_TENANT_CONFIG,
         )
+        for item in result.get("items", []):
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Transaction accounts retrieved successfully.", data=result)
 
     @staticmethod
@@ -1056,6 +1060,7 @@ class TransactionService:
                     "operation",
                     "transaction_account_id",
                     "transaction_account__name",
+                    "transaction_account__category_identifier",
                     "rule_id",
                     "procurement_id",
                     "order_refund_id",
@@ -1069,11 +1074,17 @@ class TransactionService:
                     "value",
                     "trigger_date",
                     "status",
+                    "user__username",
+                    "created_at",
                 ],
             },
             request=request,
             tenant_config=True,
         )
+        for item in result.get("items", []):
+            item["category_identifier"] = item.pop("transaction_account__category_identifier", None)
+            item["account_name"] = item.pop("transaction_account__name", None)
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Transaction history retrieved successfully.", data=result)
 
     @staticmethod

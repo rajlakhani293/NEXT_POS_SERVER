@@ -13,6 +13,7 @@ class ExpenseCategoryUpdateIn(Schema):
 
 
 class ExpenseIn(Schema):
+    name: Optional[str] = ""
     category_id: int
     amount: float
     expense_date: str
@@ -23,6 +24,7 @@ class ExpenseIn(Schema):
 
 
 class ExpenseUpdateIn(Schema):
+    name: Optional[str] = None
     category_id: Optional[int] = None
     amount: Optional[float] = None
     expense_date: Optional[str] = None

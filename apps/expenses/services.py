@@ -171,7 +171,13 @@ class ExpenseCategoryService:
             qs = qs.filter(name__icontains=search)
 
         total = qs.count()
-        items = list(qs.order_by("name")[offset : offset + limit].values("id", "name", "description", "status", "created_at"))
+        items = list(
+            qs.order_by("name")[offset : offset + limit].values(
+                "id", "name", "description", "status", "created_at", "account", "user__username"
+            )
+        )
+        for item in items:
+            item["user_username"] = item.pop("user__username", None)
 
         return successResponse(
             "Expense categories retrieved successfully.",
@@ -248,11 +254,12 @@ class ExpenseService:
                 shift = opening
 
             desc_str = serialize_description(payment_type, shift.id if shift else None, reference_number, note)
+            expense_name = data.get("name") or f"Expense: {category.get('name')}"
 
             expense = commonQuery.createRecord(
                 Transaction,
                 {
-                    "name": f"Expense: {category.get('name')}",
+                    "name": expense_name,
                     "account_id": category_id,
                     "value": amount,
                     "description": desc_str,
@@ -377,6 +384,9 @@ class ExpenseService:
             updates = {}
             if category_id is not None:
                 updates["account_id"] = category_id
+            if data.get("name"):
+                updates["name"] = data["name"]
+            elif category_id is not None:
                 updates["name"] = f"Expense: {category.get('name')}"
             if amount is not None:
                 updates["value"] = amount
@@ -479,6 +489,7 @@ class ExpenseService:
         
         data = {
             "id": exp.get("id"),
+            "name": exp.get("name"),
             "category_id": exp.get("account_id"),
             "amount": float(exp.get("value")),
             "expense_date": exp_date_str,
@@ -498,7 +509,11 @@ class ExpenseService:
         search = (data or {}).get("search", "")
 
         expense_accounts = TransactionAccount.objects.filter(category_identifier="expenses").values_list("id", flat=True)
-        qs = commonQuery.branchScopedQueryset(Transaction, {"account_id__in": list(expense_accounts)}, request).exclude(status=2)
+        qs = (
+            commonQuery.branchScopedQueryset(Transaction, {"account_id__in": list(expense_accounts)}, request)
+            .exclude(status=2)
+            .select_related("user", "account")
+        )
 
         if search:
             qs = qs.filter(
@@ -544,6 +559,7 @@ class ExpenseService:
 
             items.append({
                 "id": exp.id,
+                "name": exp.name,
                 "category_id": exp.account_id,
                 "category__name": exp.account.name if exp.account else "-",
                 "amount": float(exp.value),
@@ -555,6 +571,7 @@ class ExpenseService:
                 "reference_number": pos["reference_number"],
                 "note": pos["note"],
                 "status": exp.status,
+                "user_username": exp.user.username if exp.user else "-",
                 "created_at": exp.created_at.isoformat() if exp.created_at else None,
             })
 

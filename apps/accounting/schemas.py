@@ -5,15 +5,15 @@ from ninja import Schema
 from apps.common.schemas import ActiveStatus
 
 
-AccountCategory = Literal["assets", "liabilities", "revenues", "expenses"]
+AccountCategory = Literal["assets", "liabilities", "revenues", "expenses", "equity"]
 RuleAction = Literal["increase", "decrease"]
 TransactionType = Literal["income", "expense", "transfer", "adjustment"]
 
 
 class TransactionAccountIn(Schema):
     name: str
+    category_identifier: AccountCategory
     account: Optional[str] = None
-    category_identifier: Optional[AccountCategory] = None
     sub_category_id: Optional[int] = None
     description: str = ""
 
