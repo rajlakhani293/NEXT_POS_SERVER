@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Optional
+from typing import List, Optional, Union
 
 from ninja import Field, Schema
 from apps.common.schemas import ActiveStatus
@@ -95,3 +95,19 @@ class CustomerCreditIn(Schema):
     direction: str = "increase"
     reason: str = "adjustment"
     note: str = ""
+
+
+class CustomerSearchIn(Schema):
+    search: Union[str, int] = ""
+
+
+class CustomerAccountTransactionIn(Schema):
+    operation: str
+    amount: Decimal
+    description: str = ""
+
+
+class CustomerGroupTransferIn(Schema):
+    from_group_id: int = Field(..., alias="from")
+    to_group_id: int = Field(..., alias="to")
+    ids: Union[str, List[int]]

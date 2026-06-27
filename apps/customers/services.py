@@ -2,6 +2,7 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils.text import slugify
 
 from apps.accounts.models import Role, User, UserRoleRelation
@@ -10,7 +11,15 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import validateTenantRelationId
 from apps.common.responses import successResponse
-from apps.customers.models import CUSTOMER_ROLE_CODE, Customer, CustomerAccountHistory, CustomerAddress, CustomerGroup
+from apps.customers.models import (
+    CUSTOMER_ROLE_CODE,
+    Customer,
+    CustomerAccountHistory,
+    CustomerAddress,
+    CustomerCoupon,
+    CustomerGroup,
+    CustomerReward,
+)
 from apps.rewards.models import RewardSystem
 
 
@@ -289,6 +298,103 @@ class CustomerService:
         return successResponse("Customer retrieved successfully.", data=hydrateCustomer(customer, request))
 
     @staticmethod
+    def recentlyActive(limit, request):
+        limit = int(limit or 10)
+        customers = (
+            commonQuery.branchScopedQueryset(Customer, {"group_id__isnull": False, "status": 0}, request)
+            .order_by("-updated_at")[:limit]
+        )
+        data = [
+            hydrateCustomer(
+                commonQuery.findOneRecord(Customer, customer.id, request=request, tenant_config=True),
+                request,
+            )
+            for customer in customers
+        ]
+        return successResponse("Recently active customers retrieved successfully.", data=data)
+
+    @staticmethod
+    def search(data, request):
+        argument = str((data or {}).get("search") or "")
+        queryset = commonQuery.branchScopedQueryset(Customer, {"status": 0}, request)
+        if argument:
+            queryset = queryset.filter(
+                Q(first_name__icontains=argument)
+                | Q(last_name__icontains=argument)
+                | Q(email__icontains=argument)
+                | Q(phone__icontains=argument)
+            )
+        customers = queryset.order_by("first_name", "last_name")[:10]
+        data = [
+            hydrateCustomer(
+                commonQuery.findOneRecord(Customer, customer.id, request=request, tenant_config=True),
+                request,
+            )
+            for customer in customers
+        ]
+        return successResponse("Customers retrieved successfully.", data=data)
+
+    @staticmethod
+    def deleteUsingEmail(email, request):
+        customer = commonQuery.branchScopedQueryset(Customer, {"email": email, "status": 0}, request).first()
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        return CustomerService.delete({"ids": [customer.id]}, request)
+
+    @staticmethod
+    def addresses(customer_id, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        data = commonQuery.findAllRecords(
+            CustomerAddress,
+            {"customer_id": customer_id},
+            {"order": ["type"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer addresses retrieved successfully.", data=data)
+
+    @staticmethod
+    def group(customer_id, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        group_id = customer.get("group_id")
+        if not group_id:
+            return successResponse("Customer group retrieved successfully.", data=None)
+        group = commonQuery.findOneRecord(CustomerGroup, group_id, request=request, tenant_config=True)
+        return successResponse("Customer group retrieved successfully.", data=group)
+
+    @staticmethod
+    def coupons(customer_id, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        data = commonQuery.findAllRecords(
+            CustomerCoupon,
+            {"customer_id": customer_id},
+            {"order": ["-created_at"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer coupons retrieved successfully.", data=data)
+
+    @staticmethod
+    def rewards(customer_id, request):
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+        data = commonQuery.findAllRecords(
+            CustomerReward,
+            {"customer_id": customer_id},
+            {"order": ["-created_at"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer rewards retrieved successfully.", data=data)
+
+    @staticmethod
     def update(data, request, customer_id):
         with transaction.atomic():
             customer = commonQuery.findOneRecord(
@@ -403,6 +509,16 @@ class CustomerService:
             )
             updated["credit_ledger"] = ledger
             return successResponse("Customer credit updated successfully.", data=updated)
+
+    @staticmethod
+    def accountTransaction(customer_id, data, request):
+        return CustomerAccountService.saveTransaction(
+            customer_id,
+            data.get("operation"),
+            data.get("amount"),
+            request,
+            data.get("description") or "",
+        )
 
     @staticmethod
     def creditLedger(customer_id, data, request):
@@ -711,9 +827,19 @@ class CustomerGroupService:
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        if not isinstance(ids, list):
+            ids = [ids]
+        assigned = commonQuery.branchScopedQueryset(
+            Customer,
+            {"group_id__in": ids, "status": 0},
+            request,
+        ).count()
+        if assigned > 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to delete a group to which customers are still assigned.")
         count = commonQuery.softDeleteById(
             CustomerGroup,
-            data.get("ids"),
+            ids,
             request=request,
             tenant_config=True,
         )
@@ -736,4 +862,48 @@ class CustomerGroupService:
         return successResponse(
             "Customer group status updated successfully.",
             data={"updated_count": count, "status": status},
+        )
+
+    @staticmethod
+    def getCustomers(group_id, request):
+        group = commonQuery.findOneRecord(CustomerGroup, group_id, request=request, tenant_config=True)
+        if group is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer group not found.")
+        customers = commonQuery.findAllRecords(
+            Customer,
+            {"group_id": group_id},
+            {
+                "attributes": ["id", "first_name", "last_name", "phone", "email", "group_id", "status"],
+                "order": ["first_name", "last_name"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer group customers retrieved successfully.", data=customers)
+
+    @staticmethod
+    def transferCustomers(data, request):
+        from_group_id = data.get("from") or data.get("from_group_id")
+        to_group_id = data.get("to") or data.get("to_group_id")
+        ids = data.get("ids")
+        if from_group_id == to_group_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to proceed as the source and destination are the same.")
+        if not ids:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No customer was selected.")
+        validateTenantRelationId(CustomerGroup, from_group_id, request=request, label="Source customer group", tenant_config=True)
+        validateTenantRelationId(CustomerGroup, to_group_id, request=request, label="Destination customer group", tenant_config=True)
+
+        queryset = commonQuery.branchScopedQueryset(
+            Customer,
+            {"group_id": from_group_id, "status": 0},
+            request,
+        )
+        if ids != "*":
+            if not isinstance(ids, list):
+                ids = [ids]
+            queryset = queryset.filter(id__in=ids)
+        updated_count = queryset.update(group_id=to_group_id)
+        return successResponse(
+            "The selected customers have been transferred.",
+            data={"updated_count": updated_count},
         )

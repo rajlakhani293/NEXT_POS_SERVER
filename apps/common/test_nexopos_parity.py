@@ -7,6 +7,7 @@ from apps.accounting.models import TransactionActionRule, TransactionAccount, Tr
 from apps.accounts.models import Role, User
 from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
 from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
+from apps.customers.services import CustomerGroupService, CustomerService
 from apps.common.tenantDefaults import TenantDefaultsService
 from apps.organizations.models import Branch, Company
 from apps.promotions.models import OrdersCoupon
@@ -116,6 +117,55 @@ class NexoPosParityFlowTest(TestCase):
         )
         customer.assignRole("store-customer")
         return customer
+
+    def test_customer_group_delete_transfer_search_and_account_history_follow_nexopos(self):
+        source_group = CustomerGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Retail",
+        )
+        target_group = CustomerGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Wholesale",
+        )
+        customer = self.create_customer(group=source_group, username="alice-customer")
+        customer.first_name = "Alice"
+        customer.last_name = "Buyer"
+        customer.phone = "555123"
+        customer.account_amount = Decimal("25")
+        customer.save(update_fields=["first_name", "last_name", "phone", "account_amount"])
+
+        search = CustomerService.search({"search": "Alice"}, self.request).data
+        self.assertEqual(len(search), 1)
+        self.assertEqual(search[0]["id"], customer.id)
+
+        with self.assertRaises(Exception):
+            CustomerGroupService.delete({"ids": [source_group.id]}, self.request)
+
+        transfer = CustomerGroupService.transferCustomers(
+            {"from": source_group.id, "to": target_group.id, "ids": "*"},
+            self.request,
+        ).data
+        customer.refresh_from_db()
+        self.assertEqual(transfer["updated_count"], 1)
+        self.assertEqual(customer.group_id, target_group.id)
+
+        transaction = CustomerService.accountTransaction(
+            customer.id,
+            {
+                "operation": "add",
+                "amount": Decimal("10"),
+                "description": "Manual account top-up",
+            },
+            self.request,
+        ).data
+        customer.refresh_from_db()
+        self.assertEqual(transaction["previous_amount"], Decimal("25"))
+        self.assertEqual(transaction["next_amount"], Decimal("35"))
+        self.assertEqual(customer.account_amount, Decimal("35.00000"))
 
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(

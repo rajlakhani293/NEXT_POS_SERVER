@@ -9,6 +9,7 @@ from ninja.errors import HttpError, ValidationError
 from apps.accounts.api import router as accounts_router
 from apps.accounting.api import router as accounting_router
 from apps.catalog.api import router as catalog_router
+from apps.customers.api import groupsRouter as customer_groups_router
 from apps.customers.api import router as customers_router
 from apps.organizations.api import router as organizations_router
 from apps.promotions.api import router as promotions_router
@@ -28,6 +29,7 @@ api.add_router("/accounts/", accounts_router)
 api.add_router("/accounting/", accounting_router)
 api.add_router("/organizations/", organizations_router)
 api.add_router("/customers/", customers_router)
+api.add_router("/customers-groups/", customer_groups_router)
 api.add_router("/catalog/", catalog_router)
 api.add_router("/purchases/", purchases_router)
 api.add_router("/sales/", sales_router)
