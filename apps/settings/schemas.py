@@ -43,6 +43,7 @@ class PaymentTypeCreateIn(Schema):
     identifier: Optional[str] = ""
     description: Optional[str] = ""
     priority: int = 0
+    active: bool = True
 
 
 class PaymentTypeUpdateIn(Schema):
@@ -50,6 +51,7 @@ class PaymentTypeUpdateIn(Schema):
     identifier: Optional[str] = ""
     description: Optional[str] = ""
     priority: int = 0
+    active: bool = True
 
 
 class PaymentTypeListIn(Schema):
@@ -94,4 +96,3 @@ class FailedJobListIn(Schema):
     search: Optional[str] = ""
     sortBy: Optional[str] = "id"
     sortDirection: Optional[str] = "descending"
-

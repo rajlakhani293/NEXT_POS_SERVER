@@ -21,7 +21,7 @@ from apps.rewards.services import CustomerRewardService
 from apps.sales.models import Order, OrderInstalment, OrderPayment, OrderSetting, OrderStorage, OrderTax, OrdersProduct, OrdersProductsRefund, OrdersRefund
 from apps.sales.services import SaleService
 from apps.settings.models import FailedJob, Job, Notification, Option, PaymentType
-from apps.settings.services import JobQueueService, OptionSettingService
+from apps.settings.services import JobQueueService, OptionSettingService, PaymentTypeService
 
 
 class PosParityFlowTest(TestCase):
@@ -455,6 +455,53 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(options["pos_preferred_price"], "net_prices")
         self.assertEqual(options["pos_vat"], "disabled")
         self.assertEqual(options["store_language"], "en")
+
+    def test_payment_type_crud_rules_follow_source(self):
+        created = PaymentTypeService.createPaymentType(
+            {
+                "label": "Mobile Wallet",
+                "identifier": "",
+                "description": "Wallet payment",
+                "priority": -5,
+                "active": False,
+            },
+            self.request,
+        ).data
+        self.assertEqual(created["identifier"], "mobile-wallet")
+        self.assertEqual(created["priority"], 0)
+        self.assertEqual(created["status"], 1)
+        self.assertFalse(created["active"])
+        self.assertEqual(created["active_label"], "No")
+
+        listed = PaymentTypeService.listPaymentTypes({"page": 1, "limit": 10}, self.request)
+        listed_custom = next(item for item in listed["items"] if item["id"] == created["id"])
+        self.assertFalse(listed_custom["active"])
+        self.assertEqual(listed_custom["readonly_label"], "No")
+
+        cash = PaymentType.objects.get(company=self.company, branch=self.branch, identifier="cash-payment")
+        updated_cash = PaymentTypeService.updatePaymentType(
+            cash.id,
+            {
+                "label": "Cash Counter",
+                "identifier": "changed-cash",
+                "description": cash.description,
+                "priority": 9,
+                "active": True,
+            },
+            self.request,
+        )
+        cash.refresh_from_db()
+        self.assertEqual(updated_cash["identifier"], "cash-payment")
+        self.assertEqual(cash.identifier, "cash-payment")
+        self.assertEqual(cash.label, "Cash Counter")
+
+        custom = PaymentType.objects.get(id=created["id"])
+        delete_counts = PaymentTypeService.deletePaymentTypes({"ids": [custom.id, cash.id]}, self.request)
+        custom.refresh_from_db()
+        self.assertEqual(delete_counts["success"], 1)
+        self.assertEqual(delete_counts["error"], 1)
+        self.assertEqual(custom.status, 2)
+        self.assertTrue(PaymentType.objects.filter(id=cash.id, status=0).exists())
 
     def test_delivery_order_statuses_and_saved_settings_follow_source(self):
         self.stock_product(4)

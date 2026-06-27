@@ -168,6 +168,19 @@ class PaymentTypeService:
         return slugify(identifier or label)
 
     @staticmethod
+    def activeToStatus(data):
+        if "active" not in data:
+            return 0
+        return 0 if bool(data.get("active")) else 1
+
+    @staticmethod
+    def paymentTypeData(row):
+        row["active"] = row.get("status") == 0
+        row["active_label"] = "Yes" if row["active"] else "No"
+        row["readonly_label"] = "Yes" if row.get("readonly") else "No"
+        return row
+
+    @staticmethod
     def ensureDefaultPaymentTypes(company, branch):
         seeded = []
         for item in DEFAULT_PAYMENT_TYPES:
@@ -246,10 +259,13 @@ class PaymentTypeService:
         )
         for item in res["items"]:
             item["user_username"] = item.pop("user__username", None)
+            PaymentTypeService.paymentTypeData(item)
         return res
 
     @staticmethod
     def createPaymentType(data, request):
+        payload = dict(data or {})
+        payload.pop("active", None)
         identifier = PaymentTypeService.normalizeIdentifier(data.get("identifier") or "", data.get("label") or "")
         if not identifier:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment identifier is required.")
@@ -270,15 +286,16 @@ class PaymentTypeService:
         payment_type = commonQuery.createRecord(
             PaymentType,
             {
-                **data,
+                **payload,
                 "identifier": identifier,
                 "readonly": False,
                 "priority": max(int(data.get("priority") or 0), 0),
+                "status": PaymentTypeService.activeToStatus(data),
             },
             request=request,
             tenant_config={"company_id": True, "branch_id": True},
         )
-        return successResponse("Payment type created successfully.", data=payment_type)
+        return successResponse("Payment type created successfully.", data=PaymentTypeService.paymentTypeData(payment_type))
 
     @staticmethod
     def getPaymentType(payment_type_id, request):
@@ -290,10 +307,12 @@ class PaymentTypeService:
         )
         if payment_type is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Payment type not found.")
-        return payment_type
+        return PaymentTypeService.paymentTypeData(payment_type)
 
     @staticmethod
     def updatePaymentType(payment_type_id, data, request):
+        payload = dict(data or {})
+        payload.pop("active", None)
         with transaction.atomic():
             payment_type = commonQuery.branchScopedQueryset(
                 PaymentType,
@@ -342,33 +361,46 @@ class PaymentTypeService:
                 PaymentType,
                 payment_type_id,
                 {
-                    **data,
+                    **payload,
                     "identifier": identifier,
                     "readonly": payment_type.readonly,
                     "priority": max(int(data.get("priority") or 0), 0),
+                    "status": PaymentTypeService.activeToStatus(data),
                 },
                 request=request,
                 tenant_config={"company_id": True, "branch_id": True},
             )
             if updated is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Payment type not found.")
-            return updated
+            return PaymentTypeService.paymentTypeData(updated)
 
     @staticmethod
     def deletePaymentTypes(data, request):
         ids = data.get("ids") or []
         ids = ids if isinstance(ids, list) else [ids]
-        if commonQuery.branchScopedQueryset(PaymentType, {"id__in": ids, "readonly": True}, request).exists():
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Default payment types cannot be deleted.")
-        count = commonQuery.softDeleteById(
-            PaymentType,
-            ids,
-            request=request,
-            tenant_config={"company_id": True, "branch_id": True},
-        )
-        if count == 0:
+        success_count = 0
+        error_count = 0
+        for payment_type_id in ids:
+            payment_type = commonQuery.branchScopedQueryset(
+                PaymentType,
+                {"id": payment_type_id, "status__in": [0, 1]},
+                request,
+            ).first()
+            if payment_type is None:
+                error_count += 1
+                continue
+            if payment_type.readonly:
+                error_count += 1
+                break
+            success_count += commonQuery.softDeleteById(
+                PaymentType,
+                payment_type_id,
+                request=request,
+                tenant_config={"company_id": True, "branch_id": True},
+            )
+        if success_count == 0 and error_count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Payment type not found.")
-        return {"deleted_count": count}
+        return {"deleted_count": success_count, "success": success_count, "error": error_count}
 
     @staticmethod
     def updatePaymentTypeStatus(data, request):
