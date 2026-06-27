@@ -144,12 +144,14 @@ class RegisterService:
             Register,
             data,
             [["name", True, True], ["description", True, True]],
-            {"attributes": ["id", "name", "description", "balance", "register_status", "status", "created_at"]},
+            {"attributes": ["id", "name", "description", "balance", "register_status", "status", "created_at", "user__username", "used_by__username"]},
             request=request,
             tenant_config=True,
         )
         for item in result["items"]:
             item["is_open"] = item.get("register_status") in [Register.STATUS_OPENED, Register.STATUS_INUSE]
+            item["user_username"] = item.pop("user__username", None)
+            item["cashier_username"] = item.pop("used_by__username", None)
         return successResponse("Cash registers retrieved successfully.", data=result)
 
     @staticmethod

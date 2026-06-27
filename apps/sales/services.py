@@ -2103,10 +2103,12 @@ class SaleService:
                     "customer__full_name",
                     "user_id",
                     "user__full_name",
+                    "user__username",
                     "register_id",
                     "register__name",
                     "order_type",
                     "payment_status",
+                    "delivery_status",
                     "subtotal",
                     "discount_amount",
                     "total_coupons",
@@ -2122,6 +2124,8 @@ class SaleService:
             request=request,
             tenant_config=True,
         )
+        for item in result["items"]:
+            item["author_username"] = item.pop("user__username", None)
         return successResponse("Sales retrieved successfully.", data=result)
 
     @staticmethod

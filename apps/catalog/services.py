@@ -118,12 +118,15 @@ class CategoryService:
                 "position",
                 "description",
                 "status",
+                "user__username",
+                "created_at",
             ],
         }
         result = commonQuery.fetchPaginatedData(Category, data, fieldConfig, options, request=request, tenant_config=True)
         for item in result["items"]:
             item["parent_name"] = item.pop("parent__name", None)
             item["scale_range_name"] = item.pop("scale_range__name", None)
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Categories retrieved successfully.", data=result)
 
     @staticmethod
@@ -410,10 +413,11 @@ class UnitService:
     @staticmethod
     def getAll(data, request):
         fieldConfig = [["name", True, True], ["identifier", True, True]]
-        options = {"attributes": ["id", "name", "identifier", "description", "value", "preview_url", "base_unit", "group_id", "group__name", "status"]}
+        options = {"attributes": ["id", "name", "identifier", "description", "value", "preview_url", "base_unit", "group_id", "group__name", "status", "user__username", "created_at"]}
         result = commonQuery.fetchPaginatedData(Unit, data, fieldConfig, options, request=request, tenant_config=True)
         for item in result["items"]:
             item["group_name"] = item.pop("group__name", None)
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Units retrieved successfully.", data=result)
 
     @staticmethod
@@ -744,6 +748,8 @@ class ProductService:
                 "position",
                 "pinned",
                 "status",
+                "user__username",
+                "created_at",
             ],
         }
         result = commonQuery.fetchPaginatedData(Product, data, fieldConfig, options, request=request, tenant_config=True)
@@ -775,6 +781,7 @@ class ProductService:
             item["category_name"] = item.pop("category__name", None)
             item["tax_group_name"] = item.pop("tax_group__name", None)
             item["unit_group_name"] = item.pop("unit_group__name", None)
+            item["user_username"] = item.pop("user__username", None)
             first_unit_quantity = unit_quantities_by_product.get(item["id"]) or {}
             item["unit_name"] = first_unit_quantity.get("unit__name")
             item["selling_price"] = first_unit_quantity.get("sale_price") or 0
