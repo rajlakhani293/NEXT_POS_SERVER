@@ -1517,7 +1517,7 @@ class SaleReturnValidationService:
         total_tax = Decimal("0")
 
         for item in items or []:
-            sale_item = SaleReturnValidationService.ensureSaleItem(sale_order["id"], item.get("sale_item_id"), request)
+            sale_item = SaleReturnValidationService.ensureSaleItem(sale_order["id"], item.get("sale_item_id") or item.get("id"), request)
             refund_qty = quantity(item.get("quantity"))
             if refund_qty <= 0:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Refund quantity must be greater than 0.")
@@ -1544,7 +1544,7 @@ class SaleReturnValidationService:
                     "line_total": line_total,
                     "tax_amount": line_tax,
                     "condition": item.get("condition") or "unspoiled",
-                    "note": item.get("note") or "",
+                    "note": item.get("note") or item.get("description") or "",
                 }
             )
 
@@ -2155,6 +2155,53 @@ class SaleService:
         if "limit" in filters and "page" not in filters:
             filters["page"] = 1
         return SaleService.listSales(filters, request)
+
+    @staticmethod
+    def getOrderCollection(data, request):
+        limit = data.get("limit") if data else None
+        options = {
+            "attributes": [
+                "id",
+                "code",
+                "customer_id",
+                "customer__full_name",
+                "customer__email",
+                "user_id",
+                "register_id",
+                "order_type",
+                "payment_status",
+                "delivery_status",
+                "subtotal",
+                "discount_amount",
+                "total_coupons",
+                "shipping",
+                "tax_amount",
+                "total",
+                "tendered_amount",
+                "change_amount",
+                "created_at",
+            ],
+            "order": ["-id"],
+        }
+        if limit:
+            options["limit"] = limit
+        orders = commonQuery.findAllRecords(
+            Order,
+            {},
+            options,
+            request=request,
+            tenant_config=True,
+        )
+        for order in orders:
+            if order.get("customer_id"):
+                order["customer"] = {
+                    "id": order.get("customer_id"),
+                    "full_name": order.get("customer__full_name"),
+                    "email": order.get("customer__email"),
+                }
+            else:
+                order["customer"] = None
+        return successResponse("Orders retrieved successfully.", data=orders)
 
     @staticmethod
     def getSupportedPayments(request):
@@ -3288,6 +3335,56 @@ class SaleService:
         return successResponse("The printing event has been successfully dispatched.")
 
     @staticmethod
+    def normalizeOrderRefundPayload(data):
+        normalized = dict(data or {})
+        if normalized.get("products") and not normalized.get("items"):
+            normalized["items"] = normalized["products"]
+        payment = normalized.get("payment") or {}
+        if payment.get("identifier") and not normalized.get("payment_type"):
+            normalized["payment_type"] = payment["identifier"]
+        normalized.setdefault("return_type", "refund")
+        return normalized
+
+    @staticmethod
+    def refundOrder(sale_order_id, data, request):
+        normalized = SaleService.normalizeOrderRefundPayload(data)
+        result = SaleService.createReturn(sale_order_id, normalized, request)
+        result_data = result.data or {}
+        created_items = result_data.get("items") or []
+        results = []
+        for item in created_items:
+            order_product = commonQuery.findOneRecord(
+                OrdersProduct,
+                item.get("sale_item_id"),
+                request=request,
+                tenant_config=True,
+            )
+            results.append(
+                {
+                    "status": "success",
+                    "message": f"The product {order_product.get('name') if order_product else item.get('sale_item_id')} has been successfully refunded.",
+                    "data": {
+                        "productRefund": item,
+                        "orderProduct": order_product,
+                    },
+                }
+            )
+        return successResponse(
+            "The order has been successfully refunded.",
+            data={
+                "results": results,
+                "order": result_data.get("sale_order"),
+                "orderRefund": result_data.get("return_order"),
+            },
+        )
+
+    @staticmethod
+    def getOrderRefunds(sale_order_id, request):
+        order = SaleService.buildSaleDetail(sale_order_id, request)
+        order["refunds"] = SaleService.getRefunds(sale_order_id, request).data
+        return successResponse("Order refunds retrieved successfully.", data=order)
+
+    @staticmethod
     def delete(data, request):
         ids = data.get("ids")
         if not isinstance(ids, list):
@@ -3924,14 +4021,16 @@ class SaleService:
             settings = getOptionSettings(request.user)
             customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request) if sale_order.get("customer_id") else None
             prepared = SaleReturnValidationService.validateItems(sale_order, data.get("items") or [], request)
+            shipping_refund = money(sale_order.get("shipping")) if data.get("refund_shipping") else Decimal("0")
+            refund_total = prepared["total"] + shipping_refund
 
             return_order = commonQuery.createRecord(
                 OrdersRefund,
                 {
                     "sale_order_id": sale_order["id"],
                     "tax_amount": prepared["tax_amount"],
-                    "shipping": 0,
-                    "total": prepared["total"],
+                    "shipping": shipping_refund,
+                    "total": refund_total,
                     "payment_method": data.get("payment_type") or "",
                 },
                 request=request,
@@ -3980,19 +4079,28 @@ class SaleService:
                 )
                 SaleRefundService.restoreStock(return_order, item, request)
 
+            if shipping_refund > 0:
+                commonQuery.updateRecordById(
+                    Order,
+                    sale_order["id"],
+                    {"shipping": 0},
+                    request=request,
+                    tenant_config=True,
+                )
+
             settlement = SaleRefundService.handleRefundSettlement(
                 return_order,
                 sale_order,
                 customer,
                 data,
-                prepared["total"],
+                refund_total,
                 settings,
                 request,
             )
             updated_sale = SaleService.refreshOrder(sale_order["id"], request).data
             AccountingService.reflectEvent(
                 "order_refunded",
-                prepared["total"],
+                refund_total,
                 name=f"Order refund {sale_order['code']}",
                 transaction_type="adjustment",
                 source_type="refund",

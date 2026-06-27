@@ -135,17 +135,23 @@ class InstallmentPayIn(Schema):
 
 
 class SaleReturnItemIn(Schema):
-    sale_item_id: int
+    sale_item_id: Optional[int] = None
+    id: Optional[int] = None
     quantity: Decimal = Field(..., gt=0)
     unit_price: Optional[Decimal] = Field(None, ge=0)
     condition: ReturnCondition = "unspoiled"
     note: str = ""
+    description: str = ""
 
 
 class SaleReturnCreateIn(Schema):
     return_type: ReturnType = "refund"
     payment_type: Optional[str] = None
+    payment: Optional[dict] = None
     exchange_sale_id: Optional[int] = None
     reference_number: str = ""
     note: str = ""
-    items: List[SaleReturnItemIn]
+    total: Optional[Decimal] = None
+    refund_shipping: bool = False
+    items: List[SaleReturnItemIn] = Field(default_factory=list)
+    products: List[SaleReturnItemIn] = Field(default_factory=list)

@@ -295,6 +295,59 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(order.payment_status, "order_void")
         self.assertEqual(order.voidance_reason, "Customer cancelled")
 
+    def test_order_refund_wrapper_accepts_source_payload_and_shipping(self):
+        self.stock_product(3)
+        sale = SaleService.create(
+            {
+                "order_type": "takeaway",
+                "shipping": Decimal("10"),
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("110")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        sale_item = OrdersProduct.objects.get(sale_order=order)
+
+        refunded = SaleService.refundOrder(
+            order.id,
+            {
+                "payment": {"identifier": "cash-payment"},
+                "refund_shipping": True,
+                "total": Decimal("110"),
+                "products": [
+                    {
+                        "id": sale_item.id,
+                        "quantity": Decimal("1"),
+                        "unit_price": Decimal("100"),
+                        "condition": "unspoiled",
+                        "description": "Returned in good condition",
+                    }
+                ],
+            },
+            self.request,
+        ).data
+
+        order.refresh_from_db()
+        order_refund = refunded["orderRefund"]
+        self.assertEqual(order_refund["payment_method"], "cash-payment")
+        self.assertEqual(order_refund["shipping"], Decimal("10.00000"))
+        self.assertEqual(order_refund["total"], Decimal("110.00000"))
+        self.assertEqual(order.shipping, Decimal("0.00000"))
+        self.assertEqual(refunded["results"][0]["data"]["productRefund"]["description"], "Returned in good condition")
+
+        refunds = SaleService.getOrderRefunds(order.id, self.request).data
+        self.assertEqual(refunds["id"], order.id)
+        self.assertEqual(refunds["refunds"][0]["id"], order_refund["id"])
+        self.assertEqual(refunds["refunds"][0]["payment_method_label"], "Cash")
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

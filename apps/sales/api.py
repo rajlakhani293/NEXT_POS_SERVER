@@ -210,8 +210,9 @@ def getSupportedOrderPayments(request):
 
 @ordersRouter.get("/", response=ApiResponse)
 @permissionRequired("pos.read.orders")
-def getOrders(request, limit: int = 10):
-    return SaleService.getOrders({"page": 1, "limit": limit}, request)
+def getOrders(request, limit: int = 0):
+    data = {"limit": limit} if limit else {}
+    return SaleService.getOrderCollection(data, request)
 
 
 @ordersRouter.get("/{order_id}", response=ApiResponse)
@@ -241,7 +242,7 @@ def getOrderProductsRefunded(request, order_id: int):
 @ordersRouter.get("/{order_id}/refunds", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def getOrderRefunds(request, order_id: int):
-    return SaleService.getRefunds(order_id, request)
+    return SaleService.getOrderRefunds(order_id, request)
 
 
 @ordersRouter.get("/{order_id}/payments", response=ApiResponse)
@@ -321,7 +322,7 @@ def addOrderPayment(request, order_id: int, payload: OrderPaymentActionIn):
 @ordersRouter.post("/{order_id}/refund", response=ApiResponse)
 @permissionRequired("pos.refund.orders")
 def makeOrderRefund(request, order_id: int, payload: SaleReturnCreateIn):
-    return SaleService.createReturn(order_id, payloadData(payload), request)
+    return SaleService.refundOrder(order_id, payloadData(payload), request)
 
 
 @ordersRouter.post("/{order_id}/void", response=ApiResponse)
