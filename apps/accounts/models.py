@@ -7,9 +7,9 @@ from apps.common.commonQuery import commonQuery
 
 class Role(TenantAwareModel):
     ADMIN = "admin"
-    STOREADMIN = "nexopos.store.administrator"
-    STORECASHIER = "nexopos.store.cashier"
-    STORECUSTOMER = "nexopos.store.customer"
+    STOREADMIN = "pos.store.administrator"
+    STORECASHIER = "pos.store.cashier"
+    STORECUSTOMER = "pos.store.customer"
     USER = "user"
     DRIVER = "driver"
 

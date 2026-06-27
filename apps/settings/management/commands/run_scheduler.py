@@ -5,7 +5,7 @@ from apps.settings.services import SchedulerService
 
 
 class Command(BaseCommand):
-    help = "Queue due NexoPOS-style scheduled jobs for every active branch."
+    help = "Queue due POS scheduled jobs for every active branch."
 
     def add_arguments(self, parser):
         parser.add_argument(

@@ -2129,6 +2129,31 @@ class SaleService:
         return successResponse("Sales retrieved successfully.", data=result)
 
     @staticmethod
+    def getOrders(data, request):
+        if data and data.get("id"):
+            return SaleService.getSale(data["id"], request)
+        filters = dict(data or {})
+        if "limit" in filters and "page" not in filters:
+            filters["page"] = 1
+        return SaleService.listSales(filters, request)
+
+    @staticmethod
+    def getSupportedPayments(request):
+        payment_types = commonQuery.findAllRecords(
+            PaymentType,
+            {"status": 0},
+            {
+                "attributes": ["id", "label", "identifier", "description", "priority"],
+                "order": ["priority", "label"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for index, payment in enumerate(payment_types):
+            payment["selected"] = index == 0
+        return successResponse("Payment types retrieved successfully.", data=payment_types)
+
+    @staticmethod
     def buildSaleDetail(sale_order_id, request):
         sale_order = commonQuery.findOneRecord(
             Order,
@@ -2361,6 +2386,56 @@ class SaleService:
         )
 
     @staticmethod
+    def getOrderProducts(sale_order_id, request):
+        sale_data = SaleService.buildSaleDetail(sale_order_id, request)
+        return successResponse("Order products retrieved successfully.", data=sale_data.get("items") or [])
+
+    @staticmethod
+    def getOrderPayments(sale_order_id, request):
+        sale_data = SaleService.buildSaleDetail(sale_order_id, request)
+        return successResponse("Order payments retrieved successfully.", data=sale_data.get("payments") or [])
+
+    @staticmethod
+    def addProducts(sale_order_id, products, request):
+        if not products:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one product is required.")
+        with transaction.atomic():
+            sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+            if sale_order.get("payment_status") in ["paid", "refunded", "partially_refunded", "order_void"]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "This sale cannot be edited in its current status.")
+            if commonQuery.findOneRecord(OrdersRefund, {"sale_order_id": sale_order_id}, request=request, tenant_config=True):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Returned sale cannot be edited.")
+            settings = getOptionSettings(request.user)
+            created = []
+            for item in products:
+                sale_item, _line_total, _item_qty = SaleStockService.applySaleItem(item, sale_order, settings, request)
+                created.append(sale_item)
+            SaleService.refreshOrder(sale_order_id, request)
+            return successResponse("Order products added successfully.", data={"items": created, "order": SaleService.buildSaleDetail(sale_order_id, request)})
+
+    @staticmethod
+    def deleteOrderProduct(sale_order_id, product_id, request):
+        with transaction.atomic():
+            sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+            if sale_order.get("payment_status") in ["paid", "refunded", "partially_refunded", "order_void"]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "This sale cannot be edited in its current status.")
+            sale_item = commonQuery.findOneRecord(
+                OrdersProduct,
+                {"id": product_id, "sale_order_id": sale_order_id},
+                request=request,
+                tenant_config=True,
+            )
+            if sale_item is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Order product not found.")
+            commonQuery.branchScopedQueryset(
+                OrdersProduct,
+                {"id": product_id, "sale_order_id": sale_order_id},
+                request,
+            ).delete()
+            SaleService.refreshOrder(sale_order_id, request)
+            return successResponse("Order product deleted successfully.", data=SaleService.buildSaleDetail(sale_order_id, request))
+
+    @staticmethod
     def getReceipt(sale_order_id, request):
         sale_data = SaleService.buildSaleDetail(sale_order_id, request)
         receipt = {
@@ -2573,16 +2648,16 @@ class SaleService:
         if updated_count:
             commonQuery.branchScopedQueryset(
                 Notification,
-                {"identifier": "ns.due-orders-notifications"},
+                {"identifier": "due-orders-notifications"},
                 request,
             ).delete()
             
             from apps.settings.services import NotificationService
             NotificationService.dispatchForRoleNamespaces(
-                ["admin", "nexopos.store.administrator"],
+                ["admin", "pos.store.administrator"],
                 title="Unpaid Orders Turned Due",
                 description=f"{updated_count} order(s) either unpaid or partially paid has turned due. This occurs if none has been completed before the expected payment date.",
-                identifier="ns.due-orders-notifications",
+                identifier="due-orders-notifications",
                 url="/sales",
                 source="system",
                 request=request,
@@ -3374,6 +3449,26 @@ class SaleService:
                     "collected_amount": collected_amount,
                 },
             )
+
+    @staticmethod
+    def addPayment(sale_order_id, data, request):
+        amount = data.get("amount") if data.get("amount") is not None else data.get("value")
+        payment_type = data.get("payment_type") or data.get("identifier")
+        return SaleService.collectDue(
+            sale_order_id,
+            {
+                "note": data.get("note") or "",
+                "payments": [
+                    {
+                        "payment_type": payment_type,
+                        "amount": amount,
+                        "reference_number": data.get("reference_number") or "",
+                        "note": data.get("note") or "",
+                    }
+                ],
+            },
+            request,
+        )
 
     @staticmethod
     def updateProcessingStatus(sale_order_id, data, request):

@@ -3,7 +3,7 @@ from django.core.management.base import BaseCommand
 from apps.settings.services import JobQueueService
 
 class Command(BaseCommand):
-    help = "Run the NexoPOS queue worker to process pending enqueued jobs."
+    help = "Run the POS queue worker to process pending enqueued jobs."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -25,7 +25,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        self.stdout.write(self.style.SUCCESS("Starting NexoPOS Queue Worker..."))
+        self.stdout.write(self.style.SUCCESS("Starting POS Queue Worker..."))
         
         handlers = JobQueueService.handlers()
 

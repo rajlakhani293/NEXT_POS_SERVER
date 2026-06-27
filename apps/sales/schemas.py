@@ -28,6 +28,16 @@ class OrderPaymentIn(Schema):
     note: str = ""
 
 
+class OrderPaymentActionIn(Schema):
+    identifier: Optional[str] = None
+    payment_type: Optional[str] = None
+    value: Optional[Decimal] = Field(None, ge=0)
+    amount: Optional[Decimal] = Field(None, ge=0)
+    register_id: Optional[int] = None
+    reference_number: str = ""
+    note: str = ""
+
+
 class SaleCreateIn(Schema):
     draft_id: Optional[int] = None
     customer_id: Optional[int] = None
@@ -45,6 +55,10 @@ class SaleCreateIn(Schema):
     coupon_codes: List[str] = Field(default_factory=list)
     items: List[SaleItemIn]
     payments: List[OrderPaymentIn] = Field(default_factory=list)
+
+
+class OrderProductsActionIn(Schema):
+    products: List[SaleItemIn]
 
 
 class SaleUpdateIn(SaleCreateIn):

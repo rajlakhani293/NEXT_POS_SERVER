@@ -9,7 +9,7 @@ from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
 
 
-class NexoPosApiIntegrationTest(TestCase):
+class PosApiIntegrationTest(TestCase):
     def setUp(self):
         # 1. Setup Tenant A
         self.company_a = Company.objects.create(name="Company A", code="company-a")

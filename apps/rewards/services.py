@@ -298,7 +298,7 @@ class RewardSystemService:
             )
             coupon_name_map = {c["id"]: c["name"] for c in coupons}
 
-        # Enrich each item: add coupon_name and append rule count to name (matching NexoPOS setActions)
+        # Enrich each item with coupon_name and rule count.
         for item in result["items"]:
             item["coupon_name"] = coupon_name_map.get(item.get("coupon_id")) or "-"
             rule_count = len(item.get("rules") or [])

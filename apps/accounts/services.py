@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.text import slugify
 from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserRoleRelation
 from apps.accounts.permission_catalog import (
-    NEXOPOS_PERMISSION_CATALOG,
+    SOURCE_PERMISSION_CATALOG,
     PERMISSION_ALIASES,
     PERMISSION_CATALOG,
     ROLE_CATALOG,
@@ -47,8 +47,8 @@ class AccountsService:
                         "name": label,
                     }
                 )
-        for namespace in NEXOPOS_PERMISSION_CATALOG:
-            label = namespace.replace("nexopos.", "").replace(".", " ").replace("-", " ").replace("_", " ").title()
+        for namespace in SOURCE_PERMISSION_CATALOG:
+            label = namespace.replace("pos.", "").replace(".", " ").replace("-", " ").replace("_", " ").title()
             definitions.append(
                 {
                     "codename": namespace,
@@ -766,7 +766,7 @@ class AccountsService:
             custom_where={"company_id": user.company_id},
         )
 
-        # Batch-fetch roles for each user in page (matching NexoPOS rolesNames)
+        # Batch-fetch roles for each user in page.
         user_ids = [item["id"] for item in result["items"]]
         relations = (
             UserRoleRelation.objects.filter(user_id__in=user_ids, status=0)

@@ -24,7 +24,7 @@ from apps.settings.models import FailedJob, Job, Notification, Option, PaymentTy
 from apps.settings.services import JobQueueService, OptionSettingService
 
 
-class NexoPosParityFlowTest(TestCase):
+class PosParityFlowTest(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name="Parity Store", code="parity-store")
         self.branch = Branch.objects.create(
@@ -102,7 +102,7 @@ class NexoPosParityFlowTest(TestCase):
         customer_role = Role.objects.get(
             company=self.company,
             branch=self.branch,
-            namespace="nexopos.store.customer",
+            namespace="pos.store.customer",
         )
         customer = User.objects.create_user(
             username=username,
@@ -118,7 +118,7 @@ class NexoPosParityFlowTest(TestCase):
         customer.assignRole("store-customer")
         return customer
 
-    def test_customer_group_delete_transfer_search_and_account_history_follow_nexopos(self):
+    def test_customer_group_delete_transfer_search_and_account_history_follow_source(self):
         source_group = CustomerGroup.objects.create(
             user=self.user,
             company=self.company,
@@ -167,6 +167,44 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(transaction["next_amount"], Decimal("35"))
         self.assertEqual(customer.account_amount, Decimal("35.00000"))
 
+    def test_order_product_and_payment_read_wrappers_follow_source_routes(self):
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-001",
+            order_type="takeaway",
+            payment_status="unpaid",
+        )
+
+        payments = SaleService.getSupportedPayments(self.request).data
+        self.assertEqual([payment["identifier"] for payment in payments], ["cash-payment", "bank-payment", "account-payment"])
+        self.assertTrue(payments[0]["selected"])
+
+        added = SaleService.addProducts(
+            order.id,
+            [
+                {
+                    "product_id": self.product.id,
+                    "unit_id": self.unit.id,
+                    "unit_quantity_id": self.unit_quantity.id,
+                    "quantity": Decimal("1"),
+                }
+            ],
+            self.request,
+        ).data
+        self.assertEqual(len(added["items"]), 1)
+
+        products = SaleService.getOrderProducts(order.id, self.request).data
+        self.assertEqual(len(products), 1)
+        self.assertEqual(products[0]["product_id"], self.product.id)
+
+        order_payments = SaleService.getOrderPayments(order.id, self.request).data
+        self.assertEqual(order_payments, [])
+
+        deleted = SaleService.deleteOrderProduct(order.id, products[0]["id"], self.request).data
+        self.assertEqual(deleted["total_items"], 0)
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {
@@ -192,7 +230,7 @@ class NexoPosParityFlowTest(TestCase):
         self.unit_quantity.refresh_from_db()
         return purchase
 
-    def test_branch_defaults_match_nexopos_seed_counts(self):
+    def test_branch_defaults_match_source_seed_counts(self):
         self.assertEqual(Role.objects.filter(company=self.company, branch=self.branch, status=0).count(), 5)
         self.assertEqual(PaymentType.objects.filter(company=self.company, branch=self.branch, status=0).count(), 3)
         self.assertEqual(TransactionAccount.objects.filter(company=self.company, branch=self.branch, status=0).count(), 17)
@@ -217,7 +255,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(options["pos_vat"], "disabled")
         self.assertEqual(options["store_language"], "en")
 
-    def test_delivery_order_statuses_and_saved_settings_follow_nexopos(self):
+    def test_delivery_order_statuses_and_saved_settings_follow_source(self):
         self.stock_product(4)
         OptionSettingService.ensureOptionValue(
             self.company,
@@ -304,7 +342,7 @@ class NexoPosParityFlowTest(TestCase):
         with self.assertRaises(Exception):
             SaleService.updateDeliveryStatus(takeaway_order.id, {"status": "delivered"}, self.request)
 
-    def test_product_vat_is_computed_from_product_tax_group_like_nexopos(self):
+    def test_product_vat_is_computed_from_product_tax_group_like_source(self):
         self.unit_quantity.quantity = Decimal("5")
         self.unit_quantity.save(update_fields=["quantity"])
         tax_group = TaxGroup.objects.create(
@@ -391,7 +429,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(refund_receipt["items"][0]["tax_amount"], Decimal("18.00000"))
         self.assertEqual(refund_receipt["totals_summary"]["total"], Decimal("118.00000"))
 
-    def test_order_level_vat_creates_order_tax_rows_like_nexopos(self):
+    def test_order_level_vat_creates_order_tax_rows_like_source(self):
         self.unit_quantity.quantity = Decimal("5")
         self.unit_quantity.save(update_fields=["quantity"])
         tax_group = TaxGroup.objects.create(
@@ -464,7 +502,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(tax_rows[0].tax_value, Decimal("0.00000"))
         self.assertEqual(tax_rows[1].tax_value, Decimal("0.00000"))
 
-    def test_unpaid_sale_update_rebuilds_items_totals_and_stock_like_nexopos(self):
+    def test_unpaid_sale_update_rebuilds_items_totals_and_stock_like_source(self):
         self.unit_quantity.quantity = Decimal("5")
         self.unit_quantity.save(update_fields=["quantity"])
         OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
@@ -519,7 +557,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(OrdersProduct.objects.get(sale_order=order).quantity, Decimal("2.00000"))
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("5.0"))
 
-    def test_partially_paid_sale_update_preserves_payments_and_recomputes_stock_like_nexopos(self):
+    def test_partially_paid_sale_update_preserves_payments_and_recomputes_stock_like_source(self):
         self.unit_quantity.quantity = Decimal("5")
         self.unit_quantity.save(update_fields=["quantity"])
         OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
@@ -583,7 +621,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
         self.assertEqual(customer.owed_amount, Decimal("150.00000"))
 
-    def test_unpaid_sale_void_keeps_order_trace_and_reason_like_nexopos(self):
+    def test_unpaid_sale_void_keeps_order_trace_and_reason_like_source(self):
         OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
         customer = self.create_customer(username="void-customer")
@@ -616,7 +654,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(customer.owed_amount, Decimal("0.00000"))
         self.assertTrue(Order.objects.filter(id=order.id).exists())
 
-    def test_sale_delete_reverses_related_records_and_soft_deletes_order_like_nexopos(self):
+    def test_sale_delete_reverses_related_records_and_soft_deletes_order_like_source(self):
         self.stock_product(5)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
@@ -681,7 +719,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(customer.owed_amount, Decimal("0.00000"))
         self.assertFalse(RegistersHistory.objects.filter(order_id=order.id).exists())
 
-    def test_collect_due_updates_payment_customer_register_and_accounting_like_nexopos(self):
+    def test_collect_due_updates_payment_customer_register_and_accounting_like_source(self):
         self.stock_product(5)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
@@ -746,7 +784,7 @@ class NexoPosParityFlowTest(TestCase):
             2,
         )
 
-    def test_installment_payment_marks_line_and_finalizes_sale_like_nexopos(self):
+    def test_installment_payment_marks_line_and_finalizes_sale_like_source(self):
         self.stock_product(5)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "true", user=self.user)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "customers_credit_enabled", "true", user=self.user)
@@ -829,7 +867,7 @@ class NexoPosParityFlowTest(TestCase):
             3,
         )
 
-    def test_hold_cart_has_no_stock_payment_accounting_or_customer_side_effects_like_nexopos(self):
+    def test_hold_cart_has_no_stock_payment_accounting_or_customer_side_effects_like_source(self):
         self.stock_product(5)
         customer = self.create_customer(username="hold-customer")
 
@@ -868,7 +906,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(fetched["note_text"], "Call back later")
         self.assertEqual(fetched["payments"][0]["amount"], Decimal("20.00000"))
 
-    def test_hold_cart_conversion_soft_deletes_draft_and_processes_real_sale_like_nexopos(self):
+    def test_hold_cart_conversion_soft_deletes_draft_and_processes_real_sale_like_source(self):
         self.stock_product(5)
         customer = self.create_customer(username="hold-convert-customer")
         held = SaleService.hold(
@@ -913,7 +951,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertTrue(OrdersProduct.objects.filter(sale_order_id=sale["id"]).exists())
         self.assertTrue(TransactionHistory.objects.filter(order_id=sale["id"]).exists())
 
-    def test_expired_hold_cart_cleanup_only_soft_deletes_hold_orders_like_nexopos(self):
+    def test_expired_hold_cart_cleanup_only_soft_deletes_hold_orders_like_source(self):
         self.stock_product(5)
         OptionSettingService.ensureOptionValue(
             self.company,
@@ -964,7 +1002,7 @@ class NexoPosParityFlowTest(TestCase):
         with self.assertRaises(Exception):
             SaleService.deleteHeldCart(active_order.id, self.request)
 
-    def test_procurement_sale_and_accounting_side_effects_follow_nexopos_flow(self):
+    def test_procurement_sale_and_accounting_side_effects_follow_source_flow(self):
         purchase = PurchaseOrderService.create(
             {
                 "provider_id": self.provider.id,
@@ -1086,7 +1124,7 @@ class NexoPosParityFlowTest(TestCase):
             ).exists()
         )
 
-    def test_coupon_target_usage_and_sale_refund_flow_follow_nexopos(self):
+    def test_coupon_target_usage_and_sale_refund_flow_follow_source(self):
         self.stock_product(10)
         customer = self.create_customer(username="coupon-customer")
         coupon = CouponService.create(
@@ -1180,7 +1218,7 @@ class NexoPosParityFlowTest(TestCase):
             ).exists()
         )
 
-    def test_customer_reward_redeem_and_job_execution_follow_nexopos(self):
+    def test_customer_reward_redeem_and_job_execution_follow_source(self):
         reward_coupon = CouponService.create(
             {
                 "name": "Reward Coupon",
@@ -1268,7 +1306,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(run_result, {"status": "completed", "job_id": job.id})
         self.assertFalse(Job.objects.filter(id=job.id).exists())
 
-    def test_order_storage_purge_job_matches_nexopos_with_branch_safe_scope(self):
+    def test_order_storage_purge_job_matches_source_with_branch_safe_scope(self):
         other_branch = Branch.objects.create(
             company=self.company,
             name="Second Branch",
@@ -1298,14 +1336,14 @@ class NexoPosParityFlowTest(TestCase):
         self.assertTrue(OrderStorage.objects.filter(id=other_storage.id).exists())
 
     def test_missing_background_job_handler_moves_job_to_failed_jobs(self):
-        job = JobQueueService.enqueue("unknown_nexopos_job", {"sample": True}, request=self.request)
+        job = JobQueueService.enqueue("unknown_pos_job", {"sample": True}, request=self.request)
 
         run_result = JobQueueService.runNext(SaleService.jobHandlers())
 
         self.assertEqual(run_result, {"status": "failed", "job_id": job.id, "reason": "missing_handler"})
         self.assertFalse(Job.objects.filter(id=job.id).exists())
         failed_job = FailedJob.objects.get()
-        self.assertIn("unknown_nexopos_job", failed_job.payload)
+        self.assertIn("unknown_pos_job", failed_job.payload)
         self.assertEqual(failed_job.company_id, self.company.id)
         self.assertEqual(failed_job.branch_id, self.branch.id)
 
@@ -1372,7 +1410,7 @@ class NexoPosParityFlowTest(TestCase):
         self.assertEqual(sale_item.quantity, Decimal("0.00000"))
         self.assertTrue(OrdersRefund.objects.filter(sale_order=order, payment_method="cash-payment").exists())
 
-    def test_customer_account_payment_and_credit_note_follow_nexopos(self):
+    def test_customer_account_payment_and_credit_note_follow_source(self):
         self.unit_quantity.quantity = Decimal("10")
         self.unit_quantity.save(update_fields=["quantity"])
         OptionSettingService.ensureOptionValue(
@@ -1447,7 +1485,7 @@ class NexoPosParityFlowTest(TestCase):
             ).exists()
         )
 
-    def test_partial_sale_installments_collect_due_and_customer_ledger_follow_nexopos(self):
+    def test_partial_sale_installments_collect_due_and_customer_ledger_follow_source(self):
         self.unit_quantity.quantity = Decimal("10")
         self.unit_quantity.save(update_fields=["quantity"])
         OptionSettingService.ensureOptionValue(
@@ -1532,7 +1570,7 @@ class NexoPosParityFlowTest(TestCase):
             ).exists()
         )
 
-    def test_unpaid_sale_void_reverses_stock_and_customer_due_like_nexopos(self):
+    def test_unpaid_sale_void_reverses_stock_and_customer_due_like_source(self):
         self.unit_quantity.quantity = Decimal("10")
         self.unit_quantity.save(update_fields=["quantity"])
         OptionSettingService.ensureOptionValue(
@@ -1599,7 +1637,7 @@ class NexoPosParityFlowTest(TestCase):
             ).exists()
         )
 
-    def test_unpaid_sale_delete_reverses_stock_and_customer_due_like_nexopos(self):
+    def test_unpaid_sale_delete_reverses_stock_and_customer_due_like_source(self):
         self.unit_quantity.quantity = Decimal("10")
         self.unit_quantity.save(update_fields=["quantity"])
         OptionSettingService.ensureOptionValue(
@@ -1654,7 +1692,7 @@ class NexoPosParityFlowTest(TestCase):
             ).exists()
         )
 
-    def test_recurring_transactions_trigger_and_daily_skip_like_nexopos(self):
+    def test_recurring_transactions_trigger_and_daily_skip_like_source(self):
         from apps.accounting.models import Transaction, TransactionBalanceDay
         from apps.accounting.services import TransactionService
         
