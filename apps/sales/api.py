@@ -8,6 +8,7 @@ from apps.sales.schemas import (
     InstallmentPayIn,
     OrderPaymentActionIn,
     OrderProductsActionIn,
+    OrderInstalmentPayloadIn,
     OrderInstalmentUpdateIn,
     OrderInstalmentsCreateIn,
     SaleCollectDueIn,
@@ -334,12 +335,15 @@ def voidOrder(request, order_id: int, payload: SaleVoidIn):
 @ordersRouter.post("/{order_id}/instalments", response=ApiResponse)
 @permissionRequired("pos.create.orders-instalments")
 def createOrderInstalment(request, order_id: int, payload: OrderInstalmentsCreateIn):
-    return SaleService.createInstallments(order_id, payloadData(payload), request)
+    data = payloadData(payload)
+    if data.get("instalment"):
+        return SaleService.createInstallment(order_id, data["instalment"], request)
+    return SaleService.createInstallments(order_id, data, request)
 
 
 @ordersRouter.put("/{order_id}/instalments/{installment_id}", response=ApiResponse)
 @permissionRequired("pos.update.orders-instalments")
-def updateOrderInstalment(request, order_id: int, installment_id: int, payload: OrderInstalmentUpdateIn):
+def updateOrderInstalment(request, order_id: int, installment_id: int, payload: OrderInstalmentPayloadIn):
     return SaleService.updateInstallment(order_id, installment_id, payloadData(payload, exclude_none=True), request)
 
 

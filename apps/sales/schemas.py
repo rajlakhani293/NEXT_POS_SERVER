@@ -100,7 +100,8 @@ class SaleStatusUpdateIn(Schema):
 
 
 class OrderInstalmentCreateIn(Schema):
-    due_date: str
+    due_date: Optional[str] = None
+    date: Optional[str] = None
     amount: Decimal = Field(..., gt=0)
 
 
@@ -109,11 +110,20 @@ class OrderInstalmentsCreateIn(Schema):
     total_amount: Decimal = Field(Decimal("0"), ge=0)
     minimum_first_payment: Decimal = Field(Decimal("0"), ge=0)
     final_payment_date: Optional[str] = None
+    instalment: Optional[OrderInstalmentCreateIn] = None
     lines: List[OrderInstalmentCreateIn] = Field(default_factory=list)
 
 
 class OrderInstalmentUpdateIn(Schema):
     due_date: Optional[str] = None
+    date: Optional[str] = None
+    amount: Optional[Decimal] = Field(None, gt=0)
+
+
+class OrderInstalmentPayloadIn(Schema):
+    instalment: Optional[OrderInstalmentUpdateIn] = None
+    due_date: Optional[str] = None
+    date: Optional[str] = None
     amount: Optional[Decimal] = Field(None, gt=0)
 
 

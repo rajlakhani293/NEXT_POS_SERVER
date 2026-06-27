@@ -205,6 +205,73 @@ class PosParityFlowTest(TestCase):
         deleted = SaleService.deleteOrderProduct(order.id, products[0]["id"], self.request).data
         self.assertEqual(deleted["total_items"], 0)
 
+    def test_order_payment_allows_source_value_identifier_and_change(self):
+        self.stock_product(3)
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-002",
+            order_type="takeaway",
+            payment_status="unpaid",
+        )
+        SaleService.addProducts(
+            order.id,
+            [
+                {
+                    "product_id": self.product.id,
+                    "unit_id": self.unit.id,
+                    "unit_quantity_id": self.unit_quantity.id,
+                    "quantity": Decimal("1"),
+                }
+            ],
+            self.request,
+        )
+
+        response = SaleService.addPayment(
+            order.id,
+            {"identifier": "cash-payment", "value": Decimal("120"), "note": "Cash tender"},
+            self.request,
+        ).data
+
+        order.refresh_from_db()
+        self.assertEqual(order.payment_status, "paid")
+        self.assertEqual(order.tendered_amount, Decimal("120.00000"))
+        self.assertEqual(order.change_amount, Decimal("20.00000"))
+        self.assertEqual(response["orderPayment"]["id"], OrderPayment.objects.get(sale_order_id=order.id).id)
+
+    def test_order_instalment_source_payload_shape_creates_and_updates_single_line(self):
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-003",
+            order_type="takeaway",
+            payment_status="unpaid",
+            total=Decimal("100"),
+        )
+
+        created = SaleService.createInstallment(
+            order.id,
+            {"amount": Decimal("40"), "date": "2026-07-01"},
+            self.request,
+        ).data
+        instalment = OrderInstalment.objects.get(id=created["instalment"]["id"])
+        self.assertEqual(instalment.amount, Decimal("40.00000"))
+
+        SaleService.updateInstallment(
+            order.id,
+            instalment.id,
+            {"instalment": {"amount": Decimal("45"), "date": "2026-07-02"}},
+            self.request,
+        )
+
+        instalment.refresh_from_db()
+        order.refresh_from_db()
+        self.assertEqual(instalment.amount, Decimal("45.00000"))
+        self.assertEqual(timezone.localtime(instalment.date).date().isoformat(), "2026-07-02")
+        self.assertEqual(order.total_instalments, 1)
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

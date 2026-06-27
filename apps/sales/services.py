@@ -7,6 +7,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
+from django.utils.dateparse import parse_date, parse_datetime
 
 from apps.accounting.services import AccountingService
 from apps.catalog.models import Product, ProductHistory, ProductUnitQuantity, Tax
@@ -68,6 +69,24 @@ def normalizeOrderPayments(payments):
         payment["payment_type"] = payment.get("identifier")
         payment["amount"] = payment.get("value")
     return payments
+
+
+def parseInstallmentDate(value):
+    if not value:
+        return value
+    if isinstance(value, datetime):
+        if timezone.is_naive(value):
+            return timezone.make_aware(value, timezone.get_current_timezone())
+        return value
+    parsed_datetime = parse_datetime(str(value))
+    if parsed_datetime:
+        if timezone.is_naive(parsed_datetime):
+            return timezone.make_aware(parsed_datetime, timezone.get_current_timezone())
+        return parsed_datetime
+    parsed_date = parse_date(str(value))
+    if parsed_date:
+        return timezone.make_aware(datetime.combine(parsed_date, time.min), timezone.get_current_timezone())
+    return value
 
 
 def generateOrderCode(request, created_at=None):
@@ -3452,13 +3471,26 @@ class SaleService:
 
     @staticmethod
     def addPayment(sale_order_id, data, request):
-        amount = data.get("amount") if data.get("amount") is not None else data.get("value")
-        payment_type = data.get("payment_type") or data.get("identifier")
-        return SaleService.collectDue(
-            sale_order_id,
-            {
-                "note": data.get("note") or "",
-                "payments": [
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        if sale_order.get("payment_status") == "paid":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to proceed as the order is already paid.")
+
+        amount = money(data.get("amount") if data.get("amount") is not None else data.get("value"))
+        if amount <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment amount must be greater than 0.")
+        payment_type = PaymentTypeService.resolvePaymentType(data.get("payment_type") or data.get("identifier"), request)
+
+        with transaction.atomic():
+            settings = getOptionSettings(request.user)
+            shift = getCurrentRegisterContext(
+                request,
+                data.get("register_id") or sale_order.get("register_id"),
+                required=bool(settings.enable_cash_registers and payment_type == "cash-payment"),
+            )
+            customer = SaleValidationService.ensureCustomer(sale_order.get("customer_id"), request)
+            payment_summary = OrderPaymentService.collectDuePayments(
+                sale_order,
+                [
                     {
                         "payment_type": payment_type,
                         "amount": amount,
@@ -3466,9 +3498,78 @@ class SaleService:
                         "note": data.get("note") or "",
                     }
                 ],
-            },
-            request,
-        )
+                shift,
+                customer,
+                settings,
+                request,
+            )
+            paid_amount = payment_summary["paid_amount"]
+            next_tendered = money(sale_order.get("tendered_amount")) + paid_amount
+            total = money(sale_order.get("total"))
+            next_due = max(total - next_tendered, Decimal("0"))
+            updated_sale = commonQuery.updateRecordById(
+                Order,
+                sale_order_id,
+                {
+                    "register_id": data.get("register_id") or sale_order.get("register_id"),
+                    "tendered_amount": next_tendered,
+                    "change_amount": max(next_tendered - total, Decimal("0")),
+                    "payment_status": "paid" if next_due == 0 else "partially_paid",
+                    "final_payment_date": timezone.now() if next_due == 0 else sale_order.get("final_payment_date"),
+                },
+                request=request,
+                tenant_config=True,
+            )
+
+            SaleStockService.recordSaleStock(updated_sale, request)
+            if sale_order.get("payment_status") != "paid" and next_due == 0:
+                DomainActionService.afterSalePaid(updated_sale, request)
+                SaleCustomerService.finalizePaidSale(updated_sale, customer, settings, request)
+            if customer and paid_amount > 0:
+                next_owed_amount = max(money(customer.get("owed_amount")) - min(paid_amount, saleDueAmount(sale_order)), Decimal("0"))
+                commonQuery.updateRecordById(
+                    Customer,
+                    customer["id"],
+                    {"owed_amount": next_owed_amount},
+                    request=request,
+                    tenant_config=True,
+                )
+                commonQuery.createRecord(
+                    CustomerAccountHistory,
+                    {
+                        "customer_id": customer["id"],
+                        "amount": paid_amount,
+                        "previous_amount": customer.get("owed_amount"),
+                        "next_amount": next_owed_amount,
+                        "operation": "payment",
+                        "order_id": sale_order_id,
+                        "description": data.get("note") or f"Payment for sale {sale_order['code']}",
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+
+            AccountingService.reflectEvent(
+                "order_from_unpaid_to_paid",
+                min(paid_amount, total),
+                name=f"Order payment {sale_order['code']}",
+                transaction_type="income",
+                source_type="sale",
+                source_id=sale_order_id,
+                transaction_date=timezone.now(),
+                description=data.get("note") or "Sale payment received",
+                reference_number=sale_order["code"],
+                request=request,
+            )
+            refreshed_sale = SaleService.buildSaleDetail(sale_order_id, request)
+            return successResponse(
+                "The payment has been saved.",
+                data={
+                    "payment": data,
+                    "orderPayment": {"id": (payment_summary.get("payment_ids") or [None])[0]},
+                    "order": refreshed_sale,
+                },
+            )
 
     @staticmethod
     def updateProcessingStatus(sale_order_id, data, request):
@@ -3512,6 +3613,8 @@ class SaleService:
     def createInstallments(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         lines = data.get("lines") or []
+        if data.get("instalment"):
+            lines = [data["instalment"]]
         if not lines:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one installment line is required.")
         if saleDueAmount(sale_order) <= 0:
@@ -3525,7 +3628,7 @@ class SaleService:
                     OrderInstalment,
                     {
                         "sale_order_id": sale_order_id,
-                        "date": line.get("date") or line.get("due_date"),
+                        "date": parseInstallmentDate(line.get("date") or line.get("due_date")),
                         "amount": line.get("amount") or 0,
                         "paid": False,
                     },
@@ -3548,6 +3651,51 @@ class SaleService:
             return successResponse("Instalments saved successfully.", data=sale_data.get("instalments"))
 
     @staticmethod
+    def createInstallment(sale_order_id, data, request):
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        amount = money(data.get("amount"))
+        due_date = parseInstallmentDate(data.get("date") or data.get("due_date"))
+        if amount <= 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The defined amount is not valid.")
+        existing_total = sum(
+            (
+                money(item.amount)
+                for item in commonQuery.branchScopedQueryset(
+                    OrderInstalment,
+                    {"sale_order_id": sale_order_id, "status": 0},
+                    request,
+                )
+            ),
+            Decimal("0"),
+        )
+        if existing_total >= money(sale_order.get("total")):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No further instalments is allowed for this order. The total instalment already covers the order total.")
+        installment = commonQuery.createRecord(
+            OrderInstalment,
+            {
+                "sale_order_id": sale_order_id,
+                "date": due_date,
+                "amount": amount,
+                "paid": False,
+            },
+            request=request,
+            tenant_config=True,
+        )
+        total_instalments = commonQuery.branchScopedQueryset(
+            OrderInstalment,
+            {"sale_order_id": sale_order_id, "status": 0},
+            request,
+        ).count()
+        commonQuery.updateRecordById(
+            Order,
+            sale_order_id,
+            {"total_instalments": total_instalments, "support_instalments": True},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("The instalment has been created.", data={"instalment": installment})
+
+    @staticmethod
     def updateInstallment(sale_order_id, installment_id, data, request):
         SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         installment = commonQuery.findOneRecord(
@@ -3561,8 +3709,12 @@ class SaleService:
         if installment.get("paid"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid installment cannot be edited.")
         update_data = dict(data or {})
+        if update_data.get("instalment"):
+            update_data = dict(update_data["instalment"])
         if "due_date" in update_data:
             update_data["date"] = update_data.pop("due_date")
+        if "date" in update_data:
+            update_data["date"] = parseInstallmentDate(update_data["date"])
         updated = commonQuery.updateRecordById(
             OrderInstalment,
             installment_id,
