@@ -128,7 +128,7 @@ class OrderInstalmentPayloadIn(Schema):
 
 
 class InstallmentPayIn(Schema):
-    amount: Decimal = Field(..., gt=0)
+    amount: Optional[Decimal] = Field(None, gt=0)
     payment_type: str = "cash-payment"
     reference_number: str = ""
     note: str = ""

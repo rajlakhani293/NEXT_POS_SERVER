@@ -259,15 +259,13 @@ def getOrderInstalments(request, order_id: int):
 @ordersRouter.get("/{order_id}/print/{doc}", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def printOrderDocument(request, order_id: int, doc: str):
-    SaleService.getSale(order_id, request)
-    return successResponse("The printing event has been successfully dispatched.", data={"order_id": order_id, "doc": doc})
+    return SaleService.printOrder(order_id, doc, request)
 
 
 @ordersRouter.get("/{order_id}/print", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def printOrder(request, order_id: int):
-    SaleService.getSale(order_id, request)
-    return successResponse("The printing event has been successfully dispatched.", data={"order_id": order_id, "doc": "receipt"})
+    return SaleService.printOrder(order_id, "receipt", request)
 
 
 @ordersRouter.post("/", response=ApiResponse)
@@ -329,7 +327,7 @@ def makeOrderRefund(request, order_id: int, payload: SaleReturnCreateIn):
 @ordersRouter.post("/{order_id}/void", response=ApiResponse)
 @permissionRequired("pos.void.orders")
 def voidOrder(request, order_id: int, payload: SaleVoidIn):
-    return SaleService.void(order_id, payloadData(payload), request)
+    return SaleService.voidOrder(order_id, payloadData(payload), request)
 
 
 @ordersRouter.post("/{order_id}/instalments", response=ApiResponse)

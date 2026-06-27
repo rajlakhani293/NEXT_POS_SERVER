@@ -272,6 +272,29 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(timezone.localtime(instalment.date).date().isoformat(), "2026-07-02")
         self.assertEqual(order.total_instalments, 1)
 
+    def test_order_print_and_void_wrappers_follow_source_response_shape(self):
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-004",
+            order_type="takeaway",
+            payment_status="paid",
+            tendered_amount=Decimal("100"),
+            total=Decimal("100"),
+        )
+
+        printed = SaleService.printOrder(order.id, "receipt", self.request)
+        self.assertEqual(printed.message, "The printing event has been successfully dispatched.")
+        self.assertIsNone(printed.data)
+
+        voided = SaleService.voidOrder(order.id, {"reason": "Customer cancelled"}, self.request)
+        order.refresh_from_db()
+        self.assertEqual(voided.message, "The order has been correctly voided.")
+        self.assertIsNone(voided.data)
+        self.assertEqual(order.payment_status, "order_void")
+        self.assertEqual(order.voidance_reason, "Customer cancelled")
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {
@@ -909,7 +932,9 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(order.payment_status, "partially_paid")
         self.assertEqual(order.tendered_amount, Decimal("100.00000"))
         self.assertEqual(customer.owed_amount, Decimal("100.00000"))
-        self.assertEqual(paid_response["totals_summary"]["due_amount"], Decimal("100.00000"))
+        self.assertEqual(paid_response["instalment"]["id"], first_installment.id)
+        self.assertEqual(paid_response["payment"]["id"], first_installment.payment_id)
+        self.assertEqual(paid_response["order"]["totals_summary"]["due_amount"], Decimal("100.00000"))
         with self.assertRaises(Exception):
             SaleService.updateInstallment(order.id, first_installment.id, {"amount": Decimal("60")}, self.request)
 
@@ -917,7 +942,7 @@ class PosParityFlowTest(TestCase):
         SaleService.payInstallment(
             order.id,
             second_installment.id,
-            {"amount": Decimal("100"), "payment_type": "cash-payment", "note": "Final installment"},
+            {"payment_type": "cash-payment", "note": "Final installment"},
             self.request,
         )
         second_installment.refresh_from_db()

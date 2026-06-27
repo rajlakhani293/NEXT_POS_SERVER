@@ -3268,6 +3268,26 @@ class SaleService:
             return successResponse("Sale voided successfully.", data=updated)
 
     @staticmethod
+    def voidOrder(sale_order_id, data, request):
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        commonQuery.updateRecordById(
+            Order,
+            sale_order_id,
+            {
+                "payment_status": "order_void",
+                "voidance_reason": data.get("reason") or data.get("note") or sale_order.get("voidance_reason"),
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("The order has been correctly voided.")
+
+    @staticmethod
+    def printOrder(sale_order_id, doc, request):
+        SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        return successResponse("The printing event has been successfully dispatched.")
+
+    @staticmethod
     def delete(data, request):
         ids = data.get("ids")
         if not isinstance(ids, list):
@@ -3758,7 +3778,7 @@ class SaleService:
         if installment.get("paid"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installment is already paid.")
 
-        amount = money(data.get("amount"))
+        amount = money(data.get("amount") if data.get("amount") is not None else installment.get("amount"))
         if amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installment amount must be greater than 0.")
         if amount != money(installment.get("amount")):
@@ -3880,7 +3900,20 @@ class SaleService:
                 request=request,
             )
             refreshed_sale = SaleService.buildSaleDetail(sale_order_id, request)
-            return successResponse("Installment paid successfully.", data=refreshed_sale)
+            updated_instalment = commonQuery.findOneRecord(
+                OrderInstalment,
+                installment_id,
+                request=request,
+                tenant_config=True,
+            )
+            return successResponse(
+                "The instalment has been saved.",
+                data={
+                    "instalment": updated_instalment,
+                    "payment": {"id": (payment_summary.get("payment_ids") or [None])[0]},
+                    "order": refreshed_sale,
+                },
+            )
 
     @staticmethod
     def createReturn(sale_order_id, data, request):
