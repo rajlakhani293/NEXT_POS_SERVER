@@ -96,6 +96,12 @@ def permissionsCheck(request):
     )
 
 
+@router.get("/pos/session", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getPosSession(request):
+    return SaleService.getPosSession(request)
+
+
 @router.get("/{sale_order_id}", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def getSale(request, sale_order_id: int):

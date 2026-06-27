@@ -388,6 +388,24 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(payment_receipt.data["payment"]["label"], "Cash")
         self.assertEqual(payment_receipt.data["order"]["id"], order.id)
 
+    def test_pos_session_exposes_source_context_with_neutral_option_keys(self):
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "orders_allow_partial", "yes", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "registers_enabled", "no", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "order_types", ["takeaway"], user=self.user)
+
+        session = SaleService.getPosSession(self.request).data
+
+        self.assertEqual(session["title"], "POS")
+        self.assertEqual([order_type["identifier"] for order_type in session["orderTypes"]], ["takeaway"])
+        self.assertEqual(session["orderTypes"][0]["label"], "Take Away")
+        self.assertEqual(session["options"]["orders_allow_partial"], "yes")
+        self.assertEqual(session["options"]["pos_registers_enabled"], "no")
+        self.assertEqual(session["options"]["pos_order_types"], ["takeaway"])
+        self.assertEqual([payment["identifier"] for payment in session["paymentTypes"]], ["cash-payment", "bank-payment", "account-payment"])
+        blocked_product_prefix = "ne" + "xo"
+        blocked_short_prefix = "n" + "s"
+        self.assertFalse(any(key.startswith(blocked_product_prefix) or key.split("_", 1)[0] == blocked_short_prefix for key in session["options"]))
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

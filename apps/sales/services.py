@@ -89,6 +89,10 @@ def parseInstallmentDate(value):
     return value
 
 
+def yesNo(value):
+    return "yes" if bool(value) else "no"
+
+
 def generateOrderCode(request, created_at=None):
     if not transaction.get_connection().in_atomic_block:
         with transaction.atomic():
@@ -2218,6 +2222,80 @@ class SaleService:
         for index, payment in enumerate(payment_types):
             payment["selected"] = index == 0
         return successResponse("Payment types retrieved successfully.", data=payment_types)
+
+    @staticmethod
+    def getOrderTypeOptions(settings=None):
+        enabled_types = getattr(settings, "order_types", None) or ["takeaway", "delivery"]
+        options = [
+            {
+                "identifier": "takeaway",
+                "label": "Take Away",
+                "icon": "/images/groceries.png",
+                "selected": False,
+            },
+            {
+                "identifier": "delivery",
+                "label": "Delivery",
+                "icon": "/images/delivery.png",
+                "selected": False,
+            },
+        ]
+        return [option for option in options if option["identifier"] in enabled_types]
+
+    @staticmethod
+    def getPosSession(request):
+        settings = getOptionSettings(request.user)
+        payment_types = SaleService.getSupportedPayments(request).data
+        options = {
+            "pos_printing_document": "receipt",
+            "orders_allow_partial": yesNo(getattr(settings, "allow_partial_orders", False)),
+            "orders_allow_unpaid": yesNo(getattr(settings, "orders_allow_unpaid", False)),
+            "pos_order_types": getattr(settings, "order_types", None) or ["takeaway", "delivery"],
+            "pos_order_sms": "no",
+            "pos_sound_enabled": "yes",
+            "pos_quick_product": yesNo(getattr(settings, "quick_product_enabled", False)),
+            "pos_quick_product_default_unit": 0,
+            "pos_preferred_price": getattr(settings, "pos_preferred_price", "net_prices"),
+            "pos_unit_price_editable": yesNo(getattr(settings, "unit_price_editable", False)),
+            "pos_printing_enabled_for": "only_paid_orders",
+            "pos_registers_enabled": yesNo(getattr(settings, "enable_cash_registers", False)),
+            "pos_idle_counter": 0,
+            "pos_disbursement": "no",
+            "customers_default": False,
+            "pos_vat": getattr(settings, "pos_vat", "disabled"),
+            "pos_tax_group": getattr(settings, "pos_tax_group", None) or None,
+            "pos_tax_type": getattr(settings, "pos_tax_type", None) or False,
+            "pos_printing_gateway": "default",
+            "pos_show_quantity": bool(getattr(settings, "show_quantity", False)),
+            "pos_new_item_audio": "",
+            "pos_complete_sale_audio": "",
+            "pos_numpad": "default",
+            "pos_allow_wholesale_price": False,
+            "pos_allow_decimal_quantities": bool(getattr(settings, "allow_decimal_quantities", False)),
+            "pos_force_autofocus": False,
+            "pos_action_permission_duration": "5minutes",
+            "pos_action_permission_restricted_features": [],
+            "pos_action_permission_enabled": "no",
+            "pos_show_preview_pinned_products": False,
+            "pos_enable_pinned_products": False,
+        }
+        return successResponse(
+            "POS session retrieved successfully.",
+            data={
+                "title": getattr(settings, "store_name", None) or "POS",
+                "orderTypes": SaleService.getOrderTypeOptions(settings),
+                "options": options,
+                "urls": {
+                    "sale_printing_url": "/orders/receipt/{id}",
+                    "orders_url": "/orders",
+                    "dashboard_url": "/dashboard",
+                    "categories_url": "/catalog/categories",
+                    "registers_url": "/registers",
+                    "order_type_url": "/settings/business",
+                },
+                "paymentTypes": payment_types,
+            },
+        )
 
     @staticmethod
     def buildSaleDetail(sale_order_id, request):
