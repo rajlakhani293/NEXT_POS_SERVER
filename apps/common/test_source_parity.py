@@ -348,6 +348,46 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(refunds["refunds"][0]["id"], order_refund["id"])
         self.assertEqual(refunds["refunds"][0]["payment_method_label"], "Cash")
 
+    def test_order_collection_and_receipt_routes_follow_source_shape(self):
+        self.stock_product(3)
+        customer = self.create_customer(username="receipt-customer")
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+        payment = OrderPayment.objects.get(sale_order=order)
+
+        orders = SaleService.getOrderCollection({"limit": 1}, self.request).data
+        self.assertEqual(len(orders), 1)
+        self.assertEqual(orders[0]["id"], order.id)
+        self.assertEqual(orders[0]["customer"]["id"], customer.id)
+
+        receipt = SaleService.getOrderReceipt(order.id, self.request)
+        self.assertEqual(receipt.message, f"Order Receipt — {order.code}")
+        self.assertEqual(receipt.data["payments"][0]["identifier"], "cash-payment")
+
+        invoice = SaleService.getOrderInvoice(order.id, self.request)
+        self.assertEqual(invoice.message, f"Order Invoice — {order.code}")
+        self.assertEqual(invoice.data["paymentStatus"], "paid")
+
+        payment_receipt = SaleService.getOrderPaymentReceipt(payment.id, self.request)
+        self.assertEqual(payment_receipt.message, f"Payment Receipt — {order.code}")
+        self.assertEqual(payment_receipt.data["payment"]["label"], "Cash")
+        self.assertEqual(payment_receipt.data["order"]["id"], order.id)
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

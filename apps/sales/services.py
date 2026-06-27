@@ -2539,6 +2539,55 @@ class SaleService:
         return successResponse("Sale receipt retrieved successfully.", data=receipt)
 
     @staticmethod
+    def getOrderReceipt(sale_order_id, request):
+        receipt = SaleService.getReceipt(sale_order_id, request).data
+        return successResponse(
+            f"Order Receipt — {receipt['code']}",
+            data=receipt,
+        )
+
+    @staticmethod
+    def getOrderInvoice(sale_order_id, request):
+        invoice = SaleService.buildSaleDetail(sale_order_id, request)
+        invoice["paymentStatus"] = invoice.get("payment_status")
+        invoice["deliveryStatus"] = invoice.get("delivery_status")
+        return successResponse(
+            f"Order Invoice — {invoice['code']}",
+            data=invoice,
+        )
+
+    @staticmethod
+    def getOrderPaymentReceipt(payment_id, request):
+        payment = commonQuery.findOneRecord(
+            OrderPayment,
+            payment_id,
+            request=request,
+            tenant_config=True,
+        )
+        if payment is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Order payment not found.")
+        order = SaleService.buildSaleDetail(payment["sale_order_id"], request)
+        payment_types = {
+            item["identifier"]: item["label"]
+            for item in commonQuery.findAllRecords(
+                PaymentType,
+                {"status__in": [0, 1]},
+                {"attributes": ["identifier", "label"]},
+                request=request,
+                tenant_config=True,
+            )
+        }
+        payment["label"] = payment_types.get(payment.get("identifier"), payment.get("identifier"))
+        return successResponse(
+            f"Payment Receipt — {order['code']}",
+            data={
+                "payment": payment,
+                "order": order,
+                "paymentTypes": payment_types,
+            },
+        )
+
+    @staticmethod
     def hold(data, request):
         if not data.get("items"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one sale item is required.")

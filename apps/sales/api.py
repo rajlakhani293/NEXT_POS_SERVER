@@ -208,6 +208,30 @@ def getSupportedOrderPayments(request):
     return SaleService.getSupportedPayments(request)
 
 
+@ordersRouter.get("/invoice/{order_id}", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getOrderInvoice(request, order_id: int):
+    return SaleService.getOrderInvoice(order_id, request)
+
+
+@ordersRouter.get("/receipt/{order_id}", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getOrderReceipt(request, order_id: int):
+    return SaleService.getOrderReceipt(order_id, request)
+
+
+@ordersRouter.get("/refund-receipt/{refund_id}", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getOrderRefundReceipt(request, refund_id: int):
+    return SaleService.getRefundReceipt(refund_id, request)
+
+
+@ordersRouter.get("/payment-receipt/{payment_id}", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getOrderPaymentReceipt(request, payment_id: int):
+    return SaleService.getOrderPaymentReceipt(payment_id, request)
+
+
 @ordersRouter.get("/", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def getOrders(request, limit: int = 0):
