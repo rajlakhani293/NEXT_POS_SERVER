@@ -586,6 +586,7 @@ class ReportService:
                     "description",
                     "created_at",
                     "status",
+                    "user__username",
                 ],
             },
             request=request,
@@ -597,6 +598,7 @@ class ReportService:
             item["balance_after"] = item.pop("after_quantity", None)
             item["reference_type"] = "sale_order" if item.get("order_id") else "purchase_order" if item.get("procurement_id") else "product_history"
             item["reference_id"] = item.get("order_id") or item.get("procurement_id")
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Stock ledger report retrieved successfully.", data=result)
 
     @staticmethod
