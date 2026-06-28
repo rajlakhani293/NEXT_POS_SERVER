@@ -37,6 +37,18 @@ def updateOptionSettings(request, payload: OptionSettingIn):
     return OptionSettingService.update(request.user, payloadData(payload))
 
 
+@router.get("/{identifier}", response=ApiResponse)
+@permissionRequired("settings_view")
+def getSettingsForm(request, identifier: str):
+    return OptionSettingService.getForm(identifier, request.user)
+
+
+@router.post("/{identifier}", response=ApiResponse)
+@permissionRequired("settings_update")
+def saveSettingsForm(request, identifier: str, payload: dict):
+    return OptionSettingService.saveForm(identifier, request.user, payload or {})
+
+
 @router.post("/jobs/run-next", response=ApiResponse)
 @permissionRequired("settings_update")
 def runNextJob(request):

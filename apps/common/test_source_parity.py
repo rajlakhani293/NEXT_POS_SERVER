@@ -3270,3 +3270,45 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(data_child["previousCategory"]["id"], parent_cat.id)
         self.assertEqual(len(data_child["products"]), 1)
         self.assertEqual(data_child["products"][0]["id"], child_product.id)
+
+    def test_settings_forms_save_options_like_source(self):
+        form = OptionSettingService.getForm("pos", self.user)
+        self.assertTrue(form.success)
+        self.assertEqual(form.data["identifier"], "pos")
+        self.assertIn("features", form.data["tabs"])
+        feature_fields = {field["name"] for field in form.data["tabs"]["features"]["fields"]}
+        self.assertIn("pos_order_types", feature_fields)
+        self.assertIn("pos_quick_product", feature_fields)
+
+        saved = OptionSettingService.saveForm(
+            "pos",
+            self.user,
+            {
+                "pos_order_types": ["takeaway"],
+                "pos_quick_product": "no",
+                "scale_barcode_prefix": "<b>27</b>",
+                "unknown_field": "ignored",
+            },
+        )
+        self.assertTrue(saved.success)
+        self.assertNotIn("unknown_field", saved.data)
+        self.assertEqual(saved.data["scale_barcode_prefix"], "27")
+
+        order_types = Option.objects.get(company=self.company, branch=self.branch, key="order_types")
+        self.assertTrue(order_types.array)
+        self.assertEqual(OptionSettingService.getOptionValue(self.company, self.branch, "order_types"), ["takeaway"])
+        self.assertEqual(OptionSettingService.getOptionValue(self.company, self.branch, "quick_product"), False)
+        self.assertEqual(OptionSettingService.getOptionValue(self.company, self.branch, "scale_barcode_prefix"), 27)
+
+        OptionSettingService.saveForm("pos", self.user, {"scale_barcode_prefix": None})
+        self.assertFalse(
+            Option.objects.filter(
+                company=self.company,
+                branch=self.branch,
+                key="scale_barcode_prefix",
+            ).exists()
+        )
+
+    def test_settings_forms_reject_unknown_identifier(self):
+        with self.assertRaises(Exception):
+            OptionSettingService.getForm("missing-page", self.user)

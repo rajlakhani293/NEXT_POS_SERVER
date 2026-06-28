@@ -1,6 +1,7 @@
 # type: ignore
 import datetime
 import json
+import re
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -59,6 +60,195 @@ class OptionSettingService:
         "scale_barcode_product_length",
         "scale_barcode_value_length",
     }
+    SOURCE_OPTION_ALIASES = {
+        "currency_prefered": "currency_preferred",
+        "pos_prefered_price": "pos_preferred_price",
+        "pos_unit_price_ediable": "unit_price_editable",
+        "pos_allow_decimal_quantities": "allow_decimal_quantities",
+        "pos_quick_product": "quick_product",
+        "pos_show_quantity": "show_quantity",
+        "pos_hide_empty_categories": "hide_empty_categories",
+        "pos_order_types": "order_types",
+        "customers_rewards_enabled": "customers_rewards_enabled",
+        "customers_credit_enabled": "customers_credit_enabled",
+        "orders_allow_partial": "orders_allow_partial",
+    }
+    SETTING_FORMS = {
+        "general": {
+            "title": "General Settings",
+            "description": "Configure the general settings of the application.",
+            "tabs": {
+                "identification": [
+                    ("store_name", "text", "Store Name", "required"),
+                    ("store_address", "text", "Store Address", ""),
+                    ("store_city", "text", "Store City", ""),
+                    ("store_phone", "text", "Store Phone", ""),
+                    ("store_email", "text", "Store Email", ""),
+                    ("store_pobox", "text", "Store PO.Box", ""),
+                    ("store_fax", "text", "Store Fax", ""),
+                    ("store_additional", "textarea", "Store Additional Information", ""),
+                    ("store_square_logo", "media", "Store Square Logo", ""),
+                    ("store_rectangle_logo", "media", "Store Rectangle Logo", ""),
+                    ("store_language", "select", "Language", ""),
+                    ("default_theme", "select", "Theme", ""),
+                ],
+                "currency": [
+                    ("currency_symbol", "text", "Currency Symbol", "required"),
+                    ("currency_iso", "text", "Currency ISO", "required"),
+                    ("currency_position", "select", "Currency Position", ""),
+                    ("currency_prefered", "select", "Preferred Currency", ""),
+                    ("currency_thousand_separator", "text", "Currency Thousand Separator", ""),
+                    ("currency_decimal_separator", "text", "Currency Decimal Separator", ""),
+                    ("currency_precision", "select", "Currency Precision", ""),
+                ],
+                "date": [
+                    ("date_format", "select", "Date Format", ""),
+                    ("datetime_format", "select", "Date Time Format", ""),
+                    ("datetime_timezone", "select", "Timezone", ""),
+                ],
+                "registration": [
+                    ("registration_enabled", "select", "Registration", ""),
+                    ("registration_role", "select", "Default Role", ""),
+                    ("registration_validated", "select", "Validate Registration", ""),
+                    ("recovery_enabled", "switch", "Password Recovery", ""),
+                ],
+            },
+        },
+        "orders": {
+            "title": "Orders Settings",
+            "description": "configure settings that applies to orders.",
+            "tabs": {
+                "general": [
+                    ("orders_code_type", "select", "Order Code Type", ""),
+                    ("orders_allow_unpaid", "switch", "Allow Unpaid Orders", ""),
+                    ("orders_allow_partial", "switch", "Allow Partial Orders", ""),
+                    ("orders_strict_instalments", "switch", "Strict Instalments", ""),
+                    ("orders_quotation_expiration", "select", "Quotation Expiration", ""),
+                ],
+            },
+        },
+        "customers": {
+            "title": "Customers Settings",
+            "description": "Configure the customers settings of the application.",
+            "tabs": {
+                "general": [
+                    ("customers_rewards_enabled", "select", "Enable Reward", ""),
+                    ("customers_force_valid_email", "select", "Require Valid Email", ""),
+                    ("customers_force_unique_phone", "select", "Require Unique Phone", ""),
+                    ("customers_default", "search-select", "Default Customer Account", ""),
+                    ("customers_default_group", "select", "Default Customer Group", ""),
+                    ("customers_credit_enabled", "select", "Enable Credit & Account", ""),
+                ],
+            },
+        },
+        "pos": {
+            "title": "POS Settings",
+            "description": "Configure the pos settings.",
+            "tabs": {
+                "layout": [
+                    ("pos_layout", "select", "Layout", ""),
+                    ("pos_complete_sale_audio", "switch", "Complete Sale Audio", ""),
+                    ("pos_new_item_audio", "switch", "New Item Audio", ""),
+                ],
+                "printing": [
+                    ("pos_printing_enabled", "switch", "Printing", ""),
+                    ("pos_printing_gateway", "select", "Gateway", ""),
+                ],
+                "registers": [
+                    ("registers_enabled", "switch", "Registers", ""),
+                    ("registers_default_change_payment_type", "select", "Default Change Payment Type", ""),
+                ],
+                "vat": [
+                    ("pos_vat", "select", "VAT", ""),
+                    ("pos_tax_group", "select", "Tax Group", ""),
+                    ("pos_tax_type", "select", "Tax Type", ""),
+                ],
+                "features": [
+                    ("pos_show_quantity", "switch", "Show Quantity", ""),
+                    ("pos_items_merge", "switch", "Merge Items", ""),
+                    ("pos_allow_wholesale_price", "switch", "Allow Wholesale Price", ""),
+                    ("pos_allow_decimal_quantities", "switch", "Decimal Quantities", ""),
+                    ("pos_quick_product", "switch", "Quick Product", ""),
+                    ("pos_quick_product_default_unit", "select", "Quick Product Default Unit", ""),
+                    ("pos_unit_price_ediable", "switch", "Unit Price Editable", ""),
+                    ("pos_prefered_price", "select", "Preferred Price", ""),
+                    ("pos_order_types", "multiselect", "Order Types", ""),
+                    ("pos_numpad", "switch", "Numpad", ""),
+                    ("pos_force_autofocus", "switch", "Force Autofocus", ""),
+                    ("pos_hide_exhausted_products", "switch", "Hide Exhausted Products", ""),
+                    ("pos_hide_empty_categories", "switch", "Hide Empty Categories", ""),
+                    ("pos_action_permission_enabled", "switch", "Action Permission", ""),
+                    ("scale_barcode_enabled", "switch", "Scale Barcode", ""),
+                    ("pos_enable_reordering", "switch", "Enable Reordering", ""),
+                    ("pos_enable_pinned_products", "switch", "Pinned Products", ""),
+                    ("pos_show_preview_pinned_products", "switch", "Pinned Product Preview", ""),
+                ],
+                "scale-barcode": [
+                    ("scale_barcode_prefix", "text", "Barcode Prefix", ""),
+                    ("scale_barcode_type", "select", "Barcode Type", ""),
+                    ("scale_barcode_product_length", "number", "Product Code Length", ""),
+                    ("scale_barcode_value_length", "number", "Value Length", ""),
+                ],
+            },
+        },
+        "reports": {
+            "title": "Reports Settings",
+            "description": "Configure report delivery settings.",
+            "tabs": {"general": [("reports_email", "text", "Report Email", "")]},
+        },
+        "invoice": {
+            "title": "Invoice Settings",
+            "description": "Configure receipt and invoice settings.",
+            "tabs": {
+                "receipts": [
+                    ("invoice_receipt_template", "select", "Receipt Template", ""),
+                    ("invoice_receipt_logo", "media", "Receipt Logo", ""),
+                    ("invoice_merge_similar_products", "switch", "Merge Similar Products", ""),
+                    ("invoice_display_tax_breakdown", "switch", "Display Tax Breakdown", ""),
+                    ("invoice_receipt_footer", "textarea", "Receipt Footer", ""),
+                    ("invoice_receipt_column_a", "textarea", "Receipt Column A", ""),
+                    ("invoice_receipt_column_b", "textarea", "Receipt Column B", ""),
+                ],
+            },
+        },
+        "accounting": {
+            "title": "Accounting Settings",
+            "description": "Configure accounting settings.",
+            "tabs": {
+                "general": [
+                    ("accounting_expenses_accounts", "multiselect", "Expense Accounts", ""),
+                    ("accounting_default_paid_expense_offset_account", "search-select", "Paid Expense Offset Account", ""),
+                ],
+                "orders": [
+                    ("accounting_orders_revenues_account", "search-select", "Orders Revenue Account", ""),
+                    ("accounting_orders_cash_account", "search-select", "Orders Cash Account", ""),
+                    ("accounting_orders_unpaid_account", "search-select", "Orders Unpaid Account", ""),
+                    ("accounting_orders_cogs_account", "search-select", "Orders COGS Account", ""),
+                ],
+            },
+        },
+        "workers": {
+            "title": "Workers Settings",
+            "description": "Configure workers settings.",
+            "tabs": {"general": [("workers_enabled", "select", "Workers", "")]},
+        },
+        "reset": {
+            "title": "Reset",
+            "description": "Reset application data.",
+            "tabs": {
+                "reset": [
+                    ("mode", "select", "Mode", ""),
+                    ("create_sales", "checkbox", "Create Sales", ""),
+                    ("create_procurements", "checkbox", "Create Procurements", ""),
+                ],
+            },
+        },
+        "about": {
+            "title": "About",
+            "description": "Application information.",
+            "tabs": {},
+        },
+    }
 
     @staticmethod
     def defaultValues():
@@ -83,6 +273,95 @@ class OptionSettingService:
         if option is None:
             return default
         return decodeOptionValue(option)
+
+    @staticmethod
+    def sourceOptionKey(field):
+        return OptionSettingService.OPTION_KEY_MAP.get(
+            OptionSettingService.SOURCE_OPTION_ALIASES.get(field, field),
+            OptionSettingService.SOURCE_OPTION_ALIASES.get(field, field),
+        )
+
+    @staticmethod
+    def cleanOptionValue(value):
+        if isinstance(value, str):
+            return re.sub(r"<[^>]*>", "", value)
+        if isinstance(value, list):
+            return [OptionSettingService.cleanOptionValue(item) for item in value]
+        if isinstance(value, dict):
+            return {key: OptionSettingService.cleanOptionValue(item) for key, item in value.items()}
+        return value
+
+    @staticmethod
+    def formFields(identifier):
+        form = OptionSettingService.SETTING_FORMS.get(identifier)
+        if form is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to initialize the settings page.")
+        fields = []
+        for tab in form["tabs"].values():
+            fields.extend(tab)
+        return fields
+
+    @staticmethod
+    def fieldValue(user, field):
+        key = OptionSettingService.sourceOptionKey(field)
+        return OptionSettingService.getOptionValue(user.company, user.branch, key)
+
+    @staticmethod
+    def getForm(identifier, user):
+        OptionSettingService.ensureSettings(user)
+        form = OptionSettingService.SETTING_FORMS.get(identifier)
+        if form is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to initialize the settings page.")
+        tabs = {}
+        for tab_identifier, fields in form["tabs"].items():
+            tabs[tab_identifier] = {
+                "identifier": tab_identifier,
+                "label": tab_identifier.replace("-", " ").replace("_", " ").title(),
+                "fields": [
+                    {
+                        "name": name,
+                        "type": field_type,
+                        "label": label,
+                        "validation": validation,
+                        "value": OptionSettingService.fieldValue(user, name),
+                    }
+                    for name, field_type, label, validation in fields
+                ],
+            }
+        return successResponse(
+            "Settings form retrieved successfully.",
+            data={
+                "identifier": identifier,
+                "title": form["title"],
+                "description": form["description"],
+                "tabs": tabs,
+            },
+        )
+
+    @staticmethod
+    def saveForm(identifier, user, data):
+        from apps.settings.models import Option
+
+        allowed_fields = {field[0] for field in OptionSettingService.formFields(identifier)}
+        saved = {}
+        for field, value in (data or {}).items():
+            if field not in allowed_fields:
+                continue
+            key = OptionSettingService.sourceOptionKey(field)
+            if value is None:
+                Option.objects.filter(company=user.company, branch=user.branch, key=key, status=0).delete()
+                continue
+            value = OptionSettingService.cleanOptionValue(value)
+            if key == "order_types":
+                value = OptionSettingService.normalizeOrderTypes(value)
+            if key == "currency_precision":
+                precision = int(value or 0)
+                if precision < 0 or precision > 6:
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Currency precision must be between 0 and 6.")
+                value = precision
+            ensureOptionValue(user.company, user.branch, key, value, user=user)
+            saved[field] = value
+        return successResponse("The form has been successfully saved.", data=saved)
 
     @staticmethod
     def optionValue(options):
