@@ -6,6 +6,7 @@ from django.utils import timezone
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
 from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
+from apps.catalog.services import CategoryService, ProductService, ProductUnitQuantityService, ScaleRangeService, TaxGroupService, TaxService, UnitGroupService, UnitService
 from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.customers.services import CustomerGroupService, CustomerService
 from apps.common.tenantDefaults import TenantDefaultsService
@@ -712,6 +713,231 @@ class PosParityFlowTest(TestCase):
         register.refresh_from_db()
         self.assertEqual(deleted.message, "Cash registers deleted successfully.")
         self.assertEqual(register.status, 2)
+
+    def test_product_source_routes_search_history_units_conversion_reorder_and_reset(self):
+        self.unit_quantity.quantity = 20
+        self.unit_quantity.cogs = 2
+        self.unit_quantity.save(update_fields=["quantity", "cogs"])
+        box_unit = Unit.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            group=self.unit.group,
+            name="Box",
+            identifier="box",
+            value=10,
+        )
+
+        listed = ProductService.getProducts(self.request).data
+        self.assertTrue(any(product["id"] == self.product.id for product in listed))
+
+        searched = ProductService.searchProduct({"search": "TP-001", "limit": 5}, self.request).data
+        self.assertEqual(searched[0]["id"], self.product.id)
+
+        detail = ProductService.getByIdentifier(self.product.id, self.request).data
+        self.assertEqual(detail["id"], self.product.id)
+        self.assertEqual(detail["unit_quantities"][0]["id"], self.unit_quantity.id)
+
+        units = ProductUnitQuantityService.getAll(self.product.id, self.request).data
+        self.assertEqual(units[0]["id"], self.unit_quantity.id)
+
+        unit_quantity = ProductUnitQuantityService.getByProductAndUnit(self.product.id, self.unit.id, self.request).data
+        self.assertEqual(unit_quantity["id"], self.unit_quantity.id)
+
+        conversion = ProductService.convertUnitQuantities(
+            self.product.id,
+            {"from": self.unit.id, "to": box_unit.id, "quantity": 10},
+            self.request,
+        )
+        self.assertTrue(conversion.success)
+        self.unit_quantity.refresh_from_db()
+        converted_quantity = ProductUnitQuantity.objects.get(product=self.product, unit=box_unit)
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("10.0"))
+        self.assertEqual(Decimal(str(converted_quantity.quantity)), Decimal("1.0"))
+        self.assertTrue(ProductHistory.objects.filter(product=self.product, operation_type=ProductHistory.ACTION_CONVERT_OUT).exists())
+        self.assertTrue(ProductHistory.objects.filter(product=self.product, operation_type=ProductHistory.ACTION_CONVERT_IN).exists())
+
+        history = ProductService.getHistory(self.product.id, self.request).data
+        self.assertEqual([item["operation_type"] for item in history], [ProductHistory.ACTION_CONVERT_OUT, ProductHistory.ACTION_CONVERT_IN])
+
+        variation = Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Test Product Small",
+            sku="TP-001-S",
+            type=self.product.type,
+            product_type="variation",
+            parent=self.product,
+            unit_group=self.unit.group,
+        )
+        variations = ProductService.getVariations(self.request, self.product.id).data
+        self.assertEqual([item["id"] for item in variations], [variation.id])
+        all_variations = ProductService.getVariations(self.request).data
+        self.assertTrue(any(item["id"] == variation.id for item in all_variations))
+
+        other_product = Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Later Product",
+            sku="LP-001",
+            position=9,
+            unit_group=self.unit.group,
+        )
+        ProductService.reorderProducts({"items": [{"id": other_product.id}, {"id": self.product.id}]}, self.request)
+        self.product.refresh_from_db()
+        other_product.refresh_from_db()
+        self.assertEqual(other_product.position, 0)
+        self.assertEqual(self.product.position, 1)
+
+        procurement = Procurement.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            provider=self.provider,
+            name="Catalog Procurement",
+        )
+        ProcurementsProduct.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            procurement=procurement,
+            product=self.product,
+            unit=self.unit,
+            name=self.product.name,
+            purchase_price=2,
+            quantity=5,
+            available_quantity=5,
+        )
+        procurements = ProductService.getProcuredProducts(self.product.id, self.request).data
+        self.assertEqual(procurements[0]["procurement"]["name"], "Catalog Procurement")
+
+        reset = ProductService.resetProduct(self.product.id, self.request)
+        self.assertEqual(reset.message, "The product has been reset.")
+        self.assertFalse(ProductHistory.objects.filter(product=self.product).exists())
+        self.assertFalse(ProductUnitQuantity.objects.filter(product=self.product).exists())
+
+    def test_catalog_support_source_routes_and_guards(self):
+        parent_category = Category.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Parent Source Category",
+            position=5,
+        )
+        child_category = Category.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Child Source Category",
+            parent=parent_category,
+            position=9,
+        )
+        category_product = Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Category Product",
+            sku="CAT-001",
+            category=parent_category,
+            unit_group=self.unit.group,
+        )
+        category_variation = Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Category Variation",
+            sku="CAT-001-V",
+            category=parent_category,
+            product_type="variation",
+            parent=category_product,
+            unit_group=self.unit.group,
+        )
+
+        root_categories = CategoryService.getSource(parent=True, request=self.request).data
+        self.assertTrue(any(category["id"] == parent_category.id for category in root_categories))
+        category_products = CategoryService.getProducts(parent_category.id, self.request).data
+        self.assertEqual({product["id"] for product in category_products}, {category_product.id, category_variation.id})
+        category_variations = CategoryService.getProducts(parent_category.id, self.request, variations_only=True).data
+        self.assertEqual([product["id"] for product in category_variations], [category_variation.id])
+        CategoryService.reorderCategories({"items": [{"id": child_category.id}, {"id": parent_category.id}]}, self.request)
+        child_category.refresh_from_db()
+        parent_category.refresh_from_db()
+        self.assertEqual(child_category.position, 0)
+        self.assertEqual(parent_category.position, 1)
+        with self.assertRaises(Exception):
+            CategoryService.delete({"ids": [parent_category.id]}, self.request)
+
+        group_source = UnitGroupService.getSource(self.unit.group_id, request=self.request).data
+        self.assertEqual(group_source["id"], self.unit.group_id)
+        self.assertTrue(any(unit["id"] == self.unit.id for unit in group_source["units"]))
+        group_units = UnitGroupService.getGroupUnits(self.unit.group_id, self.request).data
+        self.assertTrue(any(unit["id"] == self.unit.id for unit in group_units))
+        sibling_unit = Unit.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            group=self.unit.group,
+            name="Sibling Piece",
+            identifier="sibling-piece",
+            value=2,
+        )
+        siblings = UnitService.getSiblingUnits(self.unit.id, self.request).data
+        self.assertEqual([unit["id"] for unit in siblings], [sibling_unit.id])
+        parent_group = UnitService.getUnitParentGroup(self.unit.id, self.request).data
+        self.assertEqual(parent_group["id"], self.unit.group_id)
+
+        tax_group = TaxGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Source Tax Group",
+        )
+        tax = Tax.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            tax_group=tax_group,
+            name="Source Tax",
+            rate=7,
+        )
+        taxes = TaxService.getSource(request=self.request).data
+        self.assertTrue(any(item["id"] == tax.id for item in taxes))
+        tax_group_detail = TaxGroupService.getSource(tax_group.id, request=self.request).data
+        self.assertEqual(tax_group_detail["taxes"][0]["tax_id"], tax.id)
+        self.assertNotIn("id", tax_group_detail["taxes"][0])
+
+        scale_range = ScaleRangeService.create(
+            {
+                "name": "Source PLU Range",
+                "range_start": 70000,
+                "range_end": 70099,
+                "next_scale_plu": 70000,
+                "description": "Source range",
+            },
+            self.request,
+        ).data
+        with self.assertRaises(Exception):
+            ScaleRangeService.create(
+                {
+                    "name": "Overlapping PLU Range",
+                    "range_start": 70050,
+                    "range_end": 70100,
+                    "next_scale_plu": 70050,
+                    "description": "Overlap",
+                },
+                self.request,
+            )
+        Category.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Scale Category",
+            scale_range_id=scale_range["id"],
+        )
+        with self.assertRaises(Exception):
+            ScaleRangeService.delete({"ids": [scale_range["id"]]}, self.request)
 
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(

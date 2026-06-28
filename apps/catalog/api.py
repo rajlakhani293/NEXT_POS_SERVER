@@ -1,3 +1,4 @@
+# type: ignore
 from typing import Optional
 from ninja import File, Form, Router
 from ninja.files import UploadedFile
@@ -10,6 +11,8 @@ from apps.catalog.schemas import (
     ProductUnitQuantityIn,
     ProductUnitQuantityUpdateIn,
     ProductUpdateIn,
+    ScaleRangeIn,
+    ScaleRangeUpdateIn,
     TaxGroupIn,
     TaxGroupUpdateIn,
     TaxIn,
@@ -25,6 +28,7 @@ from apps.catalog.services import (
     ProductService,
     ProductStockService,
     ProductUnitQuantityService,
+    ScaleRangeService,
     TaxGroupService,
     TaxService,
     UnitGroupService,
@@ -49,6 +53,12 @@ def getAllCategories(request, payload: Optional[dict] = None):
     return CategoryService.getAll(payload, request)
 
 
+@router.get("/categories", response=ApiResponse)
+@permissionRequired("pos.read.categories")
+def getCategoriesSourceList(request, parent: Optional[str] = None):
+    return CategoryService.getSource(parent=parent == "true", request=request)
+
+
 @router.get("/categories/dropdown-list", response=ApiResponse)
 @permissionRequired("pos.read.categories")
 def getCategoryDropdown(request):
@@ -61,10 +71,34 @@ def deleteCategories(request, payload: BulkIdsSchema):
     return CategoryService.delete(payloadData(payload), request)
 
 
+@router.delete("/categories/{category_id}", response=ApiResponse)
+@permissionRequired("pos.delete.categories")
+def deleteCategorySource(request, category_id: int):
+    return CategoryService.delete({"ids": [category_id]}, request)
+
+
 @router.patch("/categories/status", response=ApiResponse)
 @permissionRequired("pos.update.categories")
 def updateCategoryStatus(request, payload: StatusUpdateSchema):
     return CategoryService.updateStatus(payloadData(payload), request)
+
+
+@router.post("/categories/reorder", response=ApiResponse)
+@permissionRequired("pos.update.categories")
+def reorderCategories(request, payload: dict):
+    return CategoryService.reorderCategories(payload, request)
+
+
+@router.get("/categories/{category_id}/products", response=ApiResponse)
+@permissionRequired("pos.read.categories")
+def getCategoryProducts(request, category_id: int):
+    return CategoryService.getProducts(category_id, request)
+
+
+@router.get("/categories/{category_id}/variations", response=ApiResponse)
+@permissionRequired("pos.read.categories")
+def getCategoryVariations(request, category_id: int):
+    return CategoryService.getProducts(category_id, request, variations_only=True)
 
 
 @router.get("/categories/{category_id}", response=ApiResponse)
@@ -109,16 +143,58 @@ def getUnitGroupDropdown(request):
     return UnitGroupService.dropdownList(request)
 
 
+@router.get("/unit-groups", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitGroupsSourceList(request):
+    return UnitGroupService.getSource(request=request)
+
+
+@router.get("/units-groups", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitsGroupsSourceList(request):
+    return UnitGroupService.getSource(request=request)
+
+
 @router.delete("/unit-groups/delete", response=ApiResponse)
 @permissionRequired("pos.delete.products-units")
 def deleteUnitGroups(request, payload: BulkIdsSchema):
     return UnitGroupService.delete(payloadData(payload), request)
 
 
+@router.delete("/unit-groups/{unit_group_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products-units")
+def deleteUnitGroupSource(request, unit_group_id: int):
+    return UnitGroupService.delete({"ids": [unit_group_id]}, request)
+
+
+@router.delete("/units-groups/{unit_group_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products-units")
+def deleteUnitsGroupSourceAlias(request, unit_group_id: int):
+    return UnitGroupService.delete({"ids": [unit_group_id]}, request)
+
+
 @router.patch("/unit-groups/status", response=ApiResponse)
 @permissionRequired("pos.update.products-units")
 def updateUnitGroupStatus(request, payload: StatusUpdateSchema):
     return UnitGroupService.updateStatus(payloadData(payload), request)
+
+
+@router.get("/unit-groups/{unit_group_id}/units", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitGroupUnits(request, unit_group_id: int):
+    return UnitGroupService.getGroupUnits(unit_group_id, request)
+
+
+@router.get("/units-groups/{unit_group_id}/units", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitsGroupUnitsSourceAlias(request, unit_group_id: int):
+    return UnitGroupService.getGroupUnits(unit_group_id, request)
+
+
+@router.get("/units-groups/{unit_group_id}", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitsGroupSourceDetail(request, unit_group_id: int):
+    return UnitGroupService.getSource(unit_group_id, request=request)
 
 
 @router.get("/unit-groups/{unit_group_id}", response=ApiResponse)
@@ -150,16 +226,40 @@ def getUnitDropdown(request):
     return UnitService.dropdownList(request)
 
 
+@router.get("/units", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitsSourceList(request):
+    return UnitService.getSource(request=request)
+
+
 @router.delete("/units/delete", response=ApiResponse)
 @permissionRequired("pos.delete.products-units")
 def deleteUnits(request, payload: BulkIdsSchema):
     return UnitService.delete(payloadData(payload), request)
 
 
+@router.delete("/units/{unit_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products-units")
+def deleteUnitSource(request, unit_id: int):
+    return UnitService.delete({"ids": [unit_id]}, request)
+
+
 @router.patch("/units/status", response=ApiResponse)
 @permissionRequired("pos.update.products-units")
 def updateUnitStatus(request, payload: StatusUpdateSchema):
     return UnitService.updateStatus(payloadData(payload), request)
+
+
+@router.get("/units/{unit_id}/group", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getUnitParentGroup(request, unit_id: int):
+    return UnitService.getUnitParentGroup(unit_id, request)
+
+
+@router.get("/units/{unit_id}/siblings", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getSiblingUnits(request, unit_id: int):
+    return UnitService.getSiblingUnits(unit_id, request)
 
 
 @router.get("/units/{unit_id}", response=ApiResponse)
@@ -189,6 +289,12 @@ def getAllTaxGroups(request, payload: Optional[dict] = None):
 @permissionRequired("pos.read.taxes")
 def getTaxGroupDropdown(request):
     return TaxGroupService.dropdownList(request)
+
+
+@router.get("/tax-groups", response=ApiResponse)
+@permissionRequired("pos.read.taxes")
+def getTaxGroupsSourceList(request):
+    return TaxGroupService.getSource(request=request)
 
 
 @router.delete("/tax-groups/delete", response=ApiResponse)
@@ -238,10 +344,34 @@ def deleteTaxes(request, payload: BulkIdsSchema):
     return TaxService.delete(payloadData(payload), request)
 
 
+@router.delete("/taxes/{tax_id}", response=ApiResponse)
+@permissionRequired("pos.delete.taxes")
+def deleteTaxSource(request, tax_id: int):
+    return TaxService.delete({"ids": [tax_id]}, request)
+
+
 @router.patch("/taxes/status", response=ApiResponse)
 @permissionRequired("pos.update.taxes")
 def updateTaxStatus(request, payload: StatusUpdateSchema):
     return TaxService.updateStatus(payloadData(payload), request)
+
+
+@router.get("/taxes/groups", response=ApiResponse)
+@permissionRequired("pos.read.taxes")
+def getTaxesGroupsSourceList(request):
+    return TaxGroupService.getSource(request=request)
+
+
+@router.get("/taxes/groups/{tax_group_id}", response=ApiResponse)
+@permissionRequired("pos.read.taxes")
+def getTaxesGroupSourceDetail(request, tax_group_id: int):
+    return TaxGroupService.getSource(tax_group_id, request=request)
+
+
+@router.get("/taxes", response=ApiResponse)
+@permissionRequired("pos.read.taxes")
+def getTaxesSourceList(request):
+    return TaxService.getSource(request=request)
 
 
 @router.get("/taxes/{tax_id}", response=ApiResponse)
@@ -255,6 +385,49 @@ def getTaxById(request, tax_id: int):
 def updateTax(request, tax_id: int, payload: TaxUpdateIn):
     return TaxService.update(payloadData(payload, exclude_none=True), request, tax_id)
 
+
+@router.post("/scale-ranges/", response=ApiResponse)
+@permissionRequired("pos.create.products")
+def createScaleRange(request, payload: ScaleRangeIn):
+    return ScaleRangeService.create(payloadData(payload), request)
+
+
+@router.post("/scale-ranges/get-transactions", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getAllScaleRanges(request, payload: Optional[dict] = None):
+    return ScaleRangeService.getAll(payload, request)
+
+
+@router.get("/scale-ranges/dropdown-list", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getScaleRangeDropdown(request):
+    return ScaleRangeService.dropdownList(request)
+
+
+@router.delete("/scale-ranges/delete", response=ApiResponse)
+@permissionRequired("pos.delete.products")
+def deleteScaleRanges(request, payload: BulkIdsSchema):
+    return ScaleRangeService.delete(payloadData(payload), request)
+
+
+@router.patch("/scale-ranges/status", response=ApiResponse)
+@permissionRequired("pos.update.products")
+def updateScaleRangeStatus(request, payload: StatusUpdateSchema):
+    return ScaleRangeService.updateStatus(payloadData(payload), request)
+
+
+@router.get("/scale-ranges/{scale_range_id}", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getScaleRangeById(request, scale_range_id: int):
+    return ScaleRangeService.getById(scale_range_id, request)
+
+
+@router.put("/scale-ranges/{scale_range_id}", response=ApiResponse)
+@permissionRequired("pos.update.products")
+def updateScaleRange(request, scale_range_id: int, payload: ScaleRangeUpdateIn):
+    return ScaleRangeService.update(scale_range_id, payloadData(payload, exclude_none=True), request)
+
+
 @router.post("/products/", response=ApiResponse)
 @permissionRequired("pos.create.products")
 def createProduct(request, payload: Form[ProductIn], image: File[Optional[UploadedFile]] = None):
@@ -267,6 +440,24 @@ def getAllProducts(request, payload: Optional[dict] = None):
     return ProductService.getAll(payload, request)
 
 
+@router.get("/products", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getProductsSourceList(request):
+    return ProductService.getProducts(request)
+
+
+@router.post("/products/search", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def searchProducts(request, payload: Optional[dict] = None):
+    return ProductService.searchProduct(payload, request)
+
+
+@router.get("/products/all/variations", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getAllProductVariations(request):
+    return ProductService.getVariations(request)
+
+
 @router.get("/products/dropdown-list", response=ApiResponse)
 @permissionRequired("pos.read.products")
 def getProductDropdown(request):
@@ -277,6 +468,12 @@ def getProductDropdown(request):
 @permissionRequired("pos.delete.products")
 def deleteProducts(request, payload: BulkIdsSchema):
     return ProductService.delete(payloadData(payload), request)
+
+
+@router.delete("/products/{product_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products")
+def deleteProductSource(request, product_id: int):
+    return ProductService.delete({"ids": [product_id]}, request)
 
 
 @router.patch("/products/status", response=ApiResponse)
@@ -297,16 +494,40 @@ def adjustProductStock(request, payload: ProductAdjustmentIn):
     return ProductStockService.applyManualAdjustment(payloadData(payload), request)
 
 
+@router.post("/products/reorder", response=ApiResponse)
+@permissionRequired("pos.update.products")
+def reorderProducts(request, payload: dict):
+    return ProductService.reorderProducts(payload, request)
+
+
 @router.get("/products/{product_id}/units/quantities", response=ApiResponse)
 @permissionRequired("pos.read.products-units")
 def getProductUnitQuantities(request, product_id: int):
     return ProductUnitQuantityService.getAll(product_id, request)
 
 
+@router.get("/products/{product_id}/units", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getProductUnitsSourceAlias(request, product_id: int):
+    return ProductUnitQuantityService.getAll(product_id, request)
+
+
+@router.get("/products/{product_id}/units/{unit_id}/quantity", response=ApiResponse)
+@permissionRequired("pos.read.products-units")
+def getProductUnitQuantitySourceAlias(request, product_id: int, unit_id: int):
+    return ProductUnitQuantityService.getByProductAndUnit(product_id, unit_id, request)
+
+
 @router.post("/products/{product_id}/units/quantities", response=ApiResponse)
 @permissionRequired("pos.update.products-units")
 def createProductUnitQuantity(request, product_id: int, payload: ProductUnitQuantityIn):
     return ProductUnitQuantityService.create(product_id, payloadData(payload), request)
+
+
+@router.post("/products/{product_id}/units/conversion", response=ApiResponse)
+@permissionRequired("pos.update.products")
+def convertProductUnits(request, product_id: int, payload: dict):
+    return ProductService.convertUnitQuantities(product_id, payload, request)
 
 
 @router.put("/products/{product_id}/units/quantities/{unit_quantity_id}", response=ApiResponse)
@@ -324,6 +545,36 @@ def updateProductUnitQuantity(
 @permissionRequired("pos.delete.products-units")
 def deleteProductUnitQuantity(request, product_id: int, unit_quantity_id: int):
     return ProductUnitQuantityService.delete(product_id, unit_quantity_id, request)
+
+
+@router.get("/products/{product_id}/variations", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getProductVariations(request, product_id: int):
+    return ProductService.getVariations(request, product_id)
+
+
+@router.get("/products/{product_id}/refresh-prices", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def refreshProductPrices(request, product_id: int):
+    return ProductService.getByIdentifier(product_id, request)
+
+
+@router.get("/products/{product_id}/reset", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def resetProduct(request, product_id: int):
+    return ProductService.resetProduct(product_id, request)
+
+
+@router.get("/products/{product_id}/history", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getProductHistory(request, product_id: int):
+    return ProductService.getHistory(product_id, request)
+
+
+@router.get("/products/{product_id}/procurements", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def getProductProcurements(request, product_id: int):
+    return ProductService.getProcuredProducts(product_id, request)
 
 
 @router.get("/products/{product_id}", response=ApiResponse)

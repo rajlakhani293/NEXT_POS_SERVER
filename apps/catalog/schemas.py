@@ -37,6 +37,23 @@ class CategoryUpdateIn(Schema):
     status: Optional[ActiveStatus] = None
 
 
+class ScaleRangeIn(Schema):
+    name: str
+    range_start: int
+    range_end: int
+    next_scale_plu: int
+    description: str = ""
+
+
+class ScaleRangeUpdateIn(Schema):
+    name: Optional[str] = None
+    range_start: Optional[int] = None
+    range_end: Optional[int] = None
+    next_scale_plu: Optional[int] = None
+    description: Optional[str] = None
+    status: Optional[ActiveStatus] = None
+
+
 class UnitGroupIn(Schema):
     name: str
     description: str = ""

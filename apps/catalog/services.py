@@ -1,6 +1,6 @@
 # type: ignore
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from apps.catalog.models import (
@@ -22,7 +22,7 @@ from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.domainActions import DomainActionService
-from apps.common.helpers import buildSku, buildUniqueValue, decimalValue, saveProductImage, validateTenantRelationId, validateUniqueFields
+from apps.common.helpers import buildSku, buildUniqueValue, decimalValue, saveProductImage, serializeModelInstance, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.common.tenantDefaults import DEFAULT_SCALE_RANGES
 
@@ -58,6 +58,43 @@ def _normalizeProductPayload(data):
 
 class ScaleRangeService:
     @staticmethod
+    def validateRange(data, request, scale_range_id=None):
+        range_start = data.get("range_start")
+        range_end = data.get("range_end")
+        next_scale_plu = data.get("next_scale_plu")
+        if range_start is None or range_end is None or next_scale_plu is None:
+            existing = None
+            if scale_range_id:
+                existing = commonQuery.branchScopedQueryset(ScaleRange, {"id": scale_range_id}, request).exclude(status=2).first()
+            range_start = range_start if range_start is not None else getattr(existing, "range_start", None)
+            range_end = range_end if range_end is not None else getattr(existing, "range_end", None)
+            next_scale_plu = next_scale_plu if next_scale_plu is not None else getattr(existing, "next_scale_plu", None)
+        if range_start is None or range_end is None or next_scale_plu is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Range start, range end, and next PLU are required.")
+        if range_start >= range_end:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The range start must be less than the range end.")
+        if next_scale_plu < range_start or next_scale_plu > range_end:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, f"The next PLU ({next_scale_plu}) must be within the range {range_start}-{range_end}.")
+        overlap = (
+            commonQuery.branchScopedQueryset(ScaleRange, {}, request)
+            .exclude(status=2)
+            .filter(
+                Q(range_start__lte=range_start, range_end__gte=range_start)
+                | Q(range_start__lte=range_end, range_end__gte=range_end)
+                | Q(range_start__gte=range_start, range_end__lte=range_end)
+            )
+        )
+        if scale_range_id:
+            overlap = overlap.exclude(id=scale_range_id)
+        overlapping_range = overlap.first()
+        if overlapping_range:
+            raise api_error(
+                400,
+                ErrorCodes.BAD_REQUEST,
+                f"The PLU range {range_start}-{range_end} overlaps with an existing range \"{overlapping_range.name}\" ({overlapping_range.range_start}-{overlapping_range.range_end}).",
+            )
+
+    @staticmethod
     def ensureDefaultScaleRanges(company, branch):
         ranges = []
         for name, range_start, range_end, next_scale_plu, description in DEFAULT_SCALE_RANGES:
@@ -87,6 +124,73 @@ class ScaleRangeService:
                 scale_range.save(update_fields=[*update_fields, "updated_at"])
             ranges.append(scale_range)
         return ranges
+
+    @staticmethod
+    def create(data, request):
+        ScaleRangeService.validateRange(data, request)
+        row = commonQuery.createRecord(ScaleRange, data, request=request, tenant_config=True)
+        return successResponse("Scale range created successfully.", data=row)
+
+    @staticmethod
+    def update(scale_range_id, data, request):
+        ScaleRangeService.validateRange(data, request, scale_range_id=scale_range_id)
+        updated = commonQuery.updateRecordById(ScaleRange, scale_range_id, data, request=request, tenant_config=True)
+        if updated is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Scale range not found.")
+        return successResponse("Scale range updated successfully.", data=updated)
+
+    @staticmethod
+    def getAll(data, request):
+        result = commonQuery.fetchPaginatedData(
+            ScaleRange,
+            data,
+            [["name", True, True], ["description", True, True]],
+            {"attributes": ["id", "name", "range_start", "range_end", "next_scale_plu", "description", "status", "created_at"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Scale ranges retrieved successfully.", data=result)
+
+    @staticmethod
+    def dropdownList(request):
+        rows = commonQuery.findAllRecords(
+            ScaleRange,
+            {},
+            {"attributes": ["id", "name", "range_start", "range_end", "next_scale_plu"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Dropdown list retrieved successfully.", data=rows)
+
+    @staticmethod
+    def getById(scale_range_id, request):
+        row = commonQuery.findOneRecord(ScaleRange, scale_range_id, request=request, tenant_config=True)
+        if row is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Scale range not found.")
+        return successResponse("Scale range retrieved successfully.", data=row)
+
+    @staticmethod
+    def delete(data, request):
+        ids = data.get("ids")
+        id_list = ids if isinstance(ids, list) else [ids]
+        ranges = list(commonQuery.branchScopedQueryset(ScaleRange, {"id__in": id_list}, request).exclude(status=2))
+        for scale_range in ranges:
+            if commonQuery.branchScopedQueryset(Category, {"scale_range_id": scale_range.id}, request).exclude(status=2).exists():
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Cannot delete this PLU range because it is being used by one or more categories.")
+            if scale_range.getUsedCount() > 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Cannot delete this PLU range because {scale_range.getUsedCount()} product(s) are using PLU codes from this range.")
+        count = commonQuery.softDeleteById(ScaleRange, ids, request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Scale range not found.")
+        return successResponse("Scale ranges deleted successfully.")
+
+    @staticmethod
+    def updateStatus(data, request):
+        status = data.get("status")
+        count = commonQuery.updateStatusById(ScaleRange, data.get("ids"), status, request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Scale range not found.")
+        return successResponse("Scale range status updated successfully.", data={"updated_count": count, "status": status})
 
 
 class CategoryService:
@@ -130,6 +234,23 @@ class CategoryService:
         return successResponse("Categories retrieved successfully.", data=result)
 
     @staticmethod
+    def getSource(id=None, parent=False, request=None):
+        if id:
+            category = commonQuery.findOneRecord(Category, id, request=request, tenant_config=True)
+            if category is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the category using the provided identifier")
+            return successResponse("Category retrieved successfully.", data=category)
+        filters = {"parent_id": None} if parent else {}
+        rows = commonQuery.findAllRecords(
+            Category,
+            filters,
+            {"attributes": ["id", "name", "parent_id", "description", "media_id", "preview_url", "displays_on_pos", "scale_range_id", "total_items", "position", "status"], "order": ["position", "name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Categories retrieved successfully.", data=rows)
+
+    @staticmethod
     def dropdownList(request):
         data = commonQuery.findAllRecords(
             Category,
@@ -167,6 +288,10 @@ class CategoryService:
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        id_list = ids if isinstance(ids, list) else [ids]
+        if commonQuery.branchScopedQueryset(Category, {"parent_id__in": id_list}, request).exclude(status=2).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Can't delete a category having sub categories linked to it.")
         count = commonQuery.softDeleteById(Category, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
@@ -193,6 +318,21 @@ class CategoryService:
         category.total_items = total_items
         category.save(update_fields=["total_items", "updated_at"])
         return successResponse("Category products recomputed successfully.", data={"category_id": category.id, "total_items": total_items})
+
+    @staticmethod
+    def reorderCategories(data, request):
+        items = (data or {}).get("items") or []
+        for index, item in enumerate(items):
+            category_id = item.get("id") if isinstance(item, dict) else item
+            commonQuery.branchScopedQueryset(Category, {"id": category_id}, request).exclude(status=2).update(position=index)
+        return successResponse("Categories have been successfully reordered.")
+
+    @staticmethod
+    def getProducts(category_id, request, variations_only=False):
+        validateTenantRelationId(Category, category_id, request=request, label="Category", tenant_config=True)
+        queryset = commonQuery.branchScopedQueryset(Product, {"category_id": category_id}, request).exclude(status=2).filter(product_type__in=["variation"] if variations_only else ["product", "variation"])
+        queryset = queryset.filter(status=0).select_related("category", "tax_group", "unit_group", "parent").prefetch_related("unit_quantities", "gallery", "variations")
+        return successResponse("Category products retrieved successfully.", data=[ProductService.serializeProduct(product, request) for product in queryset])
 
     @staticmethod
     def jobHandlers():
@@ -331,6 +471,40 @@ class UnitGroupService:
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
+    def getSource(group_id=None, request=None):
+        if group_id:
+            group = commonQuery.findOneRecord(
+                UnitGroup,
+                group_id,
+                options={"include": [{"path": "units", "fields": ["id", "name", "identifier", "description", "group_id", "value", "base_unit", "status"]}]},
+                request=request,
+                tenant_config=True,
+            )
+            if group is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the unit group to which this unit is attached.")
+            return successResponse("Unit group retrieved successfully.", data=group)
+        groups = commonQuery.findAllRecords(
+            UnitGroup,
+            {},
+            {"attributes": ["id", "name", "description", "status"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Unit groups retrieved successfully.", data=groups)
+
+    @staticmethod
+    def getGroupUnits(group_id, request):
+        validateTenantRelationId(UnitGroup, group_id, request=request, label="Unit group", tenant_config=True)
+        units = commonQuery.findAllRecords(
+            Unit,
+            {"group_id": group_id},
+            {"attributes": ["id", "name", "identifier", "description", "group_id", "value", "base_unit", "status"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Group units retrieved successfully.", data=units)
+
+    @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(UnitGroup, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
@@ -432,6 +606,43 @@ class UnitService:
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
+    def getSource(unit_id=None, request=None):
+        if unit_id:
+            unit = commonQuery.findOneRecord(Unit, unit_id, request=request, tenant_config=True)
+            if unit is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the Unit using the provided id.")
+            return successResponse("Unit retrieved successfully.", data=unit)
+        units = commonQuery.findAllRecords(
+            Unit,
+            {},
+            {"attributes": ["id", "name", "identifier", "description", "group_id", "value", "preview_url", "base_unit", "status"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Units retrieved successfully.", data=units)
+
+    @staticmethod
+    def getSiblingUnits(unit_id, request):
+        unit = commonQuery.branchScopedQueryset(Unit, {"id": unit_id}, request).exclude(status=2).first()
+        if unit is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the Unit using the provided id.")
+        siblings = commonQuery.findAllRecords(
+            Unit,
+            {"group_id": unit.group_id},
+            {"attributes": ["id", "name", "identifier", "description", "group_id", "value", "base_unit", "status"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Sibling units retrieved successfully.", data=[item for item in siblings if item["id"] != unit.id])
+
+    @staticmethod
+    def getUnitParentGroup(unit_id, request):
+        unit = commonQuery.branchScopedQueryset(Unit, {"id": unit_id}, request).exclude(status=2).select_related("group").first()
+        if unit is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the Unit using the provided id.")
+        return successResponse("Unit group retrieved successfully.", data=serializeModelInstance(unit.group))
+
+    @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Unit, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
@@ -502,6 +713,38 @@ class TaxGroupService:
             group["rate"] = total_rate
             group["taxes"] = active_taxes
         return successResponse("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def getSource(tax_group_id=None, request=None):
+        if tax_group_id:
+            group = commonQuery.findOneRecord(
+                TaxGroup,
+                tax_group_id,
+                options={"include": [{"path": "taxes", "fields": ["id", "name", "description", "rate", "tax_group_id", "status"]}]},
+                request=request,
+                tenant_config=True,
+            )
+            if group is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, f"Unable to retrieve the requested tax group using the provided identifier \"{tax_group_id}\".")
+            taxes = []
+            for tax in group.get("taxes") or []:
+                item = dict(tax)
+                item["tax_id"] = item.pop("id")
+                taxes.append(item)
+            group["taxes"] = taxes
+            return successResponse("Tax group retrieved successfully.", data=group)
+        groups = commonQuery.findAllRecords(
+            TaxGroup,
+            {},
+            {
+                "attributes": ["id", "name", "description", "status"],
+                "include": [{"path": "taxes", "fields": ["id", "name", "description", "rate", "tax_group_id", "status"]}],
+                "order": ["name"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Tax groups retrieved successfully.", data=groups)
 
     @staticmethod
     def delete(data, request):
@@ -581,6 +824,22 @@ class TaxService:
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod
+    def getSource(tax_id=None, request=None):
+        if tax_id:
+            tax = commonQuery.findOneRecord(Tax, tax_id, request=request, tenant_config=True)
+            if tax is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the requested product tax using the provided id")
+            return successResponse("Tax retrieved successfully.", data=tax)
+        taxes = commonQuery.findAllRecords(
+            Tax,
+            {},
+            {"attributes": ["id", "name", "description", "rate", "tax_group_id", "status"], "order": ["name"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Taxes retrieved successfully.", data=taxes)
+
+    @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Tax, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
@@ -604,6 +863,25 @@ class TaxService:
 
 
 class ProductService:
+    @staticmethod
+    def serializeProduct(product, request, include_relations=True):
+        data = serializeModelInstance(product)
+        data = ProductService.attachDisplayData(dict(data), request)
+        if include_relations:
+            data["unit_quantities"] = [
+                ProductUnitQuantityService.attachDisplayData(serializeModelInstance(unit_quantity))
+                for unit_quantity in product.unit_quantities.filter(status__in=[0, 1]).select_related("unit", "convert_unit").order_by("id")
+            ]
+            data["gallery"] = list(product.gallery.filter(status__in=[0, 1]).values("id", "name", "media_id", "url", "order", "featured", "status"))
+            data["variations"] = [
+                ProductService.serializeProduct(variation, request, include_relations=False)
+                for variation in product.variations.filter(status__in=[0, 1]).order_by("position", "name")
+            ]
+            if product.tax_group_id:
+                data["tax_group"] = serializeModelInstance(product.tax_group)
+                data["taxes"] = list(product.tax_group.taxes.exclude(status=2).values("id", "name", "rate", "status"))
+        return data
+
     @staticmethod
     def attachDisplayData(product_data, request):
         product_data["category_name"] = _relationName(Category, product_data.get("category_id"), request)
@@ -789,6 +1067,12 @@ class ProductService:
         return successResponse("Products retrieved successfully.", data=result)
 
     @staticmethod
+    def getProducts(request):
+        products = commonQuery.branchScopedQueryset(Product, {}, request)
+        products = products.exclude(status=2).exclude(product_type="variation").order_by("position", "name").select_related("category", "tax_group", "unit_group", "parent").prefetch_related("unit_quantities", "gallery", "variations")
+        return successResponse("Products retrieved successfully.", data=[ProductService.serializeProduct(product, request) for product in products])
+
+    @staticmethod
     def dropdownList(request):
         data = commonQuery.findAllRecords(
             Product,
@@ -810,6 +1094,168 @@ class ProductService:
             tenant_config=True,
         )
         return successResponse("Dropdown list retrieved successfully.", data=data)
+
+    @staticmethod
+    def searchProduct(data, request):
+        search = (data or {}).get("search") or ""
+        limit = int((data or {}).get("limit") or 5)
+        queryset = (
+            commonQuery.branchScopedQueryset(Product, {}, request)
+            .exclude(status=2)
+            .filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
+            .select_related("category", "tax_group", "unit_group", "parent")
+            .prefetch_related("unit_quantities", "gallery", "variations")
+            .order_by("name")[:limit]
+        )
+        return successResponse("Products retrieved successfully.", data=[ProductService.serializeProduct(product, request) for product in queryset])
+
+    @staticmethod
+    def getProductUsingArgument(identifier, request, argument="id"):
+        filters = {"id": identifier}
+        if argument == "sku":
+            filters = {"sku": identifier}
+        elif argument == "barcode":
+            filters = {"barcode": identifier}
+        elif argument != "id":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported product lookup argument.")
+        product = (
+            commonQuery.branchScopedQueryset(Product, filters, request)
+            .exclude(status=2)
+            .select_related("category", "tax_group", "unit_group", "parent")
+            .prefetch_related("unit_quantities", "gallery", "variations")
+            .first()
+        )
+        if product is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
+        return product
+
+    @staticmethod
+    def getByIdentifier(identifier, request, argument="id"):
+        return successResponse("Product retrieved successfully.", data=ProductService.serializeProduct(ProductService.getProductUsingArgument(identifier, request, argument), request))
+
+    @staticmethod
+    def getVariations(request, identifier=None, argument="id"):
+        if identifier is None:
+            variations = commonQuery.branchScopedQueryset(Product, {"product_type": "variation"}, request).exclude(status=2).order_by("position", "name")
+        else:
+            product = ProductService.getProductUsingArgument(identifier, request, argument)
+            variations = product.variations.exclude(status=2).order_by("position", "name")
+        return successResponse("Product variations retrieved successfully.", data=[ProductService.serializeProduct(variation, request) for variation in variations])
+
+    @staticmethod
+    def getHistory(identifier, request, argument="id"):
+        product = ProductService.getProductUsingArgument(identifier, request, argument)
+        histories = commonQuery.findAllRecords(
+            ProductHistory,
+            {"product_id": product.id},
+            {"include": [{"path": "unit", "fields": ["id", "name", "identifier"]}], "order": ["id"]},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Product history retrieved successfully.", data=histories)
+
+    @staticmethod
+    def resetProduct(identifier, request, argument="id"):
+        product = ProductService.getProductUsingArgument(identifier, request, argument)
+        products = list(product.variations.exclude(status=2)) if product.product_type == "variable" else [product]
+        if product.product_type == "variable" and not products:
+            return successResponse(f"Unable to reset this variable product \"{product.name}\", since it doesn't seems to have any variations", data=None)
+        result = []
+        for item in products:
+            commonQuery.branchScopedQueryset(ProductHistory, {"product_id": item.id}, request).delete()
+            commonQuery.branchScopedQueryset(ProductUnitQuantity, {"product_id": item.id}, request).delete()
+            result.append({"product": ProductService.serializeProduct(item, request, include_relations=False)})
+        message = "The product variations has been reset" if product.product_type == "variable" else "The product has been reset."
+        return successResponse(message, data={"result": result} if product.product_type == "variable" else result[0])
+
+    @staticmethod
+    def reorderProducts(data, request):
+        items = (data or {}).get("items") or []
+        for index, item in enumerate(items):
+            product_id = item.get("id") if isinstance(item, dict) else item
+            commonQuery.branchScopedQueryset(Product, {"id": product_id}, request).exclude(status=2).update(position=index)
+        return successResponse("Products have been successfully reordered.")
+
+    @staticmethod
+    def getProcuredProducts(product_id, request):
+        from apps.purchases.models import ProcurementsProduct
+
+        ProductUnitQuantityService.ensureProduct(product_id, request)
+        rows = commonQuery.findAllRecords(
+            ProcurementsProduct,
+            {"product_id": product_id},
+            {
+                "attributes": [
+                    "id",
+                    "name",
+                    "procurement_id",
+                    "procurement__name",
+                    "product_id",
+                    "purchase_price",
+                    "quantity",
+                    "available_quantity",
+                    "barcode",
+                    "expiration_date",
+                    "unit_id",
+                    "unit__name",
+                    "created_at",
+                ],
+                "order": ["-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for row in rows:
+            row["procurement"] = {"name": row.pop("procurement__name", None)}
+            row["unit_name"] = row.pop("unit__name", None)
+        return successResponse("Procured products retrieved successfully.", data=rows)
+
+    @staticmethod
+    def convertUnitQuantities(product_id, data, request):
+        product = ProductService.getProductUsingArgument(product_id, request)
+        if product.stock_management != Product.STOCK_MANAGEMENT[0][0]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You cannot convert unit on a product having stock management disabled.")
+        from_unit = commonQuery.branchScopedQueryset(Unit, {"id": data.get("from")}, request).exclude(status=2).first()
+        to_unit = commonQuery.branchScopedQueryset(Unit, {"id": data.get("to")}, request).exclude(status=2).first()
+        if from_unit is None or to_unit is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+        quantity = decimalValue(data.get("quantity"))
+        if quantity == 0:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The quantity to convert can't be zero.")
+        if from_unit.id == to_unit.id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The source and the destination unit can't be the same.")
+        if from_unit.group_id != to_unit.group_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The source unit and the destination unit doesn't belong to the same unit group.")
+        source = ProductStockService.resolveUnitQuantity(product.id, from_unit.id, request)
+        destination = commonQuery.branchScopedQueryset(ProductUnitQuantity, {"product_id": product.id, "unit_id": to_unit.id}, request).exclude(status=2).first()
+        if destination is None:
+            destination = commonQuery.createInstance(
+                ProductUnitQuantity,
+                {"product_id": product.id, "unit_id": to_unit.id, "quantity": 0, "visible": False},
+                request=request,
+                tenant_config=True,
+            )
+        if decimalValue(source.quantity) < quantity:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, f"The source unit \"({from_unit.name})\" for the product \"{product.name}\", does not have enough quantity.")
+        if from_unit.value < to_unit.value:
+            total_possible_slots = int((decimalValue(from_unit.value) * quantity) // decimalValue(to_unit.value))
+            quantity = decimalValue(total_possible_slots) * decimalValue(to_unit.value)
+        final_destination_quantity = (decimalValue(from_unit.value) * quantity) / decimalValue(to_unit.value)
+        if final_destination_quantity < 1:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, f"The conversion from \"{from_unit.name}\" will cause a decimal value less than one count of the destination unit \"{to_unit.name}\".")
+        with transaction.atomic():
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_CONVERT_OUT,
+                {"product_id": product.id, "unit_id": from_unit.id, "quantity": quantity, "unit_price": source.cogs or 0, "total_price": decimalValue(source.cogs or 0) * quantity, "procurement_product_id": data.get("procurement_product_id")},
+                request,
+            )
+            unit_price = (decimalValue(source.cogs or 0) / final_destination_quantity) if final_destination_quantity else 0
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_CONVERT_IN,
+                {"product_id": product.id, "unit_id": to_unit.id, "quantity": final_destination_quantity, "unit_price": unit_price, "total_price": decimalValue(source.cogs or 0) * quantity, "procurement_product_id": data.get("procurement_product_id")},
+                request,
+            )
+        return successResponse(f"The conversion of {quantity}({from_unit.name}) to {final_destination_quantity}({to_unit.name}) was successful")
 
     @staticmethod
     def searchUsingBarcode(reference, request):
@@ -1428,6 +1874,25 @@ class ProductUnitQuantityService:
             tenant_config=True,
         )
         return successResponse("Product unit quantities retrieved successfully.", data=[ProductUnitQuantityService.attachDisplayData(dict(row)) for row in rows])
+
+    @staticmethod
+    def getByProductAndUnit(product_id, unit_id, request):
+        ProductUnitQuantityService.ensureProduct(product_id, request)
+        row = commonQuery.findOneRecord(
+            ProductUnitQuantity,
+            {"product_id": product_id, "unit_id": unit_id},
+            options={
+                "include": [
+                    {"path": "unit", "fields": ["id", "name", "identifier"]},
+                    {"path": "convert_unit", "fields": ["id", "name", "identifier"]},
+                ]
+            },
+            request=request,
+            tenant_config=True,
+        )
+        if row is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "No stock is provided for the requested product.")
+        return successResponse("Product unit quantity retrieved successfully.", data=ProductUnitQuantityService.attachDisplayData(dict(row)))
 
     @staticmethod
     def create(product_id, data, request):
