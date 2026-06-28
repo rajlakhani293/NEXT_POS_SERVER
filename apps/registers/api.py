@@ -152,6 +152,12 @@ def getRegisterSessionHistory(request, register_id: int):
     return RegisterService.getSessionHistory(register_id, request)
 
 
+@router.get("/{register_id}/z-report", response=ApiResponse)
+@permissionRequired("cash_register_view")
+def getRegisterZReport(request, register_id: int):
+    return RegisterService.getZReport(register_id, request)
+
+
 @router.get("/{register_id}", response=ApiResponse)
 @permissionRequired("cash_register_view")
 def getRegisterById(request, register_id: int):

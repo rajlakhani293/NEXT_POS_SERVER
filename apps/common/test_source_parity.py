@@ -540,6 +540,95 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(summary["Total Change"]["value"], Decimal("20.00000"))
         self.assertEqual(summary["On Hand"]["value"], Decimal("170.00000"))
 
+    def test_register_z_report_follows_source_session_totals(self):
+        register = Register.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Report Register",
+            register_status=Register.STATUS_OPENED,
+            used_by=self.user,
+            balance=Decimal("0"),
+        )
+        opening = RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_OPENING,
+            Decimal("25"),
+            self.request,
+            "Opening",
+        )
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-007",
+            order_type="takeaway",
+            payment_status="paid",
+            register=register,
+            subtotal=Decimal("100"),
+            shipping=Decimal("10"),
+            discount_amount=Decimal("5"),
+            tax_amount=Decimal("15"),
+            total=Decimal("120"),
+            tendered_amount=Decimal("140"),
+            change_amount=Decimal("20"),
+        )
+        OrdersProduct.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            sale_order=order,
+            product=self.product,
+            product_category=self.category,
+            unit=self.unit,
+            unit_quantity=self.unit_quantity,
+            name="Test Product",
+            unit_name="Piece",
+            quantity=Decimal("2"),
+            unit_price=Decimal("50"),
+            discount_amount=Decimal("5"),
+            tax_amount=Decimal("15"),
+            total=Decimal("100"),
+        )
+        OrderPayment.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            sale_order=order,
+            identifier="cash-payment",
+            value=Decimal("140"),
+        )
+        closing = RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_CLOSING,
+            Decimal("130"),
+            self.request,
+            "Closing",
+        )
+
+        report = RegisterService.getZReport(register.id, self.request).data
+
+        self.assertEqual(report["opening"]["id"], opening["id"])
+        self.assertEqual(report["closing"]["id"], closing["id"])
+        self.assertEqual(report["orders"][0]["id"], order.id)
+        self.assertEqual(report["payments"], [{"identifier": "cash-payment", "total_amount": Decimal("140.00000"), "label": "Cash"}])
+        self.assertEqual(report["openingBalance"], Decimal("25.00000"))
+        self.assertEqual(report["closingBalance"], Decimal("130.00000"))
+        self.assertEqual(report["totalGrossSales"], Decimal("100.00000"))
+        self.assertEqual(report["totalDiscounts"], Decimal("5.00000"))
+        self.assertEqual(report["totalShippings"], Decimal("10.00000"))
+        self.assertEqual(report["totalTaxes"], Decimal("15.00000"))
+        self.assertEqual(report["totalSales"], Decimal("120.00000"))
+        self.assertEqual(report["cashOnHand"], Decimal("145.00000"))
+        self.assertEqual(report["difference"], Decimal("-20.00000"))
+        self.assertEqual(report["categories"][self.category.id]["quantity"], Decimal("2.00000"))
+        self.assertEqual(report["products"][self.product.id]["total_price"], Decimal("100.00000"))
+        self.assertEqual(report["products"][self.product.id]["tax_value"], Decimal("15.00000"))
+        self.assertEqual(report["products"][self.product.id]["discount"], Decimal("5.00000"))
+        self.assertEqual(report["cashier"], "(admin)")
+        self.assertEqual(report["user"]["id"], self.user.id)
+        self.assertIn("sessionDuration", report)
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

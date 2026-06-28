@@ -1,6 +1,7 @@
 # type: ignore
 from django.db import transaction
 from django.db.models import Sum
+from django.utils import timezone
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -68,6 +69,13 @@ class RegisterService:
             RegistersHistory.ACTION_ACCOUNT_PAY: "Account Payment",
         }
         return labels.get(entry_type, entry_type)
+
+    @staticmethod
+    def durationLabel(start, end):
+        total_minutes = int((end - start).total_seconds() // 60)
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        return f"{hours}:{minutes:02d}"
 
     @staticmethod
     def recordHistory(register_id, action, amount, request, note=None, payment_id=None, payment_type_id=0, order_id=None):
@@ -388,6 +396,188 @@ class RegisterService:
             }
         )
         return successResponse("Register session history retrieved successfully.", data={"history": history, "summary": summary})
+
+    @staticmethod
+    def getZReport(register_id, request):
+        from apps.accounts.models import User
+        from apps.sales.models import Order, OrderPayment, OrdersProduct
+
+        register = RegisterService._getRegister(register_id, request)
+        opening = (
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {"register_id": register.id, "entry_type": RegistersHistory.ACTION_OPENING},
+                request,
+            )
+            .exclude(status=2)
+            .order_by("-id")
+            .first()
+        )
+        if opening is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The register doesn't have an history.")
+
+        closing = (
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {
+                    "register_id": register.id,
+                    "entry_type": RegistersHistory.ACTION_CLOSING,
+                    "id__gt": opening.id,
+                },
+                request,
+            )
+            .exclude(status=2)
+            .order_by("-id")
+            .first()
+        )
+        end_at = closing.created_at if closing else timezone.now()
+        histories = list(
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {"register_id": register.id, "created_at__gte": opening.created_at},
+                request,
+            )
+            .exclude(status=2)
+            .order_by("-id")
+        )
+        orders_qs = (
+            commonQuery.branchScopedQueryset(
+                Order,
+                {
+                    "register_id": register.id,
+                    "payment_status": "paid",
+                    "created_at__gte": opening.created_at,
+                    "created_at__lte": end_at,
+                },
+                request,
+            )
+            .exclude(status=2)
+            .order_by("id")
+        )
+        order_ids = list(orders_qs.values_list("id", flat=True))
+        payment_labels = {
+            item.identifier: item.label
+            for item in commonQuery.branchScopedQueryset(PaymentType, {"status__in": [0, 1]}, request)
+        }
+
+        payments = []
+        if order_ids:
+            payment_rows = (
+                commonQuery.branchScopedQueryset(OrderPayment, {"sale_order_id__in": order_ids}, request)
+                .exclude(status=2)
+                .values("identifier")
+                .annotate(total_amount=Sum("value"))
+                .order_by("identifier")
+            )
+            payments = [
+                {
+                    "identifier": row["identifier"],
+                    "total_amount": money(row["total_amount"]),
+                    "label": payment_labels.get(row["identifier"], row["identifier"]),
+                }
+                for row in payment_rows
+            ]
+
+        totals = orders_qs.aggregate(
+            total_sales=Sum("total"),
+            total_shippings=Sum("shipping"),
+            total_discounts=Sum("discount_amount"),
+            total_gross_sales=Sum("subtotal"),
+            total_taxes=Sum("tax_amount"),
+            total_change=Sum("change_amount"),
+        )
+        raw_total_sales = money(totals["total_sales"])
+        raw_total_shippings = money(totals["total_shippings"])
+        raw_total_discounts = money(totals["total_discounts"])
+        raw_total_gross_sales = money(totals["total_gross_sales"])
+        raw_total_taxes = money(totals["total_taxes"])
+        total_change = money(totals["total_change"])
+        total_cash_payment = money(
+            commonQuery.branchScopedQueryset(
+                OrderPayment,
+                {"sale_order_id__in": order_ids, "identifier": "cash-payment"},
+                request,
+            )
+            .exclude(status=2)
+            .aggregate(total=Sum("value"))["total"]
+        ) if order_ids else money(0)
+        cash_on_hand = money(opening.amount) + total_cash_payment - total_change
+
+        categories = {}
+        products = {}
+        if order_ids:
+            sale_items = commonQuery.branchScopedQueryset(
+                OrdersProduct,
+                {"sale_order_id__in": order_ids},
+                request,
+            ).exclude(status=2).select_related("product", "product_category")
+            for item in sale_items:
+                category_id = item.product_category_id or 0
+                category_name = item.product_category.name if item.product_category else "Uncategorized"
+                categories.setdefault(category_id, {"name": category_name, "quantity": money(0)})
+                categories[category_id]["quantity"] += money(item.quantity)
+
+                product_id = item.product_id
+                product_name = item.product.name if item.product_id else item.name
+                products.setdefault(
+                    product_id,
+                    {
+                        "name": product_name,
+                        "total_price": money(0),
+                        "quantity": money(0),
+                        "tax_value": money(0),
+                        "discount": money(0),
+                    },
+                )
+                products[product_id]["total_price"] += money(item.total)
+                products[product_id]["quantity"] += money(item.quantity)
+                products[product_id]["tax_value"] += money(item.tax_amount)
+                products[product_id]["discount"] += money(item.discount_amount)
+
+        user = None
+        if opening.user_id:
+            user = commonQuery.branchScopedQueryset(User, {"id": opening.user_id}, request).first()
+        cashier = f"{user.full_name or ''}({user.username})" if user else "System"
+        difference = money(closing.amount if closing else 0) - (
+            money(opening.amount) + raw_total_sales + raw_total_shippings - raw_total_discounts
+        )
+
+        return successResponse(
+            "Register Z report retrieved successfully.",
+            data={
+                "register": RegisterService._serialize(register),
+                "opening": {"id": opening.id, "value": opening.amount, "created_at": opening.created_at},
+                "closing": {"id": closing.id, "value": closing.amount, "created_at": closing.created_at} if closing else None,
+                "openedOn": opening.created_at,
+                "closedOn": closing.created_at if closing else "Session Ongoing",
+                "histories": [
+                    {
+                        "id": item.id,
+                        "action": item.entry_type,
+                        "value": item.amount,
+                        "description": item.note,
+                        "created_at": item.created_at,
+                    }
+                    for item in histories
+                ],
+                "orders": list(orders_qs.values("id", "code", "total", "subtotal", "shipping", "discount_amount", "tax_amount", "change_amount", "created_at")),
+                "openingBalance": opening.amount,
+                "closingBalance": closing.amount if closing else money(0),
+                "difference": difference,
+                "totalGrossSales": raw_total_gross_sales,
+                "totalDiscounts": raw_total_discounts,
+                "totalShippings": raw_total_shippings,
+                "totalTaxes": raw_total_taxes,
+                "totalSales": raw_total_sales,
+                "categories": categories,
+                "cashier": cashier,
+                "sessionDuration": RegisterService.durationLabel(opening.created_at, end_at),
+                "payments": payments,
+                "cashOnHand": cash_on_hand,
+                "products": products,
+                "user": {"id": user.id, "username": user.username, "full_name": user.full_name} if user else None,
+            },
+        )
 
     @staticmethod
     def openRegister(data, request):
