@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
-from apps.catalog.models import Category, Product, ProductHistory, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
+from apps.catalog.models import Category, Product, ProductHistory, ProductSubItem, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
 from apps.catalog.services import CategoryService, ProductService, ProductUnitQuantityService, ScaleRangeService, TaxGroupService, TaxService, UnitGroupService, UnitService
 from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
 from apps.customers.services import CustomerGroupService, CustomerService
@@ -938,6 +938,164 @@ class PosParityFlowTest(TestCase):
         )
         with self.assertRaises(Exception):
             ScaleRangeService.delete({"ids": [scale_range["id"]]}, self.request)
+
+    def test_product_source_nested_payload_variable_grouped_and_unit_delete_rules(self):
+        source_category = Category.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Source Product Category",
+        )
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_max_pinned_products", 1, user=self.user)
+        Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Already Pinned",
+            sku="PIN-001",
+            pinned=True,
+            category=source_category,
+            unit_group=self.unit.group,
+        )
+        with self.assertRaises(Exception):
+            ProductService.create(
+                {
+                    "name": "Too Many Pinned",
+                    "sku": "PIN-002",
+                    "category_id": source_category.id,
+                    "unit_group_id": self.unit.group_id,
+                    "pinned": True,
+                },
+                self.request,
+            )
+
+        nested = ProductService.create(
+            {
+                "name": "Nested Source Product",
+                "sku": "NSP-001",
+                "barcode": "900000000001",
+                "category_id": source_category.id,
+                "product_type": "product",
+                "type": "materialized",
+                "tax_type": "exclusive",
+                "units": {
+                    "unit_group": self.unit.group_id,
+                    "accurate_tracking": True,
+                    "auto_cogs": True,
+                    "selling_group": [
+                        {
+                            "unit_id": self.unit.id,
+                            "sale_price_edit": 25,
+                            "wholesale_price_edit": 20,
+                            "low_quantity": 2,
+                            "cogs": 12,
+                            "visible": True,
+                        }
+                    ],
+                },
+                "images": [{"url": "https://example.com/product.jpg", "featured": True}],
+            },
+            self.request,
+        ).data
+        nested_product = Product.objects.get(id=nested["id"])
+        nested_quantity = ProductUnitQuantity.objects.get(product=nested_product, unit=self.unit)
+        self.assertTrue(nested_product.accurate_tracking)
+        self.assertTrue(nested_product.auto_cogs)
+        self.assertEqual(Decimal(str(nested_quantity.sale_price)), Decimal("25.0"))
+        self.assertEqual(nested_product.gallery.get().url, "https://example.com/product.jpg")
+
+        with self.assertRaises(Exception):
+            ProductService.create(
+                {
+                    "name": "Duplicate Unit Product",
+                    "sku": "DUP-UNIT",
+                    "category_id": source_category.id,
+                    "product_type": "product",
+                    "type": "materialized",
+                    "units": {
+                        "unit_group": self.unit.group_id,
+                        "selling_group": [
+                            {"unit_id": self.unit.id, "sale_price_edit": 1},
+                            {"unit_id": self.unit.id, "sale_price_edit": 2},
+                        ],
+                    },
+                },
+                self.request,
+            )
+
+        variable = ProductService.create(
+            {
+                "name": "Variable Source Product",
+                "sku": "VAR-001",
+                "category_id": source_category.id,
+                "product_type": "variable",
+                "type": "materialized",
+                "unit_group_id": self.unit.group_id,
+                "variations": [
+                    {"name": "Variable Small", "sku": "VAR-001-S", "barcode": "900000000101"},
+                    {"name": "Variable Large", "sku": "VAR-001-L", "barcode": "900000000102"},
+                ],
+            },
+            self.request,
+        )
+        parent = Product.objects.get(id=variable.data["id"])
+        self.assertEqual(variable.message, "The variable product has been created.")
+        self.assertEqual(parent.product_type, "variable")
+        self.assertEqual(parent.variations.count(), 2)
+
+        grouped = ProductService.create(
+            {
+                "name": "Grouped Source Product",
+                "sku": "GRP-001",
+                "category_id": source_category.id,
+                "product_type": "product",
+                "type": "grouped",
+                "unit_group_id": self.unit.group_id,
+                "groups": {
+                    "product_subitems": [
+                        {
+                            "product_id": nested_product.id,
+                            "unit_id": self.unit.id,
+                            "unit_quantity_id": nested_quantity.id,
+                            "sale_price": 25,
+                            "quantity": 2,
+                        }
+                    ]
+                },
+            },
+            self.request,
+        ).data
+        self.assertTrue(ProductSubItem.objects.filter(parent_id=grouped["id"], product=nested_product, quantity=2).exists())
+        with self.assertRaises(Exception):
+            ProductService.create(
+                {
+                    "name": "Nested Grouped Product",
+                    "sku": "GRP-002",
+                    "category_id": source_category.id,
+                    "product_type": "product",
+                    "type": "grouped",
+                    "unit_group_id": self.unit.group_id,
+                    "groups": {
+                        "product_subitems": [
+                            {
+                                "product_id": grouped["id"],
+                                "unit_id": self.unit.id,
+                                "unit_quantity_id": nested_quantity.id,
+                                "sale_price": 25,
+                                "quantity": 1,
+                            }
+                        ]
+                    },
+                },
+                self.request,
+            )
+
+        nested_quantity.quantity = 3
+        nested_quantity.save(update_fields=["quantity"])
+        ProductUnitQuantityService.delete(nested_product.id, nested_quantity.id, self.request)
+        nested_quantity.refresh_from_db()
+        self.assertEqual(nested_quantity.status, 2)
+        self.assertTrue(ProductHistory.objects.filter(product=nested_product, operation_type=ProductHistory.ACTION_DELETED, quantity=3).exists())
 
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(

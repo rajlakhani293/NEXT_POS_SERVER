@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, List, Optional
+from typing import Any, Literal, List, Optional
 
 from ninja import Schema
 
@@ -135,6 +135,10 @@ class ProductIn(Schema):
     searchable: bool = True
     position: int = 0
     pinned: bool = False
+    units: Optional[Any] = None
+    images: Optional[List[Any]] = None
+    groups: Optional[Any] = None
+    variations: Optional[List[Any]] = None
 
 
 class ProductUpdateIn(Schema):
@@ -160,6 +164,10 @@ class ProductUpdateIn(Schema):
     searchable: Optional[bool] = None
     position: Optional[int] = None
     pinned: Optional[bool] = None
+    units: Optional[Any] = None
+    images: Optional[List[Any]] = None
+    groups: Optional[Any] = None
+    variations: Optional[List[Any]] = None
     status: Optional[ActiveStatus] = None
 
 

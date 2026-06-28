@@ -27,14 +27,14 @@ from apps.common.responses import successResponse
 from apps.common.tenantDefaults import DEFAULT_SCALE_RANGES
 
 
-def _emptyToNone(data, fields):
+def emptyToNone(data, fields):
     for field in fields:
         if data.get(field) == "":
             data[field] = None
     return data
 
 
-def _relationName(model, record_id, request):
+def relationName(model, record_id, request):
     if not record_id:
         return None
     row = commonQuery.findOneRecord(
@@ -52,8 +52,19 @@ def _buildBarcode(request, exclude_id=None):
     return buildUniqueValue(Product, request, "barcode", raw, exclude_id=exclude_id)
 
 
-def _normalizeProductPayload(data):
-    return data
+def _sourceProductCorePayload(data):
+    payload = dict(data or {})
+    units = payload.get("units") or {}
+    if units:
+        if units.get("unit_group") is not None and payload.get("unit_group_id") is None:
+            payload["unit_group_id"] = units.get("unit_group")
+        if units.get("accurate_tracking") is not None:
+            payload["accurate_tracking"] = bool(units.get("accurate_tracking"))
+        if units.get("auto_cogs") is not None:
+            payload["auto_cogs"] = bool(units.get("auto_cogs"))
+    for nested in ["units", "images", "groups", "variations"]:
+        payload.pop(nested, None)
+    return payload
 
 
 class ScaleRangeService:
@@ -267,8 +278,8 @@ class CategoryService:
         if category is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
         category = dict(category)
-        category["parent_name"] = _relationName(Category, category.get("parent_id"), request)
-        category["scale_range_name"] = _relationName(ScaleRange, category.get("scale_range_id"), request)
+        category["parent_name"] = relationName(Category, category.get("parent_id"), request)
+        category["scale_range_name"] = relationName(ScaleRange, category.get("scale_range_id"), request)
         return successResponse("Category retrieved successfully.", data=category)
 
     @staticmethod
@@ -550,7 +561,7 @@ class UnitService:
                     request,
                 ).update(base_unit=False)
             unit = commonQuery.createRecord(Unit, data, request=request, tenant_config=True)
-            unit["group_name"] = _relationName(UnitGroup, unit.get("group_id"), request)
+            unit["group_name"] = relationName(UnitGroup, unit.get("group_id"), request)
             return successResponse("Unit created successfully.", data=unit)
 
     @staticmethod
@@ -581,7 +592,7 @@ class UnitService:
             updated = commonQuery.updateRecordById(Unit, unit_id, data, request=request, tenant_config=True)
             if updated is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
-            updated["group_name"] = _relationName(UnitGroup, updated.get("group_id"), request)
+            updated["group_name"] = relationName(UnitGroup, updated.get("group_id"), request)
             return successResponse("Unit updated successfully.", data=updated)
 
     @staticmethod
@@ -663,7 +674,7 @@ class UnitService:
         if unit is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
         unit = dict(unit)
-        unit["group_name"] = _relationName(UnitGroup, unit.get("group_id"), request)
+        unit["group_name"] = relationName(UnitGroup, unit.get("group_id"), request)
         return successResponse("Unit retrieved successfully.", data=unit)
 
 
@@ -884,18 +895,185 @@ class ProductService:
 
     @staticmethod
     def attachDisplayData(product_data, request):
-        product_data["category_name"] = _relationName(Category, product_data.get("category_id"), request)
-        product_data["tax_group_name"] = _relationName(TaxGroup, product_data.get("tax_group_id"), request)
-        product_data["unit_group_name"] = _relationName(UnitGroup, product_data.get("unit_group_id"), request)
+        product_data["category_name"] = relationName(Category, product_data.get("category_id"), request)
+        product_data["tax_group_name"] = relationName(TaxGroup, product_data.get("tax_group_id"), request)
+        product_data["unit_group_name"] = relationName(UnitGroup, product_data.get("unit_group_id"), request)
         parent_id = product_data.get("parent_id")
-        product_data["parent_name"] = _relationName(Product, parent_id, request) if parent_id else None
+        product_data["parent_name"] = relationName(Product, parent_id, request) if parent_id else None
         return product_data
+
+    @staticmethod
+    def validatePinnedLimit(data, request, product_id=None):
+        if data.get("pinned") not in [True, 1, "1", "true", "yes"]:
+            return
+        from apps.settings.services import OptionSettingService
+
+        max_pinned = int(OptionSettingService.getOptionValue(request.user.company, request.user.branch, "pos_max_pinned_products", 5) or 5)
+        pinned = commonQuery.branchScopedQueryset(Product, {"pinned": True, "status__in": [0, 1]}, request)
+        if product_id:
+            pinned = pinned.exclude(id=product_id)
+        if pinned.count() >= max_pinned:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, f"You cannot pin more than {max_pinned} products.")
+
+    @staticmethod
+    def validateSourceProductPayload(data, request, product_id=None):
+        ProductService.validatePinnedLimit(data, request, product_id)
+        units = (data or {}).get("units") or {}
+        selling_group = units.get("selling_group") or []
+        unit_ids = [item.get("unit_id") for item in selling_group if item.get("unit_id")]
+        if len(unit_ids) != len(set(unit_ids)):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You cannot assign the same unit to more than one selling unit.")
+        if data.get("type") == "grouped":
+            subitems = ((data or {}).get("groups") or {}).get("product_subitems")
+            if not subitems:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "A grouped product cannot be saved without any sub items.")
+            for item in subitems:
+                product = commonQuery.branchScopedQueryset(Product, {"id": item.get("product_id")}, request).exclude(status=2).first()
+                if product is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "Grouped product sub item not found.")
+                if product.type == "grouped":
+                    raise api_error(400, ErrorCodes.BAD_REQUEST, "A grouped product cannot contain grouped product.")
+        if data.get("product_type") == "variable":
+            variations = data.get("variations") or []
+            for variation in variations:
+                if variation.get("barcode"):
+                    existing = commonQuery.branchScopedQueryset(Product, {"barcode": variation.get("barcode"), "status__in": [0, 1]}, request)
+                    if variation.get("id"):
+                        existing = existing.exclude(id=variation.get("id"))
+                    if existing.exists():
+                        raise api_error(400, ErrorCodes.BAD_REQUEST, f"A variation within the product has a barcode which is already in use : {variation.get('barcode')}.")
+                if variation.get("sku"):
+                    existing = commonQuery.branchScopedQueryset(Product, {"sku": variation.get("sku"), "status__in": [0, 1]}, request)
+                    if variation.get("id"):
+                        existing = existing.exclude(id=variation.get("id"))
+                    if existing.exists():
+                        raise api_error(400, ErrorCodes.BAD_REQUEST, f"A variation within the product has a SKU which is already in use : {variation.get('sku')}")
+
+    @staticmethod
+    def saveSourceUnitQuantities(product_id, data, request):
+        units = (data or {}).get("units") or {}
+        selling_group = units.get("selling_group") or []
+        saved_ids = []
+        for item in selling_group:
+            unit_id = item.get("unit_id")
+            if not unit_id:
+                continue
+            payload = {
+                "unit_id": unit_id,
+                "sale_price": item.get("sale_price_edit") or item.get("sale_price") or 0,
+                "sale_price_edit": item.get("sale_price_edit") or item.get("sale_price") or 0,
+                "wholesale_price_edit": item.get("wholesale_price_edit") or item.get("wholesale_price") or 0,
+                "preview_url": item.get("preview_url"),
+                "low_quantity": item.get("low_quantity") or 0,
+                "stock_alert_enabled": item.get("stock_alert_enabled") or False,
+                "convert_unit_id": item.get("convert_unit_id"),
+                "cogs": item.get("cogs") or 0,
+                "visible": item.get("visible", True),
+                "is_weighable": item.get("is_weighable") or False,
+                "scale_plu": item.get("scale_plu"),
+                "barcode": item.get("barcode"),
+            }
+            existing = commonQuery.branchScopedQueryset(ProductUnitQuantity, {"product_id": product_id, "unit_id": unit_id}, request).exclude(status=2).first()
+            if existing:
+                response = ProductUnitQuantityService.update(product_id, existing.id, {k: v for k, v in payload.items() if v is not None}, request)
+                unit_quantity_id = response.data["id"]
+            else:
+                response = ProductUnitQuantityService.create(product_id, {k: v for k, v in payload.items() if v is not None}, request)
+                unit_quantity_id = response.data["id"]
+            saved_ids.append(unit_quantity_id)
+            unit_quantity = commonQuery.branchScopedQueryset(ProductUnitQuantity, {"id": unit_quantity_id}, request).first()
+            if unit_quantity and unit_quantity.is_weighable and not unit_quantity.scale_plu:
+                try:
+                    unit_quantity.scale_plu = ProductService.generateScalePLU(product_id, unit_quantity.id, request)
+                    unit_quantity.save(update_fields=["scale_plu", "updated_at"])
+                except Exception:
+                    pass
+        if selling_group:
+            commonQuery.branchScopedQueryset(ProductUnitQuantity, {"product_id": product_id}, request).exclude(id__in=saved_ids).update(status=2, deleted_at=timezone.now())
+        return saved_ids
+
+    @staticmethod
+    def saveSourceGallery(product_id, data, request):
+        images = (data or {}).get("images") or []
+        if not images:
+            return []
+        commonQuery.branchScopedQueryset(ProductGallery, {"product_id": product_id}, request).delete()
+        featured_seen = False
+        saved = []
+        for index, image in enumerate(images):
+            featured = bool(image.get("featured")) and not featured_seen
+            featured_seen = featured_seen or featured
+            saved.append(
+                commonQuery.createRecord(
+                    ProductGallery,
+                    {
+                        "product_id": product_id,
+                        "url": image.get("url"),
+                        "media_id": image.get("media_id"),
+                        "name": image.get("name"),
+                        "featured": featured or (index == 0 and not any(item.get("featured") for item in images)),
+                        "order": index,
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+            )
+        return saved
+
+    @staticmethod
+    def saveSourceSubItems(product_id, data, request):
+        subitems = ((data or {}).get("groups") or {}).get("product_subitems") or []
+        if not subitems:
+            return []
+        saved_ids = []
+        for item in subitems:
+            payload = {
+                "parent_id": product_id,
+                "product_id": validateTenantRelationId(Product, item.get("product_id"), request=request, label="Sub item product", tenant_config=True),
+                "unit_id": validateTenantRelationId(Unit, item.get("unit_id"), request=request, label="Sub item unit", tenant_config=True),
+                "unit_quantity_id": validateTenantRelationId(ProductUnitQuantity, item.get("unit_quantity_id"), request=request, label="Sub item unit quantity", tenant_config=True),
+                "sale_price": item.get("sale_price") or 0,
+                "quantity": item.get("quantity") or 0,
+                "total_price": item.get("total_price") or (float(item.get("sale_price") or 0) * float(item.get("quantity") or 0)),
+            }
+            if item.get("id"):
+                updated = commonQuery.updateRecordById(ProductSubItem, {"id": item.get("id"), "parent_id": product_id}, payload, request=request, tenant_config=True)
+                if updated is None:
+                    raise api_error(404, ErrorCodes.NOT_FOUND, "The requested sub item doesn't exists.")
+                saved_ids.append(updated["id"])
+            else:
+                saved = commonQuery.createRecord(ProductSubItem, payload, request=request, tenant_config=True)
+                saved_ids.append(saved["id"])
+        commonQuery.branchScopedQueryset(ProductSubItem, {"parent_id": product_id}, request).exclude(id__in=saved_ids).delete()
+        return saved_ids
+
+    @staticmethod
+    def applySourceRelations(product_id, data, request):
+        ProductService.saveSourceUnitQuantities(product_id, data, request)
+        ProductService.saveSourceGallery(product_id, data, request)
+        if data.get("type") == "grouped":
+            ProductService.saveSourceSubItems(product_id, data, request)
+
+    @staticmethod
+    def createVariation(parent, variation, request):
+        payload = _sourceProductCorePayload(variation)
+        payload["parent_id"] = parent.id
+        payload["category_id"] = parent.category_id
+        payload["type"] = parent.type
+        payload["product_type"] = "variation"
+        payload["unit_group_id"] = payload.get("unit_group_id") or parent.unit_group_id
+        response = ProductService.create(payload, request)
+        variation_id = response.data["id"]
+        ProductService.applySourceRelations(variation_id, variation, request)
+        return commonQuery.branchScopedQueryset(Product, {"id": variation_id}, request).first()
 
     @staticmethod
     def create(data, request, image=None):
         with transaction.atomic():
-            data = _normalizeProductPayload(data)
-            _emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
+            original_data = dict(data or {})
+            ProductService.validateSourceProductPayload(original_data, request)
+            data = _sourceProductCorePayload(original_data)
+            emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
             if data.get("sku"):
                 data["sku"] = buildSku(Product, data.get("name"), data.get("sku"), request)
             else:
@@ -913,6 +1091,8 @@ class ProductService:
                 data["barcode"] = _buildBarcode(request)
             if not data.get("barcode_type"):
                 data["barcode_type"] = "ean13"
+            if data.get("product_type") == "variable":
+                data["product_type"] = "product"
             for field, model, label in [
                 ("category_id", Category, "Category"),
                 ("tax_group_id", TaxGroup, "Tax group"),
@@ -932,17 +1112,29 @@ class ProductService:
                     tenant_config=True,
                 )
             DomainActionService.afterProductCreated(product, request)
+            ProductService.applySourceRelations(product["id"], original_data, request)
+            if original_data.get("product_type") == "variable":
+                commonQuery.branchScopedQueryset(Product, {"id": product["id"]}, request).update(product_type="variable")
+                parent = commonQuery.branchScopedQueryset(Product, {"id": product["id"]}, request).first()
+                for variation in original_data.get("variations") or []:
+                    ProductService.createVariation(parent, variation, request)
+                product = serializeModelInstance(parent)
             product = ProductService.attachDisplayData(dict(product), request)
-            return successResponse("Product created successfully.", data=product)
+            message = "The variable product has been created." if original_data.get("product_type") == "variable" else "Product created successfully."
+            return successResponse(message, data=product)
 
     @staticmethod
     def update(data, request, product_id, image=None):
         with transaction.atomic():
-            data = _normalizeProductPayload(data)
+            original_data = dict(data or {})
+            ProductService.validateSourceProductPayload(original_data, request, product_id=product_id)
+            data = _sourceProductCorePayload(original_data)
             product = commonQuery.findOneRecord(Product, product_id, request=request, tenant_config=True)
             if product is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
-            _emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
+            emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
+            if data.get("product_type") == "variable":
+                data["product_type"] = "product"
             for field, model, label in [
                 ("category_id", Category, "Category"),
                 ("tax_group_id", TaxGroup, "Tax group"),
@@ -985,6 +1177,28 @@ class ProductService:
                     tenant_config=True,
                 )
             DomainActionService.afterProductUpdated(product, updated, request)
+            ProductService.applySourceRelations(product_id, original_data, request)
+            if original_data.get("product_type") == "variable":
+                commonQuery.branchScopedQueryset(Product, {"id": product_id}, request).update(product_type="variable")
+                parent = commonQuery.branchScopedQueryset(Product, {"id": product_id}, request).first()
+                saved_variation_ids = []
+                for variation in original_data.get("variations") or []:
+                    if variation.get("id"):
+                        variation_payload = _sourceProductCorePayload(variation)
+                        variation_payload["parent_id"] = parent.id
+                        variation_payload["category_id"] = parent.category_id
+                        variation_payload["type"] = parent.type
+                        variation_payload["product_type"] = "variation"
+                        variation_payload["unit_group_id"] = variation_payload.get("unit_group_id") or parent.unit_group_id
+                        ProductService.update(variation_payload, request, variation.get("id"))
+                        ProductService.applySourceRelations(variation.get("id"), variation, request)
+                        saved_variation_ids.append(variation.get("id"))
+                    else:
+                        variation_product = ProductService.createVariation(parent, variation, request)
+                        saved_variation_ids.append(variation_product.id)
+                if saved_variation_ids:
+                    commonQuery.branchScopedQueryset(Product, {"parent_id": product_id, "product_type": "variation"}, request).exclude(id__in=saved_variation_ids).update(status=2, deleted_at=timezone.now())
+                updated = serializeModelInstance(parent)
             old_category_id = product.get("category_id")
             new_category_id = updated.get("category_id")
             if old_category_id and old_category_id != new_category_id:
@@ -992,7 +1206,8 @@ class ProductService:
             if new_category_id:
                 CategoryService.computeProducts(new_category_id, request)
             updated = ProductService.attachDisplayData(dict(updated), request)
-            return successResponse("Product updated successfully.", data=updated)
+            message = "The variable product has been updated." if original_data.get("product_type") == "variable" else "Product updated successfully."
+            return successResponse(message, data=updated)
 
     @staticmethod
     def getAll(data, request):
@@ -1966,6 +2181,24 @@ class ProductUnitQuantityService:
     @staticmethod
     def delete(product_id, unit_quantity_id, request):
         ProductUnitQuantityService.ensureProduct(product_id, request)
+        unit_quantity = commonQuery.branchScopedQueryset(
+            ProductUnitQuantity,
+            {"id": unit_quantity_id, "product_id": product_id},
+            request,
+        ).exclude(status=2).first()
+        if unit_quantity and decimalValue(unit_quantity.quantity) > 0:
+            ProductStockService.recordStockHistory(
+                ProductHistory.ACTION_DELETED,
+                {
+                    "product_id": product_id,
+                    "unit_id": unit_quantity.unit_id,
+                    "quantity": unit_quantity.quantity,
+                    "unit_price": unit_quantity.sale_price,
+                    "total_price": decimalValue(unit_quantity.sale_price) * decimalValue(unit_quantity.quantity),
+                    "description": "Product unit quantity deleted.",
+                },
+                request,
+            )
         count = commonQuery.softDeleteById(ProductUnitQuantity, {"id": unit_quantity_id, "product_id": product_id}, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")
