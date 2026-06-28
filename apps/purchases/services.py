@@ -66,6 +66,8 @@ class SupplierService:
                     "amount_paid",
                     "uuid",
                     "status",
+                    "user__username",
+                    "created_at",
                 ]
             },
             request=request,
@@ -74,6 +76,7 @@ class SupplierService:
         for item in result["items"]:
             item["name"] = SupplierService.displayName(item)
             item["payable_amount"] = item.get("amount_due")
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Suppliers retrieved successfully.", data=result)
 
     @staticmethod
@@ -493,6 +496,8 @@ class PurchaseOrderService:
                     "description",
                     "uuid",
                     "status",
+                    "user__username",
+                    "created_at",
                 ]
             },
             request=request,
@@ -505,6 +510,7 @@ class PurchaseOrderService:
             item["code"] = item.get("name")
             item["total"] = item.get("value")
             item["workflow_status"] = item.get("delivery_status")
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Procurements retrieved successfully.", data=result)
 
     @staticmethod

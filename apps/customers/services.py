@@ -229,6 +229,8 @@ class CustomerService:
                 "account_amount",
                 "status",
                 "group_id",
+                "user__username",
+                "created_at",
             ],
         }
         result = commonQuery.fetchPaginatedData(
@@ -248,6 +250,7 @@ class CustomerService:
         for item in result.get("items", []):
             item["name"] = f"{item.get('first_name') or ''} {item.get('last_name') or ''}".strip()
             item["group_name"] = group_map.get(item.get("group_id"))
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Customers retrieved successfully.", data=result)
 
     @staticmethod
@@ -757,6 +760,7 @@ class CustomerGroupService:
                 "reward_system_id",
                 "status",
                 "created_at",
+                "user__username",
             ],
         }
         result = commonQuery.fetchPaginatedData(
@@ -775,6 +779,7 @@ class CustomerGroupService:
 
         for item in result.get("items", []):
             item["reward_name"] = reward_map.get(item.get("reward_system_id")) or "N/A"
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Customer groups retrieved successfully.", data=result)
 
     @staticmethod

@@ -237,6 +237,8 @@ class CouponService:
                 "valid_hours_end",
                 "limit_usage",
                 "status",
+                "user__username",
+                "created_at",
             ],
         }
         result = commonQuery.fetchPaginatedData(
@@ -248,6 +250,8 @@ class CouponService:
             tenant_config=True,
         )
         result["items"] = attachCouponTargetsBatch(result["items"], request)
+        for item in result.get("items", []):
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Coupons retrieved successfully.", data=result)
 
     @staticmethod
