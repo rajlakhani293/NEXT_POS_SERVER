@@ -2065,6 +2065,130 @@ class PosParityFlowTest(TestCase):
             ).exists()
         )
 
+    def test_procurement_source_payload_search_preload_and_stock_guards_follow_source(self):
+        purchase = PurchaseOrderService.create(
+            {
+                "name": "",
+                "general": {
+                    "provider_id": self.provider.id,
+                    "payment_status": "unpaid",
+                    "invoice_reference": "INV-SOURCE",
+                },
+                "products": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "purchase_price": Decimal("60"),
+                        "quantity": Decimal("4"),
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        procurement = Procurement.objects.get(id=purchase["id"])
+        procurement_item = ProcurementsProduct.objects.get(procurement=procurement)
+
+        self.assertEqual(procurement.name, "00001")
+        self.assertEqual(procurement.invoice_reference, "INV-SOURCE")
+        self.assertEqual(procurement_item.barcode, f"{str(self.product.barcode or '').zfill(5)}-{str(self.unit.id).zfill(3)}-{str(procurement_item.id).zfill(3)}")
+
+        exact_barcode = PurchaseOrderService.searchProcurementProduct({"argument": procurement_item.barcode}, self.request).data
+        self.assertEqual(exact_barcode["from"], "procurements")
+        self.assertEqual(exact_barcode["product"]["id"], procurement_item.id)
+
+        product_search = PurchaseOrderService.searchProcurementProduct({"argument": "Test Product"}, self.request).data
+        self.assertEqual(product_search["from"], "products")
+        self.assertEqual(product_search["products"][0]["id"], self.product.id)
+
+        preload = PurchaseOrderService.storePreload(
+            {"products": [{"product_id": self.product.id, "unit_id": self.unit.id, "quantity": Decimal("2")}], "multiplier": 3},
+            self.request,
+        ).data
+        loaded = PurchaseOrderService.getPreload(preload["uuid"], self.request).data
+        self.assertEqual(loaded["items"][0]["procurement"]["quantity"], Decimal("6"))
+
+        ProductUnitQuantity.objects.filter(id=self.unit_quantity.id).update(quantity=1, low_quantity=10, stock_alert_enabled=True)
+        PurchaseOrderService.receive(
+            procurement.id,
+            {"items": [{"purchase_item_id": procurement_item.id, "received_quantity": Decimal("4")}]},
+            self.request,
+        )
+        suggestions = PurchaseOrderService.lowStockSuggestions(self.request).data
+        suggestion = next(row for row in suggestions if row["product_id"] == self.product.id)
+        self.assertEqual(suggestion["recent_procured_quantity"], Decimal("4.00000"))
+        self.assertEqual(suggestion["recent_procured_unit_id"], self.unit.id)
+
+        PurchaseOrderService.deleteProduct(procurement.id, procurement_item.id, self.request)
+        self.unit_quantity.refresh_from_db()
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("1.0"))
+        self.assertFalse(ProcurementsProduct.objects.filter(id=procurement_item.id).exists())
+        self.assertTrue(
+            ProductHistory.objects.filter(
+                product=self.product,
+                procurement_id=procurement.id,
+                procurement_product_id=procurement_item.id,
+                operation_type=ProductHistory.ACTION_DELETED,
+            ).exists()
+        )
+
+    def test_procurement_source_rejects_grouped_disabled_and_paid_status_changes(self):
+        disabled = Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Disabled Stock Product",
+            sku="DISABLED-1",
+            type="materialized",
+            stock_management="disabled",
+            unit_group=self.unit.group,
+        )
+        grouped = Product.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Grouped Product",
+            sku="GROUPED-1",
+            type="grouped",
+            stock_management="enabled",
+            unit_group=self.unit.group,
+        )
+
+        for product in [disabled, grouped]:
+            with self.assertRaises(Exception):
+                PurchaseOrderService.create(
+                    {
+                        "provider_id": self.provider.id,
+                        "products": [
+                            {
+                                "product_id": product.id,
+                                "unit_id": self.unit.id,
+                                "purchase_price": Decimal("5"),
+                                "quantity": Decimal("1"),
+                            }
+                        ],
+                    },
+                    self.request,
+                )
+
+        purchase = PurchaseOrderService.create(
+            {
+                "provider_id": self.provider.id,
+                "products": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "purchase_price": Decimal("10"),
+                        "quantity": Decimal("1"),
+                    }
+                ],
+            },
+            self.request,
+        ).data
+        PurchaseOrderService.setAsPaid(purchase["id"], self.request)
+
+        with self.assertRaises(Exception):
+            PurchaseOrderService.changePaymentStatus(purchase["id"], {"payment_status": "unpaid"}, self.request)
+
     def test_coupon_target_usage_and_sale_refund_flow_follow_source(self):
         self.stock_product(10)
         customer = self.create_customer(username="coupon-customer")

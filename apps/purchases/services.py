@@ -167,6 +167,13 @@ class SupplierService:
 
 
 class PurchaseOrderService:
+    PAYMENT_PAID = "paid"
+    PAYMENT_UNPAID = "unpaid"
+    DELIVERY_DRAFT = "draft"
+    DELIVERY_PENDING = "pending"
+    DELIVERY_DELIVERED = "delivered"
+    DELIVERY_STOCKED = "stocked"
+
     @staticmethod
     def requestFromJob(job):
         from apps.common.helpers import requestFromJobUser
@@ -190,6 +197,27 @@ class PurchaseOrderService:
         return {"id": provider_id}
 
     @staticmethod
+    def sourceOrderPayload(data):
+        data = dict(data or {})
+        if "general" not in data:
+            return data
+        general = dict(data.get("general") or {})
+        normalized = {
+            **general,
+            "name": data.get("name") or general.get("name"),
+            "products": data.get("products") or data.get("items") or general.get("products") or [],
+        }
+        for key, value in data.items():
+            if key not in {"general", "name", "products", "items"}:
+                normalized[key] = value
+        return normalized
+
+    @staticmethod
+    def sourceItemsPayload(data):
+        data = dict(data or {})
+        return data.get("items") or data.get("products") or []
+
+    @staticmethod
     def resolveProductUnitQuantity(product_id, unit_id, request, required=False):
         validateTenantRelationId(Product, product_id, request=request, label="Product")
         validateTenantRelationId(Unit, unit_id, request=request, label="Unit", required=True)
@@ -210,6 +238,8 @@ class PurchaseOrderService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Product not found.")
         if product.get("stock_management") == "disabled":
             raise api_error(400, ErrorCodes.BAD_REQUEST, f"Unable to procure {product.get('name')} because stock management is disabled.")
+        if product.get("type") == "grouped":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, f"Unable to procure {product.get('name')} because it is a grouped product.")
         validateTenantRelationId(Unit, item.get("unit_id"), request=request, label="Unit", required=True)
         if item.get("convert_unit_id"):
             item["convert_unit_id"] = validateTenantRelationId(Unit, item["convert_unit_id"], request=request, label="Convert unit", required=False)
@@ -242,6 +272,57 @@ class PurchaseOrderService:
             "convert_unit_id": item.get("convert_unit_id"),
             "uuid": item.get("uuid") or uuid4().hex,
         }
+
+    @staticmethod
+    def createOrUpdateProductRow(procurement_id, item, request):
+        purchase_item_id = item.pop("purchase_item_id", None) or item.pop("id", None)
+        if purchase_item_id:
+            existing = commonQuery.findOneRecord(
+                ProcurementsProduct,
+                {"id": purchase_item_id, "procurement_id": procurement_id},
+                request=request,
+                tenant_config=True,
+            )
+            if existing is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
+            updated = commonQuery.updateRecordById(
+                ProcurementsProduct,
+                purchase_item_id,
+                item,
+                request=request,
+                tenant_config=True,
+            )
+            PurchaseOrderService.ensureProcurementProductBarcode(purchase_item_id, request)
+            return updated
+        created = commonQuery.createRecord(
+            ProcurementsProduct,
+            {**item, "procurement_id": procurement_id},
+            request=request,
+            tenant_config=True,
+        )
+        return PurchaseOrderService.ensureProcurementProductBarcode(created["id"], request)
+
+    @staticmethod
+    def ensureProcurementProductBarcode(purchase_item_id, request):
+        item = commonQuery.findOneRecord(
+            ProcurementsProduct,
+            purchase_item_id,
+            request=request,
+            tenant_config=True,
+        )
+        if item is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
+        product = commonQuery.findOneRecord(Product, item.get("product_id"), request=request, tenant_config=True) or {}
+        generated = f"{str(product.get('barcode') or '').zfill(5)}-{str(item.get('unit_id') or '').zfill(3)}-{str(item['id']).zfill(3)}"
+        if item.get("barcode") != generated:
+            item = commonQuery.updateRecordById(
+                ProcurementsProduct,
+                item["id"],
+                {"barcode": generated},
+                request=request,
+                tenant_config=True,
+            )
+        return item
 
     @staticmethod
     def calculateProducts(products, request):
@@ -337,6 +418,7 @@ class PurchaseOrderService:
 
     @staticmethod
     def create(data, request):
+        data = PurchaseOrderService.sourceOrderPayload(data)
         with transaction.atomic():
             provider = PurchaseOrderService.validateSupplier(data.get("provider_id"), request)
             products, value, tax_value = PurchaseOrderService.calculateProducts(data.get("products") or data.get("items") or [], request)
@@ -352,8 +434,8 @@ class PurchaseOrderService:
                     "automatic_approval": data.get("automatic_approval") or False,
                     "delivery_time": data.get("delivery_time") or None,
                     "invoice_date": data.get("invoice_date") or None,
-                    "payment_status": data.get("payment_status") or "unpaid",
-                    "delivery_status": data.get("delivery_status") or "pending",
+                    "payment_status": data.get("payment_status") or PurchaseOrderService.PAYMENT_UNPAID,
+                    "delivery_status": data.get("delivery_status") or PurchaseOrderService.DELIVERY_PENDING,
                     "total_items": int(sum((qty(item.get("quantity")) for item in products), Decimal("0"))),
                     "description": data.get("description"),
                     "uuid": data.get("uuid") or uuid4().hex,
@@ -362,7 +444,7 @@ class PurchaseOrderService:
                 tenant_config=True,
             )
             created_products = [
-                commonQuery.createRecord(ProcurementsProduct, {**item, "procurement_id": procurement["id"]}, request=request, tenant_config=True)
+                PurchaseOrderService.createOrUpdateProductRow(procurement["id"], item, request)
                 for item in products
             ]
             commonQuery.branchScopedQueryset(Provider, {"id": provider["id"]}, request).update(
@@ -470,16 +552,26 @@ class PurchaseOrderService:
 
     @staticmethod
     def update(order_id, data, request):
+        data = PurchaseOrderService.sourceOrderPayload(data)
         procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
         if procurement is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
-        if procurement.get("delivery_status") == "stocked":
+        if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to edit a procurement that has already been stocked. Please use stock adjustment.")
         if data.get("provider_id"):
             PurchaseOrderService.validateSupplier(data.get("provider_id"), request)
+        products_payload = data.pop("products", None)
+        data.pop("items", None)
         updated = commonQuery.updateRecordById(Procurement, order_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+        if products_payload is not None:
+            for item in products_payload:
+                normalized = PurchaseOrderService.normalizeProductItem(item, request)
+                if item.get("id") or item.get("purchase_item_id"):
+                    normalized["purchase_item_id"] = item.get("purchase_item_id") or item.get("id")
+                PurchaseOrderService.createOrUpdateProductRow(order_id, normalized, request)
+            updated = PurchaseOrderService.recalculateOrder(order_id, request)
         if procurement.get("provider_id"):
             SupplierService.computeSummary(procurement["provider_id"], request)
         if updated.get("provider_id") and updated.get("provider_id") != procurement.get("provider_id"):
@@ -628,7 +720,7 @@ class PurchaseOrderService:
                 {
                     "status__in": [0, 1],
                     "automatic_approval": True,
-                    "delivery_status": "pending",
+                    "delivery_status": PurchaseOrderService.DELIVERY_PENDING,
                     "delivery_time__lte": timezone.now(),
                 },
                 request,
@@ -698,35 +790,100 @@ class PurchaseOrderService:
             ProductUnitQuantity,
             {"status__in": [0, 1], "stock_alert_enabled": True, "quantity__lt": F("low_quantity")},
             request,
-        ).values("id", "product_id", "product__name", "product__sku", "product__barcode", "quantity", "low_quantity", "cogs", "unit_id", "unit__name").order_by("quantity", "product__name")[:100]
+        ).filter(
+            product__stock_management="enabled",
+            product__type__in=["dematerialized", "materialized"],
+        ).values(
+            "id",
+            "product_id",
+            "product__name",
+            "product__sku",
+            "product__barcode",
+            "product__tax_group_id",
+            "product__tax_type",
+            "quantity",
+            "low_quantity",
+            "cogs",
+            "unit_id",
+            "unit__name",
+        ).order_by("quantity", "product__name")[:50]
         products = []
         for row in rows:
+            recent = commonQuery.branchScopedQueryset(
+                ProcurementsProduct,
+                {
+                    "product_id": row["product_id"],
+                    "unit_id": row["unit_id"],
+                    "procurement__delivery_status": PurchaseOrderService.DELIVERY_STOCKED,
+                    "status__in": [0, 1],
+                },
+                request,
+            ).order_by("-created_at", "-id").values("quantity", "unit_id", "convert_unit_id", "purchase_price", "convert_unit__name").first()
             row["product_name"] = row.pop("product__name", None)
             row["sku"] = row.pop("product__sku", None)
             row["barcode"] = row.pop("product__barcode", None)
+            row["tax_group_id"] = row.pop("product__tax_group_id", None)
+            row["tax_type"] = row.pop("product__tax_type", None)
             row["unit_name"] = row.pop("unit__name", None)
+            if recent:
+                row["recent_procured_quantity"] = recent.get("quantity")
+                row["recent_procured_unit_id"] = recent.get("unit_id")
+                row["recent_procured_convert_unit_id"] = recent.get("convert_unit_id")
+                row["recent_procured_convert_unit_label"] = recent.get("convert_unit__name")
+                row["recent_procured_purchase_price"] = recent.get("purchase_price")
+            else:
+                row["recent_procured_quantity"] = row.get("low_quantity")
+                row["recent_procured_unit_id"] = row.get("unit_id")
+                row["recent_procured_convert_unit_id"] = None
+                row["recent_procured_convert_unit_label"] = None
+                row["recent_procured_purchase_price"] = row.get("cogs") or 0
             products.append(row)
         return successResponse("Low stock suggestions retrieved successfully.", data=products)
 
     @staticmethod
     def storePreload(data, request):
+        items = (data or {}).get("products") or (data or {}).get("items") or []
+        if not items:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to save the procurement for later use.")
+        multiplier = (data or {}).get("multiplier") or 1
+        payload = {"items": items, "multiplier": multiplier}
         preload_key = uuid4().hex
-        cache.set(f"procurement_preload:{request.user.company_id}:{request.user.branch_id}:{preload_key}", data or {}, timeout=60 * 60 * 24)
-        return successResponse("Procurement preload saved successfully.", data={"uuid": preload_key, "payload": data or {}})
+        cache.set(f"procurement_preload:{request.user.company_id}:{request.user.branch_id}:{preload_key}", payload, timeout=60 * 60 * 24)
+        return successResponse("Procurement preload saved successfully.", data={"uuid": preload_key, "payload": payload})
 
     @staticmethod
     def getPreload(preload_key, request):
         data = cache.get(f"procurement_preload:{request.user.company_id}:{request.user.branch_id}:{preload_key}")
         if data is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement preload not found.")
-        return successResponse("Procurement preload retrieved successfully.", data=data)
+        products = []
+        multiplier = qty(data.get("multiplier") or 1)
+        for item in data.get("items") or []:
+            product_id = item.get("product_id")
+            unit_id = item.get("unit_id")
+            exists = commonQuery.branchScopedQueryset(
+                ProductUnitQuantity,
+                {"product_id": product_id, "unit_id": unit_id, "status__in": [0, 1]},
+                request,
+            ).exists()
+            if not exists:
+                continue
+            matched = PurchaseOrderService.searchProduct({"search": "", "limit": 1000}, request).data
+            product = next((row for row in matched if row.get("id") == product_id), None)
+            if product:
+                product["procurement"] = {
+                    "unit_id": unit_id,
+                    "quantity": qty(item.get("quantity")) * multiplier,
+                }
+                products.append(product)
+        return successResponse("Procurement preload retrieved successfully.", data={"items": products})
 
     @staticmethod
     def setAsPaid(order_id, request):
         return PurchaseOrderService.changePaymentStatus(
             order_id,
             {
-                "payment_status": "paid",
+                "payment_status": PurchaseOrderService.PAYMENT_PAID,
                 "reference_number": "",
                 "note": "Set as paid from procurement action.",
             },
@@ -737,9 +894,11 @@ class PurchaseOrderService:
     def changePaymentStatus(order_id, data, request):
         procurement = PurchaseOrderService.orderDetail(order_id, request)
         payment_status = (data.get("payment_status") or "").lower()
-        if payment_status not in ["paid", "unpaid"]:
+        if procurement.get("payment_status") == PurchaseOrderService.PAYMENT_PAID:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You cannot change the status of an already paid procurement.")
+        if payment_status not in [PurchaseOrderService.PAYMENT_PAID, PurchaseOrderService.PAYMENT_UNPAID]:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Payment status must be paid or unpaid.")
-        target_paid = money(procurement.get("value")) if payment_status == "paid" else Decimal("0")
+        target_paid = money(procurement.get("value")) if payment_status == PurchaseOrderService.PAYMENT_PAID else Decimal("0")
         current_paid = money(procurement.get("paid_amount"))
         diff = target_paid - current_paid
         with transaction.atomic():
@@ -771,13 +930,15 @@ class PurchaseOrderService:
 
     @staticmethod
     def addProduct(order_id, data, request):
+        data = dict(data or {})
+        data = PurchaseOrderService.sourceItemsPayload(data)[0] if "items" in data and len(PurchaseOrderService.sourceItemsPayload(data)) == 1 else data
         procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
         if procurement is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
-        if procurement.get("delivery_status") == "stocked":
+        if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to add products to a stocked procurement.")
         item = PurchaseOrderService.normalizeProductItem(data, request)
-        created = commonQuery.createRecord(ProcurementsProduct, {**item, "procurement_id": order_id}, request=request, tenant_config=True)
+        created = PurchaseOrderService.createOrUpdateProductRow(order_id, item, request)
         PurchaseOrderService.recalculateOrder(order_id, request)
         return successResponse("Procurement product added successfully.", data=created)
 
@@ -786,7 +947,7 @@ class PurchaseOrderService:
         procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
         if procurement is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
-        if procurement.get("delivery_status") == "stocked":
+        if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to edit products from a stocked procurement.")
         item = commonQuery.findOneRecord(ProcurementsProduct, {"id": purchase_item_id, "procurement_id": order_id}, request=request, tenant_config=True)
         if item is None:
@@ -801,17 +962,63 @@ class PurchaseOrderService:
 
     @staticmethod
     def bulkUpdateProducts(order_id, data, request):
-        products = data.get("products") or data.get("items") or []
+        products = PurchaseOrderService.sourceItemsPayload(data)
         if not products:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one product row is required.")
+        current_ids = set(
+            commonQuery.branchScopedQueryset(ProcurementsProduct, {"procurement_id": order_id}, request)
+            .exclude(status=2)
+            .values_list("id", flat=True)
+        )
+        provided_existing = [item.get("purchase_item_id") or item.get("id") for item in products if item.get("purchase_item_id") or item.get("id")]
+        missing = [item_id for item_id in provided_existing if item_id not in current_ids]
+        if missing:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, f"The product with the following ID \"{missing[0]}\" is not initially included on the procurement.")
         with transaction.atomic():
             for item in products:
-                purchase_item_id = item.get("purchase_item_id")
+                purchase_item_id = item.get("purchase_item_id") or item.get("id")
                 if purchase_item_id:
                     PurchaseOrderService.editProduct(order_id, purchase_item_id, item, request)
                 else:
                     PurchaseOrderService.addProduct(order_id, item, request)
         return successResponse("Procurement products updated successfully.", data=PurchaseOrderService.orderDetail(order_id, request))
+
+    @staticmethod
+    def convertedQuantityAndPrice(item, request):
+        from_unit = commonQuery.findOneRecord(Unit, item["unit_id"], request=request, tenant_config=True)
+        to_unit = commonQuery.findOneRecord(Unit, item["convert_unit_id"], request=request, tenant_config=True)
+        if not from_unit or not to_unit:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Source or destination unit not found for conversion.")
+        from_val = Decimal(str(from_unit.get("value") or 1))
+        to_val = Decimal(str(to_unit.get("value") or 1))
+        converted_qty = (from_val * qty(item.get("quantity"))) / to_val
+        converted_price = (money(item.get("purchase_price")) * to_val) / from_val
+        return converted_qty, converted_price
+
+    @staticmethod
+    def recordProcurementStockDeletion(procurement, item, request):
+        unit_id = item["unit_id"]
+        quantity = qty(item.get("quantity"))
+        unit_price = money(item.get("purchase_price"))
+        total_price = money(item.get("total_purchase_price"))
+        if item.get("convert_unit_id"):
+            quantity, unit_price = PurchaseOrderService.convertedQuantityAndPrice(item, request)
+            unit_id = item["convert_unit_id"]
+            total_price = quantity * unit_price
+        ProductStockService.recordStockHistory(
+            ProductHistory.ACTION_DELETED,
+            {
+                "product_id": item["product_id"],
+                "procurement_id": procurement["id"],
+                "procurement_product_id": item["id"],
+                "quantity": quantity,
+                "unit_id": unit_id,
+                "unit_price": unit_price,
+                "total_price": total_price,
+                "description": f"Procurement product deleted from {procurement['name']}",
+            },
+            request,
+        )
 
     @staticmethod
     def deleteProduct(order_id, purchase_item_id, request):
@@ -821,21 +1028,8 @@ class PurchaseOrderService:
         item = commonQuery.findOneRecord(ProcurementsProduct, {"id": purchase_item_id, "procurement_id": order_id}, request=request, tenant_config=True)
         if item is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
-        if procurement.get("delivery_status") == "stocked":
-            ProductStockService.recordStockHistory(
-                ProductHistory.ACTION_DELETED,
-                {
-                    "product_id": item["product_id"],
-                    "procurement_id": order_id,
-                    "procurement_product_id": item["id"],
-                    "quantity": item.get("quantity"),
-                    "unit_id": item["unit_id"],
-                    "unit_price": item.get("purchase_price") or 0,
-                    "total_price": item.get("total_purchase_price") or 0,
-                    "description": f"Procurement product deleted from {procurement['name']}",
-                },
-                request,
-            )
+        if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
+            PurchaseOrderService.recordProcurementStockDeletion(procurement, item, request)
         elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement product cannot be deleted. Please use stock adjustment.")
         commonQuery.branchScopedQueryset(
@@ -848,38 +1042,69 @@ class PurchaseOrderService:
 
     @staticmethod
     def searchProduct(data, request):
-        search = (data or {}).get("search") or ""
-        queryset = commonQuery.branchScopedQueryset(Product, {"status__in": [0, 1]}, request)
+        search = (data or {}).get("search") or (data or {}).get("argument") or ""
+        limit = int((data or {}).get("limit") or 10)
+        queryset = commonQuery.branchScopedQueryset(
+            Product,
+            {"status__in": [0, 1], "stock_management": "enabled", "type__in": ["dematerialized", "materialized"]},
+            request,
+        ).exclude(type="grouped")
         if search:
             queryset = queryset.filter(Q(name__icontains=search) | Q(sku__icontains=search) | Q(barcode__icontains=search))
-        rows = list(queryset.values("id", "name", "sku", "barcode").order_by("name")[:25])
+        rows = list(queryset.values("id", "name", "sku", "barcode", "tax_group_id", "tax_type").order_by("name")[:limit])
         for row in rows:
-            unit_quantity = commonQuery.branchScopedQueryset(
+            unit_quantities = list(commonQuery.branchScopedQueryset(
                 ProductUnitQuantity,
                 {"product_id": row["id"], "status__in": [0, 1]},
                 request,
-            ).values("id", "quantity", "cogs", "unit_id", "unit__name").order_by("id").first()
+            ).values("id", "quantity", "cogs", "unit_id", "unit__name").order_by("id"))
+            unit_quantity = unit_quantities[0] if unit_quantities else None
             row["unit_quantity_id"] = unit_quantity.get("id") if unit_quantity else None
             row["current_stock"] = unit_quantity.get("quantity") if unit_quantity else 0
             row["purchase_price"] = unit_quantity.get("cogs") if unit_quantity else 0
             row["unit_id"] = unit_quantity.get("unit_id") if unit_quantity else None
             row["unit_name"] = unit_quantity.get("unit__name") if unit_quantity else None
+            row["unit_quantities"] = [
+                {**unit, "unit": {"id": unit.get("unit_id"), "name": unit.get("unit__name")}, "last_purchase_price": PurchaseOrderService.lastPurchasePrice(row["id"], unit.get("unit_id"), request)}
+                for unit in unit_quantities
+            ]
+            row["purchase_units"] = [{"id": unit.get("unit_id"), "name": unit.get("unit__name")} for unit in unit_quantities]
         return successResponse("Products retrieved successfully.", data=rows)
 
     @staticmethod
     def searchProcurementProduct(data, request):
-        search = (data or {}).get("search") or ""
-        queryset = commonQuery.branchScopedQueryset(ProcurementsProduct, {"status__in": [0, 1]}, request)
-        if search:
-            queryset = queryset.filter(Q(product__name__icontains=search) | Q(procurement__name__icontains=search) | Q(barcode__icontains=search))
-        rows = list(queryset.values("id", "procurement_id", "procurement__name", "product_id", "product__name", "name", "quantity", "available_quantity", "purchase_price", "barcode").order_by("-id")[:25])
-        for row in rows:
+        argument = (data or {}).get("argument") or (data or {}).get("search") or ""
+        products = PurchaseOrderService.searchProduct({"search": argument, "limit": 8}, request).data
+        if products:
+            return successResponse("Procurement product search completed successfully.", data={"from": "products", "products": products})
+        row = commonQuery.branchScopedQueryset(
+            ProcurementsProduct,
+            {"status__in": [0, 1], "barcode": argument},
+            request,
+        ).values("id", "procurement_id", "procurement__name", "product_id", "product__name", "name", "quantity", "available_quantity", "purchase_price", "barcode", "unit_id", "unit__name").first()
+        if row:
             row["purchase_order_id"] = row.get("procurement_id")
             row["purchase_order__code"] = row.pop("procurement__name", None)
             row["ordered_quantity"] = row.get("quantity")
             row["received_quantity"] = qty(row.get("quantity")) - qty(row.get("available_quantity"))
             row["cost_price"] = row.get("purchase_price")
-        return successResponse("Procurement products retrieved successfully.", data=rows)
+            row["unit"] = {"id": row.get("unit_id"), "name": row.get("unit__name")}
+            row["unit_quantity"] = commonQuery.findOneRecord(
+                ProductUnitQuantity,
+                {"product_id": row.get("product_id"), "unit_id": row.get("unit_id")},
+                request=request,
+                tenant_config=True,
+            )
+        return successResponse("Procurement product search completed successfully.", data={"from": "procurements", "product": row})
+
+    @staticmethod
+    def lastPurchasePrice(product_id, unit_id, request):
+        row = commonQuery.branchScopedQueryset(
+            ProcurementsProduct,
+            {"product_id": product_id, "unit_id": unit_id, "status__in": [0, 1]},
+            request,
+        ).order_by("-created_at", "-id").values("purchase_price").first()
+        return row.get("purchase_price") if row else 0
 
     @staticmethod
     def delete(data, request):
@@ -910,21 +1135,8 @@ class PurchaseOrderService:
                 tenant_config=True,
             )
             for item in products:
-                if procurement.get("delivery_status") == "stocked":
-                    ProductStockService.recordStockHistory(
-                        ProductHistory.ACTION_DELETED,
-                        {
-                            "product_id": item["product_id"],
-                            "procurement_id": procurement["id"],
-                            "procurement_product_id": item["id"],
-                            "quantity": item.get("quantity"),
-                            "unit_id": item["unit_id"],
-                            "unit_price": item.get("purchase_price") or 0,
-                            "total_price": item.get("total_purchase_price") or 0,
-                            "description": f"Procurement deleted {procurement['name']}",
-                        },
-                        request,
-                    )
+                if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
+                    PurchaseOrderService.recordProcurementStockDeletion(procurement, item, request)
                 elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement cannot be deleted. Please use stock adjustment.")
             commonQuery.branchScopedQueryset(
