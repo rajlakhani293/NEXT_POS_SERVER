@@ -19,6 +19,7 @@ class RegisterService:
         Register.STATUS_INUSE: "In Use",
         Register.STATUS_OPENED: "Opened",
     }
+    EDITABLE_STATUSES = [Register.STATUS_CLOSED, Register.STATUS_DISABLED]
 
     @staticmethod
     def requestFromJob(job):
@@ -54,6 +55,32 @@ class RegisterService:
             "created_at": register.created_at,
             "updated_at": register.updated_at,
         }
+
+    @staticmethod
+    def _normalizeRegisterPayload(data):
+        payload = dict(data or {})
+        source_status = payload.get("register_status") or payload.get("status")
+        if source_status in RegisterService.STATUS_LABELS:
+            payload["register_status"] = source_status
+            payload.pop("status", None)
+        if "register_status" in payload and payload["register_status"] not in RegisterService.EDITABLE_STATUSES:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Register status must be closed or disabled.")
+        return payload
+
+    @staticmethod
+    def _noteFromActionData(data, default_note):
+        return (data or {}).get("note") or (data or {}).get("description") or default_note
+
+    @staticmethod
+    def _sourceActionResponse(message, register_id, history, request):
+        register = RegisterService._getRegister(register_id, request)
+        return successResponse(
+            message,
+            data={
+                "register": RegisterService._serialize(register),
+                "history": history,
+            },
+        )
 
     @staticmethod
     def actionLabel(entry_type):
@@ -194,7 +221,7 @@ class RegisterService:
 
     @staticmethod
     def create(data, request):
-        register = commonQuery.createRecord(Register, data, request=request, tenant_config=True)
+        register = commonQuery.createRecord(Register, RegisterService._normalizeRegisterPayload(data), request=request, tenant_config=True)
         return successResponse("Cash register created successfully.", data=register)
 
     @staticmethod
@@ -267,21 +294,33 @@ class RegisterService:
 
     @staticmethod
     def getById(register_id, request):
-        register = commonQuery.findOneRecord(Register, register_id, request=request, tenant_config=True)
+        register = RegisterService._getRegister(register_id, request)
         if register is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
-        register["is_open"] = register.get("register_status") in [Register.STATUS_OPENED, Register.STATUS_INUSE]
-        return successResponse("Cash register retrieved successfully.", data=register)
+        return successResponse("Cash register retrieved successfully.", data=RegisterService.getRegisterDetails(register, request))
 
     @staticmethod
     def update(register_id, data, request):
-        updated = commonQuery.updateRecordById(Register, register_id, data, request=request, tenant_config=True)
+        register = RegisterService._getRegister(register_id, request)
+        if register.register_status not in RegisterService.EDITABLE_STATUSES:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to edit a register that is currently in use.")
+        updated = commonQuery.updateRecordById(Register, register_id, RegisterService._normalizeRegisterPayload(data), request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
         return successResponse("Cash register updated successfully.", data=updated)
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        id_list = ids if isinstance(ids, list) else [ids]
+        in_use = (
+            commonQuery.branchScopedQueryset(Register, {"id__in": id_list}, request)
+            .exclude(status=2)
+            .filter(register_status__in=[Register.STATUS_OPENED, Register.STATUS_INUSE])
+            .exists()
+        )
+        if in_use:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to delete a register that is currently in use.")
         count = commonQuery.softDeleteById(Register, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Cash register not found.")
@@ -583,8 +622,8 @@ class RegisterService:
     def openRegister(data, request):
         with transaction.atomic():
             register = RegisterService._getRegister(data.get("register_id"), request, for_update=True)
-            if register.register_status in [Register.STATUS_OPENED, Register.STATUS_INUSE]:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Cash register is already open.")
+            if register.register_status != Register.STATUS_CLOSED:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Unable to open \"{register.name}\", as it's not closed.")
             register.register_status = Register.STATUS_OPENED
             register.used_by = request.user
             register.save(update_fields=["register_status", "used_by", "updated_at"])
@@ -593,29 +632,29 @@ class RegisterService:
                 RegistersHistory.ACTION_OPENING,
                 data.get("amount"),
                 request,
-                data.get("note") or "Register opening",
+                RegisterService._noteFromActionData(data, "Register opening"),
             )
-        return successResponse("Cash register opened successfully.", data=history)
+        return RegisterService._sourceActionResponse("The register has been successfully opened", data.get("register_id"), history, request)
 
     @staticmethod
     def closeRegister(data, request):
         with transaction.atomic():
             register = RegisterService._getRegister(data.get("register_id"), request, for_update=True)
-            if register.register_status not in [Register.STATUS_OPENED, Register.STATUS_INUSE]:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Cash register is not open.")
+            if register.register_status != Register.STATUS_OPENED:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Unable to open \"{register.name}\" *, as it's not opened.")
             history = RegisterService.recordHistory(
                 data.get("register_id"),
                 RegistersHistory.ACTION_CLOSING,
                 data.get("amount"),
                 request,
-                data.get("note") or "Register closing",
+                RegisterService._noteFromActionData(data, "Register closing"),
             )
             commonQuery.branchScopedQueryset(Register, {"id": register.id}, request).update(
                 register_status=Register.STATUS_CLOSED,
                 used_by=None,
                 balance=0,
             )
-        return successResponse("Cash register closed successfully.", data=history)
+        return RegisterService._sourceActionResponse("The register has been successfully closed", data.get("register_id"), history, request)
 
     @staticmethod
     def cashIn(data, request):
@@ -624,9 +663,9 @@ class RegisterService:
             RegistersHistory.ACTION_CASHING,
             data.get("amount"),
             request,
-            data.get("note") or "Cash in",
+            RegisterService._noteFromActionData(data, "Cash in"),
         )
-        return successResponse("Cash added successfully.", data=history)
+        return RegisterService._sourceActionResponse("The cash has successfully been stored", data.get("register_id"), history, request)
 
     @staticmethod
     def cashOut(data, request):
@@ -635,9 +674,41 @@ class RegisterService:
             RegistersHistory.ACTION_CASHOUT,
             data.get("amount"),
             request,
-            data.get("note") or "Cash out",
+            RegisterService._noteFromActionData(data, "Cash out"),
         )
-        return successResponse("Cash removed successfully.", data=history)
+        return RegisterService._sourceActionResponse("The cash has successfully been disbursed.", data.get("register_id"), history, request)
+
+    @staticmethod
+    def getUsedRegister(request):
+        register = (
+            commonQuery.branchScopedQueryset(
+                Register,
+                {"used_by_id": request.user.id, "register_status": Register.STATUS_OPENED},
+                request,
+            )
+            .exclude(status=2)
+            .first()
+        )
+        if register is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No register has been opened by the logged user.")
+        return successResponse("The register is opened.", data={"register": RegisterService.getRegisterDetails(register, request)})
+
+    @staticmethod
+    def performSourceAction(action, register_id, data, request):
+        payload = {
+            "register_id": register_id,
+            "amount": (data or {}).get("amount", 0),
+            "note": RegisterService._noteFromActionData(data, ""),
+        }
+        if action in ["open", RegistersHistory.ACTION_OPENING]:
+            return RegisterService.openRegister(payload, request)
+        if action in ["close", RegistersHistory.ACTION_CLOSING]:
+            return RegisterService.closeRegister(payload, request)
+        if action == RegistersHistory.ACTION_CASHING:
+            return RegisterService.cashIn(payload, request)
+        if action == RegistersHistory.ACTION_CASHOUT:
+            return RegisterService.cashOut(payload, request)
+        raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported cash register action.")
 
     @staticmethod
     def refreshCashRegister(register_id, request):

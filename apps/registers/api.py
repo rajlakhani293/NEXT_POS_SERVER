@@ -12,6 +12,7 @@ from apps.registers.schemas import (
     ShiftOpenIn,
     ShiftCloseIn,
     ShiftMoneyActionIn,
+    SourceRegisterActionIn,
 )
 from apps.registers.services import RegisterService
 
@@ -38,6 +39,12 @@ def getRegisterDropdown(request):
 @permissionRequired("cash_register_view")
 def getRegisters(request):
     return RegisterService.getRegisters(request)
+
+
+@router.get("/used", response=ApiResponse)
+@permissionRequired("cash_register_view")
+def getUsedRegister(request):
+    return RegisterService.getUsedRegister(request)
 
 
 @router.post("/", response=ApiResponse)
@@ -156,6 +163,12 @@ def getRegisterSessionHistory(request, register_id: int):
 @permissionRequired("cash_register_view")
 def getRegisterZReport(request, register_id: int):
     return RegisterService.getZReport(register_id, request)
+
+
+@router.post("/{action}/{register_id}", response=ApiResponse)
+@permissionRequired("cash_register_open")
+def performRegisterAction(request, action: str, register_id: int, payload: SourceRegisterActionIn):
+    return RegisterService.performSourceAction(action, register_id, payloadData(payload), request)
 
 
 @router.get("/{register_id}", response=ApiResponse)

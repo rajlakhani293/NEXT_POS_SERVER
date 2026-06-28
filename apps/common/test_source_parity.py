@@ -629,6 +629,90 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(report["user"]["id"], self.user.id)
         self.assertIn("sessionDuration", report)
 
+    def test_register_source_action_lifecycle_and_crud_guards(self):
+        created = RegisterService.create(
+            {
+                "name": "Lifecycle Register",
+                "description": "Front desk",
+                "status": Register.STATUS_DISABLED,
+            },
+            self.request,
+        ).data
+        register = Register.objects.get(id=created["id"])
+        self.assertEqual(register.register_status, Register.STATUS_DISABLED)
+        self.assertEqual(register.status, 0)
+
+        updated = RegisterService.update(
+            register.id,
+            {
+                "name": "Lifecycle Register A",
+                "status": Register.STATUS_CLOSED,
+            },
+            self.request,
+        ).data
+        register.refresh_from_db()
+        self.assertEqual(updated["register_status"], Register.STATUS_CLOSED)
+        self.assertEqual(register.register_status, Register.STATUS_CLOSED)
+
+        opened = RegisterService.performSourceAction(
+            "register-opening",
+            register.id,
+            {"amount": Decimal("25"), "description": "Opening float"},
+            self.request,
+        )
+        register.refresh_from_db()
+        self.assertEqual(opened.message, "The register has been successfully opened")
+        self.assertEqual(opened.data["register"]["register_status"], Register.STATUS_OPENED)
+        self.assertEqual(opened.data["history"]["entry_type"], RegistersHistory.ACTION_OPENING)
+        self.assertEqual(opened.data["history"]["note"], "Opening float")
+        self.assertEqual(register.balance, Decimal("25.00000"))
+        self.assertEqual(register.used_by_id, self.user.id)
+
+        used = RegisterService.getUsedRegister(self.request).data
+        self.assertEqual(used["register"]["id"], register.id)
+        self.assertEqual(used["register"]["status_label"], "Opened")
+
+        with self.assertRaises(Exception):
+            RegisterService.update(register.id, {"name": "Blocked"}, self.request)
+        with self.assertRaises(Exception):
+            RegisterService.delete({"ids": [register.id]}, self.request)
+
+        cash_in = RegisterService.performSourceAction(
+            "register-cash-in",
+            register.id,
+            {"amount": Decimal("10"), "description": "Cash drawer top-up"},
+            self.request,
+        )
+        cash_out = RegisterService.performSourceAction(
+            "register-cash-out",
+            register.id,
+            {"amount": Decimal("5"), "description": "Petty cash"},
+            self.request,
+        )
+        register.refresh_from_db()
+        self.assertEqual(cash_in.message, "The cash has successfully been stored")
+        self.assertEqual(cash_out.message, "The cash has successfully been disbursed.")
+        self.assertEqual(register.balance, Decimal("30.00000"))
+
+        closed = RegisterService.performSourceAction(
+            "close",
+            register.id,
+            {"amount": Decimal("30"), "description": "Closing count"},
+            self.request,
+        )
+        register.refresh_from_db()
+        self.assertEqual(closed.message, "The register has been successfully closed")
+        self.assertEqual(closed.data["register"]["register_status"], Register.STATUS_CLOSED)
+        self.assertEqual(closed.data["register"]["balance"], Decimal("0.00000"))
+        self.assertEqual(closed.data["history"]["transaction_type"], "unchanged")
+        self.assertEqual(register.balance, Decimal("0.00000"))
+        self.assertIsNone(register.used_by_id)
+
+        deleted = RegisterService.delete({"ids": [register.id]}, self.request)
+        register.refresh_from_db()
+        self.assertEqual(deleted.message, "Cash registers deleted successfully.")
+        self.assertEqual(register.status, 2)
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {
