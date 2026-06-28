@@ -21,6 +21,8 @@ from apps.purchases.services import PurchaseOrderService, SupplierService
 
 
 router = Router(tags=["purchases"], auth=auth_bearer)
+providersRouter = Router(tags=["providers"], auth=auth_bearer)
+procurementsRouter = Router(tags=["procurements"], auth=auth_bearer)
 
 
 @router.post("/suppliers/", response=ApiResponse)
@@ -63,6 +65,24 @@ def getSupplierById(request, supplier_id: int):
 @permissionRequired("purchases_update")
 def updateSupplier(request, supplier_id: int, payload: SupplierUpdateIn):
     return SupplierService.update(supplier_id, payloadData(payload, exclude_none=True), request)
+
+
+@providersRouter.get("/", response=ApiResponse)
+@permissionRequired("purchases_view")
+def listProviders(request):
+    return SupplierService.getAll({}, request)
+
+
+@providersRouter.get("/{provider_id}/procurements", response=ApiResponse)
+@permissionRequired("purchases_view")
+def getProviderProcurements(request, provider_id: int):
+    return PurchaseOrderService.getAll({"provider_id": provider_id}, request)
+
+
+@providersRouter.delete("/{provider_id}", response=ApiResponse)
+@permissionRequired("purchases_delete")
+def deleteProvider(request, provider_id: int):
+    return SupplierService.delete({"ids": [provider_id]}, request)
 
 
 @router.get("/procurements", response=ApiResponse)
@@ -174,6 +194,117 @@ def searchProcurementSourceProduct(request, payload: Optional[dict] = None):
 @permissionRequired("purchases_create")
 def searchProcurementSourceProductOrBarcode(request, payload: Optional[dict] = None):
     return PurchaseOrderService.searchProcurementProduct(payload, request)
+
+
+@procurementsRouter.get("/", response=ApiResponse)
+@permissionRequired("purchases_view")
+def sourceListProcurements(request):
+    return PurchaseOrderService.getAll({}, request)
+
+
+@procurementsRouter.get("/preload/{preload_key}", response=ApiResponse)
+@permissionRequired("purchases_view")
+def sourceGetProcurementPreload(request, preload_key: str):
+    return PurchaseOrderService.getPreload(preload_key, request)
+
+
+@procurementsRouter.get("/low-stock-suggestions", response=ApiResponse)
+@permissionRequired("purchases_view")
+def sourceGetProcurementLowStockSuggestions(request):
+    return PurchaseOrderService.lowStockSuggestions(request)
+
+
+@procurementsRouter.get("/{procurement_id}", response=ApiResponse)
+@permissionRequired("purchases_view")
+def sourceGetProcurement(request, procurement_id: int):
+    return PurchaseOrderService.getById(procurement_id, request)
+
+
+@procurementsRouter.get("/{procurement_id}/products", response=ApiResponse)
+@permissionRequired("purchases_view")
+def sourceGetProcurementProducts(request, procurement_id: int):
+    return PurchaseOrderService.getOrderProducts(procurement_id, request)
+
+
+@procurementsRouter.get("/{procurement_id}/refresh", response=ApiResponse)
+@permissionRequired("purchases_view")
+def sourceRefreshProcurement(request, procurement_id: int):
+    return PurchaseOrderService.enqueueRefresh(procurement_id, request)
+
+
+@procurementsRouter.get("/{procurement_id}/set-as-paid", response=ApiResponse)
+@permissionRequired("purchases_update")
+def sourceSetProcurementAsPaid(request, procurement_id: int):
+    return PurchaseOrderService.setAsPaid(procurement_id, request)
+
+
+@procurementsRouter.post("/preload", response=ApiResponse)
+@permissionRequired("purchases_create")
+def sourceStoreProcurementPreload(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.storePreload(payload, request)
+
+
+@procurementsRouter.post("/products/search-product", response=ApiResponse)
+@permissionRequired("purchases_create")
+def sourceSearchProcurementProduct(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.searchProduct(payload, request)
+
+
+@procurementsRouter.post("/products/search-procurement-product", response=ApiResponse)
+@permissionRequired("purchases_create")
+def sourceSearchProcurementProductOrBarcode(request, payload: Optional[dict] = None):
+    return PurchaseOrderService.searchProcurementProduct(payload, request)
+
+
+@procurementsRouter.post("/{procurement_id}/products", response=ApiResponse)
+@permissionRequired("purchases_create")
+def sourceProcureProduct(request, procurement_id: int, payload: dict):
+    items = PurchaseOrderService.sourceItemsPayload(payloadData(payload))
+    if len(items) == 1:
+        return PurchaseOrderService.addProduct(procurement_id, items[0], request)
+    return PurchaseOrderService.bulkUpdateProducts(procurement_id, {"items": items}, request)
+
+
+@procurementsRouter.post("/", response=ApiResponse)
+@permissionRequired("purchases_create")
+def sourceCreateProcurement(request, payload: dict):
+    return PurchaseOrderService.create(payloadData(payload), request)
+
+
+@procurementsRouter.put("/{procurement_id}/change-payment-status", response=ApiResponse)
+@permissionRequired("purchases_update")
+def sourceChangeProcurementPaymentStatus(request, procurement_id: int, payload: PurchaseStatusIn):
+    return PurchaseOrderService.changePaymentStatus(procurement_id, payloadData(payload, exclude_none=True), request)
+
+
+@procurementsRouter.put("/{procurement_id}/products/{purchase_item_id}", response=ApiResponse)
+@permissionRequired("purchases_update")
+def sourceUpdateProcurementProduct(request, procurement_id: int, purchase_item_id: int, payload: dict):
+    return PurchaseOrderService.editProduct(procurement_id, purchase_item_id, payloadData(payload, exclude_none=True), request)
+
+
+@procurementsRouter.put("/{procurement_id}/products", response=ApiResponse)
+@permissionRequired("purchases_update")
+def sourceBulkUpdateProcurementProducts(request, procurement_id: int, payload: dict):
+    return PurchaseOrderService.bulkUpdateProducts(procurement_id, payloadData(payload), request)
+
+
+@procurementsRouter.put("/{procurement_id}", response=ApiResponse)
+@permissionRequired("purchases_update")
+def sourceUpdateProcurement(request, procurement_id: int, payload: dict):
+    return PurchaseOrderService.update(procurement_id, payloadData(payload, exclude_none=True), request)
+
+
+@procurementsRouter.delete("/{procurement_id}/products/{purchase_item_id}", response=ApiResponse)
+@permissionRequired("purchases_delete")
+def sourceDeleteProcurementProduct(request, procurement_id: int, purchase_item_id: int):
+    return PurchaseOrderService.deleteProduct(procurement_id, purchase_item_id, request)
+
+
+@procurementsRouter.delete("/{procurement_id}", response=ApiResponse)
+@permissionRequired("purchases_delete")
+def sourceDeleteProcurement(request, procurement_id: int):
+    return PurchaseOrderService.delete({"ids": [procurement_id]}, request)
 
 
 @router.post("/orders/", response=ApiResponse)

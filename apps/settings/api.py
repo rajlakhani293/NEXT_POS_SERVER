@@ -23,6 +23,8 @@ router = Router(tags=["settings"], auth=auth_bearer)
 paymentsRouter = Router(tags=["payments"], auth=auth_bearer)
 mediaRouter = Router(tags=["media"], auth=auth_bearer)
 notificationsRouter = Router(tags=["notifications"], auth=auth_bearer)
+sourceMediaRouter = Router(tags=["medias"], auth=auth_bearer)
+sourceNotificationsRouter = Router(tags=["notifications"], auth=auth_bearer)
 
 
 @router.get("/business", response=ApiResponse)
@@ -186,6 +188,62 @@ def markRead(request, payload: BulkIdsSchema):
 @permissionRequired("settings_update")
 def deleteNotifications(request, payload: BulkIdsSchema):
     return NotificationService.delete(payloadData(payload), request)
+
+
+@sourceMediaRouter.get("/", response=ApiResponse)
+@permissionRequired("settings_view")
+def sourceGetMedias(request):
+    return MediaService.getAll({}, request)
+
+
+@sourceMediaRouter.post("/", response=ApiResponse)
+@permissionRequired("settings_update")
+def sourceUploadMedia(
+    request,
+    file: UploadedFile = File(...),
+    folder: str = Form("general"),
+    entity_type: str = Form(""),
+    entity_id: Optional[int] = Form(None),
+    alt_text: str = Form(""),
+):
+    return MediaService.upload(file, request, folder, entity_type, entity_id, alt_text)
+
+
+@sourceMediaRouter.post("/bulk-delete", response=ApiResponse)
+@permissionRequired("settings_update")
+def sourceBulkDeleteMedias(request, payload: BulkIdsSchema):
+    return MediaService.delete(payloadData(payload), request)
+
+
+@sourceMediaRouter.put("/{media_id}", response=ApiResponse)
+@permissionRequired("settings_update")
+def sourceUpdateMedia(request, media_id: int, payload: MediaUpdateIn):
+    return MediaService.update(media_id, payloadData(payload, exclude_none=True), request)
+
+
+@sourceMediaRouter.delete("/{media_id}", response=ApiResponse)
+@permissionRequired("settings_update")
+def sourceDeleteMedia(request, media_id: int):
+    return MediaService.delete({"ids": [media_id]}, request)
+
+
+@sourceNotificationsRouter.get("/", response=ApiResponse)
+def sourceGetNotifications(request):
+    return NotificationService.getAll({}, request)
+
+
+@sourceNotificationsRouter.delete("/all", response=ApiResponse)
+def sourceDeleteAllNotifications(request):
+    data = NotificationService.getAll({"limit": 1000}, request).data
+    ids = [item["id"] for item in data.get("items", [])]
+    if not ids:
+        return successResponse("Notifications deleted successfully.", data={"deleted_count": 0})
+    return NotificationService.delete({"ids": ids}, request)
+
+
+@sourceNotificationsRouter.delete("/{notification_id}", response=ApiResponse)
+def sourceDeleteSingleNotification(request, notification_id: int):
+    return NotificationService.delete({"ids": [notification_id]}, request)
 
 
 router.add_router("/payments/", paymentsRouter)

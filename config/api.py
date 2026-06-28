@@ -17,6 +17,8 @@ from apps.customers.api import router as customers_router
 from apps.organizations.api import router as organizations_router
 from apps.promotions.api import router as promotions_router
 from apps.purchases.api import router as purchases_router
+from apps.purchases.api import providersRouter as providers_router
+from apps.purchases.api import procurementsRouter as procurements_router
 from apps.registers.api import router as registers_router
 from apps.reports.api import dashboardRouter as dashboard_router
 from apps.reports.api import router as reports_router
@@ -25,6 +27,8 @@ from apps.sales.api import ordersRouter as orders_router
 from apps.sales.api import router as sales_router
 from apps.settings.api import paymentsRouter as payments_router
 from apps.settings.api import router as settings_router
+from apps.settings.api import sourceMediaRouter as source_media_router
+from apps.settings.api import sourceNotificationsRouter as source_notifications_router
 from apps.expenses.api import router as expenses_router
 from apps.common.responses import errorResponse, successResponse
 from apps.common.api import router as platform_router
@@ -35,23 +39,29 @@ api = NinjaAPI(title="Retail POS API", version="1.0.0")
 api.add_router("/accounts/", accounts_router)
 api.add_router("/", source_accounts_router)
 api.add_router("/", platform_router)
+api.add_router("/", catalog_router, url_name_prefix="source_catalog")
 api.add_router("/accounting/", accounting_router)
 api.add_router("/transactions/", transactions_router)
 api.add_router("/transactions-accounts/", transaction_accounts_router)
 api.add_router("/organizations/", organizations_router)
 api.add_router("/customers/", customers_router)
 api.add_router("/customers-groups/", customer_groups_router)
-api.add_router("/catalog/", catalog_router)
+api.add_router("/catalog/", catalog_router, url_name_prefix="catalog")
 api.add_router("/purchases/", purchases_router)
+api.add_router("/providers/", providers_router)
+api.add_router("/procurements/", procurements_router)
 api.add_router("/orders/", orders_router)
 api.add_router("/sales/", sales_router)
-api.add_router("/registers/", registers_router)
+api.add_router("/registers/", registers_router, url_name_prefix="registers")
+api.add_router("/cash-registers/", registers_router, url_name_prefix="source_registers")
 api.add_router("/promotions/", promotions_router)
 api.add_router("/rewards/", rewards_router)
 api.add_router("/reports/", reports_router)
 api.add_router("/dashboard/", dashboard_router)
 api.add_router("/settings/", settings_router)
 api.add_router("/payments/", payments_router)
+api.add_router("/medias/", source_media_router)
+api.add_router("/notifications/", source_notifications_router)
 api.add_router("/expenses/", expenses_router)
 
 
