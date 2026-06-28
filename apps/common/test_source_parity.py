@@ -5,6 +5,7 @@ from django.test import TestCase
 from django.utils import timezone
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
+from apps.accounts.schemas import LoginIn, RegisterIn
 from apps.catalog.models import Category, Product, ProductHistory, ProductSubItem, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
 from apps.catalog.services import CategoryService, ProductService, ProductUnitQuantityService, ScaleRangeService, TaxGroupService, TaxService, UnitGroupService, UnitService
 from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
@@ -98,6 +99,19 @@ class PosParityFlowTest(TestCase):
             first_name="Default Provider",
             email="provider@example.com",
         )
+
+    def test_auth_request_rules_follow_source_minimums(self):
+        login_payload = LoginIn(username="a", password="x")
+        register_payload = RegisterIn(
+            username="abc",
+            email="owner@example.com",
+            password="x",
+            password_confirm="x",
+        )
+
+        self.assertEqual(login_payload.username, "a")
+        self.assertEqual(login_payload.password, "x")
+        self.assertEqual(register_payload.password_confirm, "x")
 
     def create_customer(self, *, group=None, username="customer"):
         customer_role = Role.objects.get(
@@ -2072,6 +2086,7 @@ class PosParityFlowTest(TestCase):
                 "general": {
                     "provider_id": self.provider.id,
                     "payment_status": "unpaid",
+                    "delivery_status": "pending",
                     "invoice_reference": "INV-SOURCE",
                 },
                 "products": [
@@ -2091,6 +2106,18 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(procurement.name, "00001")
         self.assertEqual(procurement.invoice_reference, "INV-SOURCE")
         self.assertEqual(procurement_item.barcode, f"{str(self.product.barcode or '').zfill(5)}-{str(self.unit.id).zfill(3)}-{str(procurement_item.id).zfill(3)}")
+
+        with self.assertRaises(Exception):
+            PurchaseOrderService.create(
+                {
+                    "general": {
+                        "provider_id": self.provider.id,
+                        "payment_status": "unpaid",
+                    },
+                    "products": [],
+                },
+                self.request,
+            )
 
         exact_barcode = PurchaseOrderService.searchProcurementProduct({"argument": procurement_item.barcode}, self.request).data
         self.assertEqual(exact_barcode["from"], "procurements")

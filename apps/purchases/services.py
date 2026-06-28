@@ -205,6 +205,17 @@ class PurchaseOrderService:
         if "general" not in data:
             return data
         general = dict(data.get("general") or {})
+        missing = [
+            field
+            for field in ["provider_id", "payment_status", "delivery_status"]
+            if general.get(field) in [None, ""]
+        ]
+        if missing:
+            raise api_error(
+                422,
+                ErrorCodes.VALIDATION_ERROR,
+                f"Missing required procurement general field(s): {', '.join(missing)}.",
+            )
         normalized = {
             **general,
             "name": data.get("name") or general.get("name"),

@@ -9,16 +9,16 @@ from pydantic import Field
 
 
 class LoginIn(Schema):
-    username: str = Field(..., min_length=3, example="storeadmin")
-    password: str = Field(..., min_length=8, example="StrongPassword123!")
+    username: str = Field(..., example="storeadmin")
+    password: str = Field(..., example="StrongPassword123!")
     device_name: Optional[str] = Field("", example="Owner Laptop")
 
 
 class RegisterIn(Schema):
     username: str = Field(..., min_length=3, example="storeadmin")
     email: str = Field(..., example="owner@example.com")
-    password: str = Field(..., min_length=8, example="StrongPassword123!")
-    password_confirm: str = Field(..., min_length=8, example="StrongPassword123!")
+    password: str = Field(..., example="StrongPassword123!")
+    password_confirm: str = Field(..., example="StrongPassword123!")
     device_name: Optional[str] = Field("", example="Owner Laptop")
 
 
