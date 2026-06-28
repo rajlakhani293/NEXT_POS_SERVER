@@ -2224,6 +2224,67 @@ class SaleService:
         return successResponse("Payment types retrieved successfully.", data=payment_types)
 
     @staticmethod
+    def getOrderPaymentFields(request):
+        settings = getOptionSettings(request.user)
+        payment_types = commonQuery.findAllRecords(
+            PaymentType,
+            {"status": 0},
+            {
+                "attributes": ["id", "label", "identifier", "description", "priority"],
+                "order": ["priority", "label"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        payment_options = []
+        for payment in payment_types:
+            payment_options.append(
+                {
+                    **payment,
+                    "value": payment["identifier"],
+                    "label": payment["label"],
+                }
+            )
+
+        fields = [
+            {
+                "type": "select",
+                "label": "Select Payment",
+                "name": "identifier",
+                "options": payment_options,
+                "description": "choose the payment type.",
+                "validation": "required",
+            }
+        ]
+
+        if getattr(settings, "enable_cash_registers", False):
+            registers = commonQuery.findAllRecords(
+                Register,
+                {
+                    "status": 0,
+                    "register_status__in": [Register.STATUS_OPENED, Register.STATUS_INUSE],
+                },
+                {
+                    "attributes": ["id", "name"],
+                    "order": ["name"],
+                },
+                request=request,
+                tenant_config=True,
+            )
+            fields.append(
+                {
+                    "type": "select",
+                    "label": "Select Register",
+                    "name": "register_id",
+                    "disabled": len(registers) == 0,
+                    "options": [{"value": register["id"], "label": register["name"]} for register in registers],
+                    "description": "Choose a register.",
+                    "validation": "required",
+                }
+            )
+        return successResponse("Order payment fields retrieved successfully.", data=fields)
+
+    @staticmethod
     def getOrderTypeOptions(settings=None):
         enabled_types = getattr(settings, "order_types", None) or ["takeaway", "delivery"]
         options = [

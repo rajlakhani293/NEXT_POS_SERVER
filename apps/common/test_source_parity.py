@@ -406,6 +406,27 @@ class PosParityFlowTest(TestCase):
         blocked_short_prefix = "n" + "s"
         self.assertFalse(any(key.startswith(blocked_product_prefix) or key.split("_", 1)[0] == blocked_short_prefix for key in session["options"]))
 
+    def test_order_payment_fields_follow_source_register_condition(self):
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "registers_enabled", "no", user=self.user)
+        disabled_fields = SaleService.getOrderPaymentFields(self.request).data
+        self.assertEqual([field["name"] for field in disabled_fields], ["identifier"])
+        self.assertEqual(disabled_fields[0]["label"], "Select Payment")
+        self.assertEqual(disabled_fields[0]["options"][0]["value"], "cash-payment")
+
+        register = Register.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Front Counter",
+            register_status=Register.STATUS_OPENED,
+            used_by=self.user,
+        )
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "registers_enabled", "yes", user=self.user)
+        enabled_fields = SaleService.getOrderPaymentFields(self.request).data
+        self.assertEqual([field["name"] for field in enabled_fields], ["identifier", "register_id"])
+        self.assertFalse(enabled_fields[1]["disabled"])
+        self.assertEqual(enabled_fields[1]["options"], [{"value": register.id, "label": "Front Counter"}])
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

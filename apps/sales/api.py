@@ -211,7 +211,7 @@ def getSaleRefundedProducts(request, sale_order_id: int):
 @ordersRouter.get("/payments", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def getSupportedOrderPayments(request):
-    return SaleService.getSupportedPayments(request)
+    return SaleService.getOrderPaymentFields(request)
 
 
 @ordersRouter.get("/invoice/{order_id}", response=ApiResponse)
