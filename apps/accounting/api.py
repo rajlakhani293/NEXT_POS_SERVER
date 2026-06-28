@@ -149,6 +149,12 @@ def getTransactionRules(request):
     return TransactionRuleService.getAll(request)
 
 
+@transactionsRouter.get("/trigger", response=ApiResponse)
+@permissionRequired("expenses_update")
+def triggerPendingTransactions(request):
+    return TransactionService.triggerTransaction(None, request)
+
+
 @transactionsRouter.get("/{transaction_id}", response=ApiResponse)
 @permissionRequired("expenses_view")
 def getTransaction(request, transaction_id: int):

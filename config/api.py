@@ -23,6 +23,7 @@ from apps.registers.api import router as registers_router
 from apps.reports.api import dashboardRouter as dashboard_router
 from apps.reports.api import router as reports_router
 from apps.rewards.api import router as rewards_router
+from apps.rewards.api import sourceRouter as source_rewards_router
 from apps.sales.api import ordersRouter as orders_router
 from apps.sales.api import router as sales_router
 from apps.settings.api import paymentsRouter as payments_router
@@ -56,6 +57,7 @@ api.add_router("/registers/", registers_router, url_name_prefix="registers")
 api.add_router("/cash-registers/", registers_router, url_name_prefix="source_registers")
 api.add_router("/promotions/", promotions_router)
 api.add_router("/rewards/", rewards_router)
+api.add_router("/reward-system/", source_rewards_router)
 api.add_router("/reports/", reports_router)
 api.add_router("/dashboard/", dashboard_router)
 api.add_router("/settings/", settings_router)

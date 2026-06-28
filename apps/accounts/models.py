@@ -105,6 +105,9 @@ class User(AbstractUser):
     )
     deleted_at = models.DateTimeField(blank=True, null=True)
 
+    class Meta:
+        db_table = "users"
+
     def __str__(self):
         return self.full_name or self.phone or self.email or self.username
 
@@ -253,6 +256,7 @@ class AccessToken(BaseModel):
     user_agent = models.TextField(blank=True)
 
     class Meta:
+        db_table = "personal_access_tokens"
         ordering = ["-created_at"]
 
     @property
