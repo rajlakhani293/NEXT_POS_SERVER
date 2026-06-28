@@ -476,6 +476,70 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(change_history["payment_type_id"], bank_payment.id)
         self.assertEqual(change_history["order_id"], order.id)
 
+    def test_register_details_and_session_history_follow_source_summary_shape(self):
+        register = Register.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Session Register",
+            register_status=Register.STATUS_OPENED,
+            used_by=self.user,
+            balance=Decimal("0"),
+        )
+        opening = RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_OPENING,
+            Decimal("50"),
+            self.request,
+            "Opening",
+        )
+        cash_payment = PaymentType.objects.get(company=self.company, branch=self.branch, identifier="cash-payment")
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-006",
+            order_type="takeaway",
+            payment_status="paid",
+            register=register,
+            total=Decimal("120"),
+            tendered_amount=Decimal("140"),
+            change_amount=Decimal("20"),
+        )
+        RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_ORDER_PAYMENT,
+            Decimal("140"),
+            self.request,
+            "Order payment",
+            payment_type_id=cash_payment.id,
+            order_id=order.id,
+        )
+        RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_ORDER_CHANGE,
+            Decimal("20"),
+            self.request,
+            "Change on cash",
+            payment_type_id=cash_payment.id,
+            order_id=order.id,
+        )
+
+        details = RegisterService.getRegisters(self.request, register.id).data
+        self.assertEqual(details["status_label"], "Opened")
+        self.assertEqual(details["opening_balance"], Decimal("50.00000"))
+        self.assertEqual(details["total_sale_amount"], Decimal("120.00000"))
+
+        session = RegisterService.getSessionHistory(register.id, self.request).data
+        self.assertEqual(session["history"][0]["id"], opening["id"])
+        self.assertEqual(session["history"][1]["label"], f"Payment Cash on {order.id}")
+        self.assertEqual(session["history"][2]["label"], f"Change Cash on {order.id}")
+        summary = {item["label"]: item for item in session["summary"]}
+        self.assertEqual(summary["Initial Balance"]["value"], Decimal("50.00000"))
+        self.assertEqual(summary["Total Cash"]["value"], Decimal("140.00000"))
+        self.assertEqual(summary["Total Change"]["value"], Decimal("20.00000"))
+        self.assertEqual(summary["On Hand"]["value"], Decimal("170.00000"))
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {

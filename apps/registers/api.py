@@ -34,6 +34,12 @@ def getRegisterDropdown(request):
     return RegisterService.dropdownList(request)
 
 
+@router.get("/", response=ApiResponse)
+@permissionRequired("cash_register_view")
+def getRegisters(request):
+    return RegisterService.getRegisters(request)
+
+
 @router.post("/", response=ApiResponse)
 @permissionRequired("cash_register_open")
 def createRegister(request, payload: CashRegisterIn):
@@ -138,6 +144,12 @@ def getShiftsData(request, payload: dict = None):
 @permissionRequired("cash_register_view")
 def getShiftById(request, shift_id: int):
     return RegisterService.getShiftById(shift_id, request)
+
+
+@router.get("/{register_id}/session-history", response=ApiResponse)
+@permissionRequired("cash_register_view")
+def getRegisterSessionHistory(request, register_id: int):
+    return RegisterService.getSessionHistory(register_id, request)
 
 
 @router.get("/{register_id}", response=ApiResponse)

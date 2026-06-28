@@ -12,6 +12,13 @@ from apps.settings.services import OptionSettingService
 
 
 class RegisterService:
+    STATUS_LABELS = {
+        Register.STATUS_CLOSED: "Closed",
+        Register.STATUS_DISABLED: "Disabled",
+        Register.STATUS_INUSE: "In Use",
+        Register.STATUS_OPENED: "Opened",
+    }
+
     @staticmethod
     def requestFromJob(job):
         from apps.common.helpers import requestFromJobUser
@@ -46,6 +53,21 @@ class RegisterService:
             "created_at": register.created_at,
             "updated_at": register.updated_at,
         }
+
+    @staticmethod
+    def actionLabel(entry_type):
+        labels = {
+            RegistersHistory.ACTION_CASHING: "Cash In",
+            RegistersHistory.ACTION_CASHOUT: "Cash Out",
+            RegistersHistory.ACTION_ORDER_CHANGE: "Change On Cash",
+            RegistersHistory.ACTION_ACCOUNT_CHANGE: "Change On Customer Account",
+            RegistersHistory.ACTION_CLOSING: "Closing",
+            RegistersHistory.ACTION_OPENING: "Opening",
+            RegistersHistory.ACTION_REFUND: "Refund",
+            RegistersHistory.ACTION_ORDER_PAYMENT: "Cash Payment",
+            RegistersHistory.ACTION_ACCOUNT_PAY: "Account Payment",
+        }
+        return labels.get(entry_type, entry_type)
 
     @staticmethod
     def recordHistory(register_id, action, amount, request, note=None, payment_id=None, payment_type_id=0, order_id=None):
@@ -184,6 +206,58 @@ class RegisterService:
         return successResponse("Cash registers retrieved successfully.", data=result)
 
     @staticmethod
+    def getRegisterDetails(register, request):
+        from apps.sales.models import Order
+
+        data = RegisterService._serialize(register)
+        data["status_label"] = RegisterService.STATUS_LABELS.get(register.register_status, register.register_status)
+        data["opening_balance"] = 0
+        data["total_sale_amount"] = 0
+
+        if register.register_status == Register.STATUS_OPENED:
+            opening = (
+                commonQuery.branchScopedQueryset(
+                    RegistersHistory,
+                    {"register_id": register.id, "entry_type": RegistersHistory.ACTION_OPENING},
+                    request,
+                )
+                .exclude(status=2)
+                .order_by("-id")
+                .first()
+            )
+            if opening:
+                data["opening_balance"] = opening.amount
+                data["total_sale_amount"] = (
+                    commonQuery.branchScopedQueryset(
+                        Order,
+                        {
+                            "register_id": register.id,
+                            "payment_status": "paid",
+                            "created_at__gte": opening.created_at,
+                        },
+                        request,
+                    )
+                    .aggregate(total=Sum("total"))["total"]
+                    or 0
+                )
+        return data
+
+    @staticmethod
+    def getRegisters(request, register_id=None):
+        if register_id is not None:
+            register = RegisterService._getRegister(register_id, request)
+            return successResponse("Cash register retrieved successfully.", data=RegisterService.getRegisterDetails(register, request))
+        registers = (
+            commonQuery.branchScopedQueryset(Register, {}, request)
+            .exclude(status=2)
+            .order_by("name")
+        )
+        return successResponse(
+            "Cash registers retrieved successfully.",
+            data=[RegisterService.getRegisterDetails(register, request) for register in registers],
+        )
+
+    @staticmethod
     def getById(register_id, request):
         register = commonQuery.findOneRecord(Register, register_id, request=request, tenant_config=True)
         if register is None:
@@ -220,6 +294,100 @@ class RegisterService:
             "Cash register status updated successfully.",
             data={"updated_count": count, "status": data.get("status")},
         )
+
+    @staticmethod
+    def getSessionHistory(register_id, request):
+        register = RegisterService._getRegister(register_id, request)
+        if register.register_status != Register.STATUS_OPENED:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to check a register session history if it's closed.")
+
+        opening = (
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {"register_id": register.id, "entry_type": RegistersHistory.ACTION_OPENING},
+                request,
+            )
+            .exclude(status=2)
+            .order_by("-id")
+            .first()
+        )
+        if opening is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The register doesn't have an history.")
+
+        payment_labels = {
+            item.id: item.label
+            for item in commonQuery.branchScopedQueryset(PaymentType, {"status__in": [0, 1]}, request)
+        }
+        entries_qs = (
+            commonQuery.branchScopedQueryset(
+                RegistersHistory,
+                {"register_id": register.id, "created_at__gte": opening.created_at},
+                request,
+            )
+            .exclude(status=2)
+            .order_by("id")
+        )
+        history = []
+        for entry in entries_qs:
+            payment_label = payment_labels.get(entry.payment_type_id)
+            label = RegisterService.actionLabel(entry.entry_type)
+            if entry.entry_type == RegistersHistory.ACTION_ORDER_PAYMENT and payment_label:
+                label = f"Payment {payment_label} on {entry.order_id}"
+            elif entry.entry_type == RegistersHistory.ACTION_ORDER_CHANGE and payment_label:
+                label = f"Change {payment_label} on {entry.order_id}"
+            history.append(
+                {
+                    "id": entry.id,
+                    "register_id": entry.register_id,
+                    "action": entry.entry_type,
+                    "entry_type": entry.entry_type,
+                    "label": label,
+                    "description": entry.note,
+                    "payment_label": payment_label,
+                    "payment_type_id": entry.payment_type_id,
+                    "payment_id": entry.payment_id,
+                    "order_id": entry.order_id,
+                    "value": entry.amount,
+                    "balance_before": entry.balance_before,
+                    "balance_after": entry.balance_after,
+                    "created_at": entry.created_at,
+                }
+            )
+
+        total_disbursement = sum((entry["value"] for entry in history if entry["entry_type"] == RegistersHistory.ACTION_CASHOUT), 0)
+        total_cash_in = sum((entry["value"] for entry in history if entry["entry_type"] == RegistersHistory.ACTION_CASHING), 0)
+        total_cash_change = sum((entry["value"] for entry in history if entry["entry_type"] == RegistersHistory.ACTION_ORDER_CHANGE), 0)
+        cash_payment_id = RegisterService.resolvePaymentTypeId("cash-payment", request)
+        total_cash_payment = sum(
+            (
+                entry["value"]
+                for entry in history
+                if entry["entry_type"] == RegistersHistory.ACTION_ORDER_PAYMENT and entry["payment_type_id"] == cash_payment_id
+            ),
+            0,
+        )
+
+        grouped_payments = {}
+        for entry in history:
+            if entry["entry_type"] != RegistersHistory.ACTION_ORDER_PAYMENT:
+                continue
+            label = entry["payment_label"] or "Unknown Payment"
+            grouped_payments[label] = grouped_payments.get(label, 0) + entry["value"]
+
+        summary = [{"label": "Initial Balance", "value": opening.amount, "color": "info"}]
+        summary.extend(
+            {"label": f"Total {label}", "value": value, "color": "success"}
+            for label, value in grouped_payments.items()
+        )
+        summary.append({"label": "Total Change", "value": total_cash_change, "color": "warning"})
+        summary.append(
+            {
+                "label": "On Hand",
+                "value": money(opening.amount) + money(total_cash_payment) + money(total_cash_in) - (money(total_cash_change) + money(total_disbursement)),
+                "color": "info",
+            }
+        )
+        return successResponse("Register session history retrieved successfully.", data={"history": history, "summary": summary})
 
     @staticmethod
     def openRegister(data, request):
