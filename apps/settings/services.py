@@ -991,6 +991,49 @@ class JobQueueService:
         handlers.update(ReportService.jobHandlers())
         handlers.update(CustomerRewardService.jobHandlers())
         handlers.update(SaleService.jobHandlers())
+        source_job_aliases = {
+            "AccountingReflectionJob": "accounting_reflection",
+            "ApplyCustomerRewardJob": "apply_customer_reward",
+            "CheckCustomerAccountJob": "check_customer_account",
+            "ClearHoldOrdersJob": "clear_hold_orders",
+            "ComputeCategoryProductsJob": "compute_category_products",
+            "ComputeDashboardMonthReportJob": "compute_dashboard_month",
+            "ComputeDayReportJob": "compute_day_report",
+            "ComputeYearlyReportJob": "compute_yearly_report",
+            "CreateExpenseFromRefundJob": "record_refund_shipping_transaction",
+            "DecreaseCustomerPurchasesJob": "decrease_customer_purchases_from_refund",
+            "DeleteAccountingReflectionJob": "delete_accounting_reflection",
+            "DetectLowStockProductsJob": "detect_low_stock_products",
+            "DetectScheduledTransactionsJob": "detect_scheduled_transactions",
+            "EnsureCombinedProductHistoryExistsJob": "ensure_combined_product_history",
+            "ExecuteDelayedTransactionJob": "execute_delayed_transaction",
+            "HandleStockAdjustmentJob": "handle_stock_adjustment",
+            "IncreaseCashierStatsJob": "increase_cashier_stats",
+            "InitializeDailyReportJob": "initialize_daily_report",
+            "ProcessCustomerOwedAndRewardsJob": "process_customer_owed_and_rewards",
+            "ProcessTransactionJob": "prepare_transaction_history",
+            "ProcurementRefreshJob": "refresh_procurement",
+            "PurgeOrderStorageJob": "purge_order_storage",
+            "RecordOrderChangeJob": "record_order_change",
+            "RecordTransactionForShippingJob": "record_refund_shipping_transaction",
+            "ReduceCashierStatsFromRefundJob": "reduce_cashier_stats_from_refund",
+            "RefreshOrderJob": "refresh_order",
+            "RefreshReportJob": "refresh_report",
+            "ResolveInstalmentJob": "resolve_instalments",
+            "SaveOrderSettingJob": "save_order_settings",
+            "StockProcurementJob": "stock_awaiting_procurements",
+            "StoreCustomerPaymentHistoryJob": "store_customer_payment_history",
+            "TrackCashRegisterJob": "track_cash_register_payment",
+            "TrackLaidAwayOrdersJob": "track_laid_away_orders",
+            "TrackOrderCouponsJob": "track_order_coupons",
+            "TriggerRecurringTransactionJob": "trigger_recurring_transactions",
+            "UncountDeletedOrderForCashierJob": "uncount_deleted_order_for_cashier",
+            "UncountDeletedOrderForCustomerJob": "uncount_deleted_order_for_customer",
+            "UpdateCashRegisterBalanceFromHistoryJob": "refresh_cash_register",
+        }
+        for source_job, handler_name in source_job_aliases.items():
+            if handler_name in handlers:
+                handlers[source_job] = handlers[handler_name]
         return handlers
 
     @staticmethod

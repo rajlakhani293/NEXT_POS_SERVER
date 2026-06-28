@@ -3312,3 +3312,18 @@ class PosParityFlowTest(TestCase):
     def test_settings_forms_reject_unknown_identifier(self):
         with self.assertRaises(Exception):
             OptionSettingService.getForm("missing-page", self.user)
+
+    def test_source_job_class_aliases_are_registered(self):
+        handlers = JobQueueService.handlers()
+        expected_aliases = [
+            "StockProcurementJob",
+            "ProcurementRefreshJob",
+            "TrackCashRegisterJob",
+            "SaveOrderSettingJob",
+            "DetectLowStockProductsJob",
+            "ComputeYearlyReportJob",
+            "AccountingReflectionJob",
+            "ApplyCustomerRewardJob",
+        ]
+        for alias in expected_aliases:
+            self.assertIn(alias, handlers)
