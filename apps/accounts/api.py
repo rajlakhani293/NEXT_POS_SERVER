@@ -2,6 +2,7 @@ from typing import Optional
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
+from apps.accounts.models import Role
 from apps.accounts.schemas import (
     BranchSwitchIn,
     LoginIn,
@@ -21,6 +22,7 @@ from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 
 
 router = Router(tags=["accounts"])
+sourceRouter = Router(tags=["users"], auth=auth_bearer)
 
 
 @router.get("/defaults/roles", response=ApiResponse)
@@ -199,3 +201,120 @@ def getUserById(request, user_id: int):
 def updateUser(request, user_id: int, payload: UserUpdateIn):
     data = AccountsService.updateUser(request.user, user_id, payload)
     return successResponse("User updated successfully.", data=data)
+
+
+@sourceRouter.get("/user", response=ApiResponse)
+def sourceCurrentUser(request):
+    return successResponse("User fetched successfully.", data=AccountsService.serializeUser(request.user))
+
+
+@sourceRouter.get("/user/permissions", response=ApiResponse)
+def sourceCurrentUserPermissions(request):
+    return successResponse("Permissions fetched successfully.", data=sorted(list(AccountsService.serializeUser(request.user)["permissions"])))
+
+
+@sourceRouter.post("/user/access/{access_id}", response=ApiResponse)
+def sourceApproveAccess(request, access_id: int, payload: PermissionAccessApproveIn):
+    data = AccountsService.approvePermissionAccess(request.user, access_id, payloadData(payload))
+    return successResponse("Permission access granted successfully.", data=data)
+
+
+@sourceRouter.get("/user/access/{access_id}", response=ApiResponse)
+def sourceGetAccess(request, access_id: int):
+    data = AccountsService.listPermissionAccess(request.user, {"filters": 2})
+    access = next((item for item in data["items"] if item["id"] == access_id), None)
+    return successResponse("Permission access fetched successfully.", data=access)
+
+
+@sourceRouter.get("/user/access/{access_id}/use", response=ApiResponse)
+def sourceMarkAccessUsed(request, access_id: int):
+    data = AccountsService.markPermissionAccessUsed(request.user, access_id)
+    return successResponse("Permission access marked as used successfully.", data=data)
+
+
+@sourceRouter.post("/users/create-token", response=ApiResponse)
+def sourceCreateToken(request, payload: dict):
+    data = AccountsService.createAccessToken(request.user, request, payload or {})
+    return successResponse("Token created successfully.", data=data)
+
+
+@sourceRouter.get("/users/tokens", response=ApiResponse)
+def sourceGetTokens(request):
+    data = AccountsService.listAccessTokens(request.user)
+    return successResponse("Tokens fetched successfully.", data=data)
+
+
+@sourceRouter.delete("/users/tokens/{token_id}", response=ApiResponse)
+def sourceDeleteToken(request, token_id: int):
+    data = AccountsService.deleteAccessToken(request.user, token_id)
+    return successResponse("Token deleted successfully.", data=data)
+
+
+@sourceRouter.post("/users/check-permission", response=ApiResponse)
+def sourceCheckPermission(request, payload: dict):
+    data = AccountsService.checkPermission(request.user, payload or {})
+    return successResponse("Permission checked successfully.", data=data)
+
+
+@sourceRouter.get("/users", response=ApiResponse)
+@permissionRequired("users_view")
+def sourceGetUsers(request):
+    data = AccountsService.listUsers(request.user, {})
+    return successResponse("Users fetched successfully.", data=data)
+
+
+@sourceRouter.get("/users/permissions", response=ApiResponse)
+@permissionRequired("users_view")
+def sourceGetPermissions(request):
+    data = AccountsService.buildPermissionDefinitions()
+    return successResponse("Permissions fetched successfully.", data=data)
+
+
+@sourceRouter.get("/users/roles", response=ApiResponse)
+@permissionRequired("roles_view")
+def sourceGetRoles(request):
+    data = AccountsService.listRoles(request.user)
+    return successResponse("Roles fetched successfully.", data=data)
+
+
+@sourceRouter.put("/users/roles", response=ApiResponse)
+@permissionRequired("roles_update")
+def sourceUpdateRole(request, payload: dict):
+    role_id = (payload or {}).get("id") or (payload or {}).get("role_id")
+    data = AccountsService.updateRole(request.user, role_id, RoleUpdateIn(**{key: value for key, value in (payload or {}).items() if key != "id"}))
+    return successResponse("Role updated successfully.", data=data)
+
+
+@sourceRouter.get("/users/roles/{role_id}/clone", response=ApiResponse)
+@permissionRequired("roles_create")
+def sourceCloneRole(request, role_id: int):
+    role = Role.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, id=role_id, status__in=[0, 1]).first()
+    if role is None:
+        from apps.common.error_codes import ErrorCodes
+        from apps.common.exceptions import api_error
+
+        raise api_error(404, ErrorCodes.NOT_FOUND, "Role not found.")
+    payload = RoleIn(
+        name=f"{role.name} Copy",
+        namespace=f"{role.namespace}-copy",
+        description=role.description or "",
+        reward_system_id=role.reward_system_id,
+        minimal_credit_payment=role.minimal_credit_payment,
+        locked=False,
+        permission_codenames=list(role.permissions.values_list("codename", flat=True)),
+    )
+    data = AccountsService.createRole(request.user, payload)
+    return successResponse("Role cloned successfully.", data=data)
+
+
+@sourceRouter.get("/permissions/granted", response=ApiResponse)
+def sourceGrantedPermissions(request):
+    data = sorted(list(AccountsService.serializeUser(request.user)["permissions"]))
+    return successResponse("Granted permissions fetched successfully.", data=data)
+
+
+@sourceRouter.get("/permissions/{codename}", response=ApiResponse)
+def sourceSinglePermission(request, codename: str):
+    permissions = AccountsService.buildPermissionDefinitions()
+    permission = next((item for item in permissions if item["codename"] == codename), None)
+    return successResponse("Permission fetched successfully.", data=permission)

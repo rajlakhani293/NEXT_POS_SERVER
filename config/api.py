@@ -7,6 +7,7 @@ from ninja import NinjaAPI
 from ninja.errors import HttpError, ValidationError
 
 from apps.accounts.api import router as accounts_router
+from apps.accounts.api import sourceRouter as source_accounts_router
 from apps.accounting.api import router as accounting_router
 from apps.accounting.api import transactionAccountsRouter as transaction_accounts_router
 from apps.accounting.api import transactionsRouter as transactions_router
@@ -26,11 +27,14 @@ from apps.settings.api import paymentsRouter as payments_router
 from apps.settings.api import router as settings_router
 from apps.expenses.api import router as expenses_router
 from apps.common.responses import errorResponse, successResponse
+from apps.common.api import router as platform_router
 
 
 api = NinjaAPI(title="Retail POS API", version="1.0.0")
 
 api.add_router("/accounts/", accounts_router)
+api.add_router("/", source_accounts_router)
+api.add_router("/", platform_router)
 api.add_router("/accounting/", accounting_router)
 api.add_router("/transactions/", transactions_router)
 api.add_router("/transactions-accounts/", transaction_accounts_router)

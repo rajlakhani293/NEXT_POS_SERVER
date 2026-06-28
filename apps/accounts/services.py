@@ -562,6 +562,41 @@ class AccountsService:
         return {"logged_out": True}
 
     @staticmethod
+    def listAccessTokens(user: User):
+        return [
+            {
+                **serializeModelInstance(token),
+                "token": token.token[-8:].rjust(len(token.token), "*"),
+                "expired": token.is_expired,
+            }
+            for token in AccessToken.objects.filter(user=user, status=0).order_by("-created_at")
+        ]
+
+    @staticmethod
+    def createAccessToken(user: User, request, data):
+        return AccountsService.issueAccessToken(user, data.get("device_name") or data.get("name") or "", request)
+
+    @staticmethod
+    def deleteAccessToken(user: User, token_id: int):
+        count = AccessToken.objects.filter(user=user, id=token_id, status=0).update(
+            status=2,
+            deleted_at=timezone.now(),
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Access token not found.")
+        return {"deleted_count": count}
+
+    @staticmethod
+    def checkPermission(user: User, data):
+        permission = data.get("permission") or data.get("namespace") or data.get("codename")
+        if not permission:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Permission is required.")
+        return {
+            "permission": permission,
+            "allowed": permission in getUserPermissionCodenames(user),
+        }
+
+    @staticmethod
     def _modelHasField(model, field_name: str):
         return any(field.name == field_name for field in model._meta.get_fields())
 
