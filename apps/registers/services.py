@@ -7,6 +7,8 @@ from apps.common.exceptions import api_error
 from apps.common.helpers import decimalValue as money
 from apps.common.responses import successResponse
 from apps.registers.models import Register, RegistersHistory
+from apps.settings.models import PaymentType
+from apps.settings.services import OptionSettingService
 
 
 class RegisterService:
@@ -96,6 +98,33 @@ class RegisterService:
             register.save(update_fields=["balance", "updated_at"])
             history["register_balance"] = balance_after
             return history
+
+    @staticmethod
+    def resolvePaymentTypeId(identifier, request):
+        if not identifier:
+            return 0
+        payment_type = (
+            commonQuery.branchScopedQueryset(
+                PaymentType,
+                {"identifier": identifier, "status__in": [0, 1]},
+                request,
+            )
+            .values("id")
+            .first()
+        )
+        return payment_type["id"] if payment_type else 0
+
+    @staticmethod
+    def defaultChangePaymentTypeId(request):
+        configured = OptionSettingService.getOptionValue(
+            request.user.company,
+            request.user.branch,
+            "registers_default_change_payment_type",
+            None,
+        )
+        if isinstance(configured, int):
+            return configured
+        return RegisterService.resolvePaymentTypeId(configured or "cash-payment", request)
 
     @staticmethod
     def getDefaultRegister(request):
@@ -313,7 +342,7 @@ class RegisterService:
             request,
             "Order payment",
             payment_id=payment.id,
-            payment_type_id=0,
+            payment_type_id=RegisterService.resolvePaymentTypeId(payment.identifier, request),
             order_id=payment.sale_order_id,
         )
         return successResponse("Cash register payment recorded successfully.", data=history)
@@ -347,6 +376,7 @@ class RegisterService:
             sale_order.change_amount,
             request,
             "Change on cash",
+            payment_type_id=RegisterService.defaultChangePaymentTypeId(request),
             order_id=sale_order.id,
         )
         return successResponse("Cash register change recorded successfully.", data=history)

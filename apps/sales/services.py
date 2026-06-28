@@ -644,6 +644,7 @@ class SaleRegisterService:
             change_amount,
             request,
             f"Change given for order {sale_order.get('code')}",
+            payment_type_id=RegisterService.defaultChangePaymentTypeId(request),
             order_id=sale_order.get("id"),
         )
 

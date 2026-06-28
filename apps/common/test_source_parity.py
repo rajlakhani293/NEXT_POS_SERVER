@@ -427,6 +427,55 @@ class PosParityFlowTest(TestCase):
         self.assertFalse(enabled_fields[1]["disabled"])
         self.assertEqual(enabled_fields[1]["options"], [{"value": register.id, "label": "Front Counter"}])
 
+    def test_register_payment_and_change_history_keep_source_payment_type_ids(self):
+        register = Register.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Payment Register",
+            register_status=Register.STATUS_OPENED,
+            used_by=self.user,
+            balance=Decimal("0"),
+        )
+        bank_payment = PaymentType.objects.get(company=self.company, branch=self.branch, identifier="bank-payment")
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-005",
+            order_type="takeaway",
+            payment_status="paid",
+            register=register,
+            total=Decimal("100"),
+            tendered_amount=Decimal("120"),
+            change_amount=Decimal("20"),
+        )
+        order_payment = OrderPayment.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            sale_order=order,
+            identifier="bank-payment",
+            value=Decimal("120"),
+        )
+
+        payment_history = RegisterService.recordOrderPayment(order_payment.id, self.request).data
+        self.assertEqual(payment_history["entry_type"], RegistersHistory.ACTION_ORDER_PAYMENT)
+        self.assertEqual(payment_history["payment_type_id"], bank_payment.id)
+        self.assertEqual(payment_history["payment_id"], order_payment.id)
+
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "registers_default_change_payment_type",
+            bank_payment.id,
+            user=self.user,
+        )
+        change_history = RegisterService.recordOrderChange(order.id, self.request).data
+        self.assertEqual(change_history["entry_type"], RegistersHistory.ACTION_ORDER_CHANGE)
+        self.assertEqual(change_history["payment_type_id"], bank_payment.id)
+        self.assertEqual(change_history["order_id"], order.id)
+
     def stock_product(self, quantity=10):
         purchase = PurchaseOrderService.create(
             {
