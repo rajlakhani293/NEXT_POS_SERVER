@@ -17,6 +17,7 @@ from apps.organizations.api import router as organizations_router
 from apps.promotions.api import router as promotions_router
 from apps.purchases.api import router as purchases_router
 from apps.registers.api import router as registers_router
+from apps.reports.api import dashboardRouter as dashboard_router
 from apps.reports.api import router as reports_router
 from apps.rewards.api import router as rewards_router
 from apps.sales.api import ordersRouter as orders_router
@@ -44,6 +45,7 @@ api.add_router("/registers/", registers_router)
 api.add_router("/promotions/", promotions_router)
 api.add_router("/rewards/", rewards_router)
 api.add_router("/reports/", reports_router)
+api.add_router("/dashboard/", dashboard_router)
 api.add_router("/settings/", settings_router)
 api.add_router("/payments/", payments_router)
 api.add_router("/expenses/", expenses_router)

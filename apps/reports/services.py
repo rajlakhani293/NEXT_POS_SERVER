@@ -69,6 +69,15 @@ def parseReportDate(value=None):
     return timezone.datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
 
 
+def listFilterValues(data, *keys):
+    data = data or {}
+    for key in keys:
+        values = data.get(key)
+        if values:
+            return values if isinstance(values, list) else [values]
+    return []
+
+
 class ReportService:
     ACCOUNT_CATEGORY_LABELS = {
         "assets": "Assets",
@@ -310,41 +319,11 @@ class ReportService:
 
     @staticmethod
     def annualReport(data, request):
-        from django.db.models.functions import TruncMonth
         from apps.accounting.models import TransactionHistory
 
         year = int((data or {}).get("year") or timezone.localdate().year)
         base = tenantFilter(request)
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5))
-
-        # Sales per month
-        sales_qs = (
-            commonQuery.scopedQueryset(Order, base, request, tenant_config={})
-            .filter(created_at__year=year)
-            .annotate(month=TruncMonth("created_at"))
-            .values("month")
-            .annotate(
-                total_sales=Coalesce(Sum("total"), zero),
-                total_taxes=Coalesce(Sum("tax_amount"), zero),
-                total_discounts=Coalesce(Sum("discount_amount"), zero),
-                order_count=Count("id"),
-            )
-            .order_by("month")
-        )
-
-        # Expenses per month via transaction history (debit side)
-        expenses_qs = (
-            TransactionHistory.objects.filter(
-                company_id=request.user.company_id,
-                branch_id=request.user.branch_id,
-                created_at__year=year,
-                action_type="debit",
-            )
-            .annotate(month=TruncMonth("created_at"))
-            .values("month")
-            .annotate(total_expenses=Coalesce(Sum("amount"), zero))
-            .order_by("month")
-        )
 
         MONTH_NAMES = [
             "January", "February", "March", "April", "May", "June",
@@ -354,16 +333,29 @@ class ReportService:
         # Build full 12-month skeleton
         months: dict = {i: {"month": i, "label": MONTH_NAMES[i - 1], "total_sales": Decimal("0"), "total_taxes": Decimal("0"), "total_discounts": Decimal("0"), "total_expenses": Decimal("0"), "net_income": Decimal("0"), "order_count": 0} for i in range(1, 13)}
 
-        for row in sales_qs:
-            m = row["month"].month
-            months[m]["total_sales"] = row["total_sales"]
-            months[m]["total_taxes"] = row["total_taxes"]
-            months[m]["total_discounts"] = row["total_discounts"]
-            months[m]["order_count"] = row["order_count"]
-
-        for row in expenses_qs:
-            m = row["month"].month
-            months[m]["total_expenses"] = row["total_expenses"]
+        for month in range(1, 13):
+            month_start = timezone.make_aware(timezone.datetime(year, month, 1))
+            next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+            month_end = next_month - timedelta(microseconds=1)
+            sales = commonQuery.scopedQueryset(Order, base, request, tenant_config={}).filter(created_at__gte=month_start, created_at__lte=month_end).aggregate(
+                total_sales=Coalesce(Sum("total"), zero),
+                total_taxes=Coalesce(Sum("tax_amount"), zero),
+                total_discounts=Coalesce(Sum("discount_amount"), zero),
+                order_count=Count("id"),
+            )
+            expenses = TransactionHistory.objects.filter(
+                company_id=request.user.company_id,
+                branch_id=request.user.branch_id,
+                trigger_date__gte=month_start,
+                trigger_date__lte=month_end,
+                operation=TransactionHistory.OPERATION_DEBIT,
+                status__in=[0, 1],
+            ).aggregate(total_expenses=Coalesce(Sum("value"), zero))
+            months[month]["total_sales"] = sales["total_sales"]
+            months[month]["total_taxes"] = sales["total_taxes"]
+            months[month]["total_discounts"] = sales["total_discounts"]
+            months[month]["order_count"] = sales["order_count"]
+            months[month]["total_expenses"] = expenses["total_expenses"]
 
         for m in months.values():
             m["net_income"] = m["total_sales"] - m["total_expenses"]
@@ -496,6 +488,96 @@ class ReportService:
             tenant_config={"company_id": True, "branch_id": True},
         )
         return successResponse("Dashboard snapshot refreshed successfully.", data=jsonsafe({"id": day.id, **defaults}))
+
+    @staticmethod
+    def dashboardDay(request):
+        today = timezone.localdate()
+        start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
+        end = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.max.time()).replace(microsecond=0))
+        day = commonQuery.branchScopedQueryset(
+            DashboardDay,
+            {"range_starts__gte": start, "range_ends__lte": end, "status__in": [0, 1]},
+            request,
+        ).order_by("-id").values().first()
+        if day:
+            return successResponse("Dashboard day retrieved successfully.", data=day)
+        return ReportService.refreshDashboardSnapshot({"date": today.isoformat()}, request)
+
+    @staticmethod
+    def dashboardBestCustomers(request):
+        rows = list(
+            commonQuery.branchScopedQueryset(Customer, {"status__in": [0, 1]}, request)
+            .order_by("-purchases_amount", "first_name")
+            .values("id", "first_name", "last_name", "phone", "email", "purchases_amount", "owed_amount", "account_amount")[:5]
+        )
+        return successResponse("Best customers retrieved successfully.", data=rows)
+
+    @staticmethod
+    def dashboardRecentOrders(request):
+        rows = list(
+            commonQuery.branchScopedQueryset(Order, {"status__in": [0, 1]}, request)
+            .select_related("user")
+            .order_by("-created_at")
+            .values("id", "code", "payment_status", "order_type", "total", "created_at", "user_id", "user__full_name", "user__username")[:10]
+        )
+        return successResponse("Recent orders retrieved successfully.", data=rows)
+
+    @staticmethod
+    def dashboardBestCashiers(request):
+        rows = list(
+            commonQuery.branchScopedQueryset(Order, {"status__in": [0, 1]}, request)
+            .exclude(user_id__isnull=True)
+            .values("user_id", "user__full_name", "user__username")
+            .annotate(total_sales=Coalesce(Sum("total"), Value(Decimal("0"), output_field=DecimalField(max_digits=18, decimal_places=5))), order_count=Count("id"))
+            .order_by("-total_sales", "-order_count")[:10]
+        )
+        return successResponse("Best cashiers retrieved successfully.", data=rows)
+
+    @staticmethod
+    def dashboardWeekReports(request):
+        week_map = {
+            0: {"label": "Sunday", "value": "SU"},
+            1: {"label": "Monday", "value": "MO"},
+            2: {"label": "Tuesday", "value": "TU"},
+            3: {"label": "Wednesday", "value": "WE"},
+            4: {"label": "Thursday", "value": "TH"},
+            5: {"label": "Friday", "value": "FR"},
+            6: {"label": "Saturday", "value": "SA"},
+        }
+        today = timezone.localdate()
+        current_week_start_date = today - timedelta(days=(today.weekday() + 1) % 7)
+        current_week_end_date = current_week_start_date + timedelta(days=6)
+        last_week_start_date = current_week_start_date - timedelta(days=7)
+        last_week_end_date = current_week_start_date - timedelta(days=1)
+
+        def aware_start(day):
+            return timezone.make_aware(timezone.datetime.combine(day, timezone.datetime.min.time()))
+
+        def aware_end(day):
+            return timezone.make_aware(timezone.datetime.combine(day, timezone.datetime.max.time()).replace(microsecond=0))
+
+        rows = commonQuery.branchScopedQueryset(
+            DashboardDay,
+            {
+                "range_starts__gte": aware_start(last_week_start_date),
+                "range_ends__lte": aware_end(current_week_end_date),
+                "status__in": [0, 1],
+            },
+            request,
+        )
+        for report in rows.values():
+            day_index = parseReportDate(report["range_starts"]).isoweekday() % 7
+            bucket = "current" if parseReportDate(report["range_starts"]) >= current_week_start_date else "previous"
+            week_map[day_index].setdefault(bucket, {"entries": []})
+            week_map[day_index][bucket]["entries"].append(report)
+        return successResponse(
+            "Dashboard week reports retrieved successfully.",
+            data={
+                "range_starts": aware_start(last_week_start_date),
+                "range_ends": aware_end(current_week_end_date),
+                "result": week_map,
+            },
+        )
 
     @staticmethod
     def recomputeDashboardRange(data, request):
@@ -659,6 +741,13 @@ class ReportService:
     @staticmethod
     def soldStockReport(data, request):
         field_config = [["product__name", True, True], ["sale_order__code", True, True]]
+        custom_where = Q()
+        categories = listFilterValues(data, "categories", "category_ids", "categories_id")
+        units = listFilterValues(data, "units", "unit_ids")
+        if categories:
+            custom_where &= Q(product_category_id__in=categories)
+        if units:
+            custom_where &= Q(unit_id__in=units)
         result = commonQuery.fetchPaginatedData(
             OrdersProduct,
             data,
@@ -683,6 +772,7 @@ class ReportService:
             },
             request=request,
             tenant_config=True,
+            custom_where=custom_where,
         )
         return successResponse("Sold stock report retrieved successfully.", data=result)
 
@@ -701,6 +791,12 @@ class ReportService:
                 output_field=DecimalField(max_digits=14, decimal_places=2),
             ),
         )
+        categories = listFilterValues(data, "categories", "category_ids", "categories_id")
+        units = listFilterValues(data, "units", "unit_ids")
+        if categories:
+            queryset = queryset.filter(product_category_id__in=categories)
+        if units:
+            queryset = queryset.filter(unit_id__in=units)
         search = (data or {}).get("search")
         if search:
             queryset = queryset.filter(Q(product__name__icontains=search) | Q(sale_order__code__icontains=search))
@@ -821,6 +917,12 @@ class ReportService:
             sold_quantity=Coalesce(Sum("sale_items__quantity"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=3))),
             sold_amount=Coalesce(Sum("sale_items__total"), Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))),
         )
+        categories = listFilterValues(data, "categories", "category_ids", "categories_id")
+        units = listFilterValues(data, "units", "unit_ids")
+        if categories:
+            queryset = queryset.filter(product__category_id__in=categories)
+        if units:
+            queryset = queryset.filter(unit_id__in=units)
         search = (data or {}).get("search")
         if search:
             queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
@@ -875,6 +977,12 @@ class ReportService:
             "sale_price",
             "status",
         ).order_by("quantity", "product__name")
+        categories = listFilterValues(data, "categories", "category_ids", "categories_id")
+        units = listFilterValues(data, "units", "unit_ids")
+        if categories:
+            queryset = queryset.filter(product__category_id__in=categories)
+        if units:
+            queryset = queryset.filter(unit_id__in=units)
         search = (data or {}).get("search")
         if search:
             queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
@@ -919,6 +1027,12 @@ class ReportService:
     @staticmethod
     def stockReport(data, request):
         queryset = commonQuery.scopedQueryset(ProductUnitQuantity, tenantFilter(request), request, tenant_config={})
+        categories = listFilterValues(data, "categories", "category_ids", "categories_id")
+        units = listFilterValues(data, "units", "unit_ids")
+        if categories:
+            queryset = queryset.filter(product__category_id__in=categories)
+        if units:
+            queryset = queryset.filter(unit_id__in=units)
         search = (data or {}).get("search")
         if search:
             queryset = queryset.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(product__barcode__icontains=search) | Q(barcode__icontains=search))
@@ -1153,6 +1267,16 @@ class ReportService:
         return successResponse("Dashboard recompute queued successfully.", data={"job_id": job.id})
 
     @staticmethod
+    def computeSourceReport(report_type, data, request):
+        if report_type == "yearly":
+            from apps.settings.services import JobQueueService
+
+            payload = {"year": (data or {}).get("year") or timezone.localdate().year}
+            job = JobQueueService.enqueue("compute_yearly_report", payload, request=request)
+            return successResponse("The report will be computed for the current year.", data={"job_id": job.id, **payload})
+        raise api_error(400, ErrorCodes.BAD_REQUEST, "Unknown report to refresh.")
+
+    @staticmethod
     def jobHandlers():
         return {
             "ensure_combined_product_history": lambda data, job: ReportService.recomputeStockCombined(data, ReportService.requestFromJob(job)),
@@ -1163,6 +1287,7 @@ class ReportService:
             "compute_dashboard_month": lambda data, job: ReportService.refreshDashboardSnapshot(data or {}, ReportService.requestFromJob(job)),
             "detect_low_stock_products": lambda data, job: ReportService.detectLowStockProducts(data or {}, ReportService.requestFromJob(job)),
             "recompute_dashboard_reports": lambda data, job: ReportService.recomputeDashboardRange(data or {}, ReportService.requestFromJob(job)),
+            "compute_yearly_report": lambda data, job: ReportService.annualReport(data or {}, ReportService.requestFromJob(job)),
             "handle_stock_adjustment": lambda data, job: ReportService.handleStockAdjustment(data or {}, ReportService.requestFromJob(job)),
         }
 

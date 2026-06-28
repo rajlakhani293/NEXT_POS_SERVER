@@ -2913,6 +2913,92 @@ class PosParityFlowTest(TestCase):
         self.assertIn("ensure_combined_product_history", payloads)
         self.assertIn("purge_order_storage", payloads)
 
+    def test_source_dashboard_and_report_aliases_skip_widgets_but_match_backend_reports(self):
+        from apps.accounting.models import Transaction, TransactionBalanceDay
+        from apps.accounting.services import TransactionAccountService, TransactionService
+        from apps.reports.models import DashboardDay
+        from apps.reports.services import ReportService
+        from apps.sales.models import Order, OrdersProduct
+
+        customer = self.create_customer(username="report-customer")
+        customer.purchases_amount = Decimal("500")
+        customer.save(update_fields=["purchases_amount"])
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            customer=customer,
+            code="RPT-001",
+            order_type="takeaway",
+            payment_status="paid",
+            subtotal=Decimal("100"),
+            total=Decimal("100"),
+            tendered_amount=Decimal("100"),
+            tax_amount=Decimal("5"),
+        )
+        OrdersProduct.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            sale_order=order,
+            product=self.product,
+            product_category=self.category,
+            unit=self.unit,
+            unit_quantity=self.unit_quantity,
+            name=self.product.name,
+            quantity=Decimal("2"),
+            unit_price=Decimal("50"),
+            total=Decimal("100"),
+            cost_price=Decimal("30"),
+        )
+        today = timezone.localdate()
+        start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
+        end = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.max.time()).replace(microsecond=0))
+        DashboardDay.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            range_starts=start,
+            range_ends=end,
+            day_of_year=today.timetuple().tm_yday,
+            day_income=Decimal("100"),
+            total_income=Decimal("100"),
+        )
+
+        day = ReportService.dashboardDay(self.request).data
+        self.assertEqual(Decimal(str(day["day_income"])), Decimal("100.00000"))
+        self.assertEqual(ReportService.dashboardBestCustomers(self.request).data[0]["id"], customer.id)
+        self.assertEqual(ReportService.dashboardRecentOrders(self.request).data[0]["id"], order.id)
+        self.assertEqual(ReportService.dashboardBestCashiers(self.request).data[0]["user_id"], self.user.id)
+        self.assertIn("result", ReportService.dashboardWeekReports(self.request).data)
+
+        category = TransactionAccountService.create(
+            {"name": "Report Expense", "operation": "expenses"},
+            self.request,
+        ).data
+        TransactionService.createSource(
+            {
+                "name": "Report Expense",
+                "account_id": category["id"],
+                "value": Decimal("40"),
+                "type": Transaction.TYPE_DIRECT,
+            },
+            self.request,
+        )
+        annual = ReportService.annualReport({"year": today.year}, self.request).data
+        current_month = annual["months"][today.month - 1]
+        self.assertEqual(Decimal(str(current_month["total_expenses"])), Decimal("40.00000"))
+
+        stock = ReportService.stockReport({"categories": [self.category.id], "units": [self.unit.id]}, self.request).data
+        self.assertTrue(any(item["product_id"] == self.product.id for item in stock["items"]))
+        sold = ReportService.soldStockReport({"categories": [self.category.id], "units": [self.unit.id]}, self.request).data
+        self.assertEqual(sold["items"][0]["product_id"], self.product.id)
+        combined = ReportService.recomputeStockCombined({"date": today.isoformat()}, self.request).data
+        self.assertGreaterEqual(combined["updated_count"], 1)
+        source_compute = ReportService.computeSourceReport("yearly", {"year": today.year}, self.request).data
+        self.assertEqual(source_compute["year"], today.year)
+        self.assertTrue(TransactionBalanceDay.objects.filter(branch=self.branch).exists())
+
     def test_scale_barcode_and_plu_flows(self):
         # 1. Create a Scale Range
         scale_range = ScaleRange.objects.create(

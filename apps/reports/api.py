@@ -9,6 +9,7 @@ from apps.reports.services import ReportService
 
 
 router = Router(tags=["reports"], auth=auth_bearer)
+dashboardRouter = Router(tags=["dashboard"], auth=auth_bearer)
 
 
 @router.post("/dashboard-summary", response=ApiResponse)
@@ -27,6 +28,36 @@ def refreshDashboardSnapshot(request, payload: Optional[dict] = None):
 @permissionRequired("settings_update")
 def recomputeDashboardReports(request, payload: Optional[dict] = None):
     return ReportService.enqueueDashboardRecompute(payload or {}, request)
+
+
+@dashboardRouter.get("/day", response=ApiResponse)
+@permissionRequired("reports_view")
+def dashboardDay(request):
+    return ReportService.dashboardDay(request)
+
+
+@dashboardRouter.get("/best-customers", response=ApiResponse)
+@permissionRequired("reports_view")
+def dashboardBestCustomers(request):
+    return ReportService.dashboardBestCustomers(request)
+
+
+@dashboardRouter.get("/best-cashiers", response=ApiResponse)
+@permissionRequired("reports_view")
+def dashboardBestCashiers(request):
+    return ReportService.dashboardBestCashiers(request)
+
+
+@dashboardRouter.get("/recent-orders", response=ApiResponse)
+@permissionRequired("reports_view")
+def dashboardRecentOrders(request):
+    return ReportService.dashboardRecentOrders(request)
+
+
+@dashboardRouter.get("/weeks", response=ApiResponse)
+@permissionRequired("reports_view")
+def dashboardWeeks(request):
+    return ReportService.dashboardWeekReports(request)
 
 
 @router.post("/customer-due", response=ApiResponse)
@@ -113,16 +144,40 @@ def stockCombinedReport(request, payload: Optional[dict] = None):
     return ReportService.stockCombinedReport(payload, request)
 
 
+@router.post("/product-history-combined", response=ApiResponse)
+@permissionRequired("reports_view")
+def productHistoryCombinedReport(request, payload: Optional[dict] = None):
+    return ReportService.stockCombinedReport(payload, request)
+
+
 @router.post("/stock-combined/refresh", response=ApiResponse)
 @permissionRequired("reports_view")
 def refreshStockCombinedReport(request, payload: Optional[dict] = None):
     return ReportService.enqueueStockCombinedRefresh(payload or {}, request)
 
 
+@router.post("/compute-combined-report", response=ApiResponse)
+@permissionRequired("reports_view")
+def computeCombinedReport(request, payload: Optional[dict] = None):
+    return ReportService.recomputeStockCombined(payload or {}, request)
+
+
+@router.post("/compute/{report_type}", response=ApiResponse)
+@permissionRequired("reports_view")
+def computeReport(request, report_type: str, payload: Optional[dict] = None):
+    return ReportService.computeSourceReport(report_type, payload or {}, request)
+
+
 @router.post("/cashier-report", response=ApiResponse)
 @permissionRequired("reports_view")
 def cashierReport(request, payload: Optional[dict] = None):
     return ReportService.cashierReport(payload, request)
+
+
+@router.get("/cashier-report", response=ApiResponse)
+@permissionRequired("reports_view")
+def cashierReportGet(request):
+    return ReportService.cashierReport({}, request)
 
 
 @router.post("/customers-statement/{customer_id}", response=ApiResponse)
