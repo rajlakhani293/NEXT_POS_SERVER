@@ -23,6 +23,13 @@ from apps.common.tenantDefaults import ACCOUNT_BLUEPRINTS, DEFAULT_ACCOUNT_RULES
 
 ACCOUNT_CODES = {key: account for key, _name, account, _category, _parent in ACCOUNT_BLUEPRINTS}
 BRANCH_TENANT_CONFIG = {"company_id": True, "branch_id": True}
+ACCOUNT_OPERATION_MAP = {
+    "assets": {"increase": TransactionHistory.OPERATION_DEBIT, "decrease": TransactionHistory.OPERATION_CREDIT},
+    "liabilities": {"increase": TransactionHistory.OPERATION_CREDIT, "decrease": TransactionHistory.OPERATION_DEBIT},
+    "equity": {"increase": TransactionHistory.OPERATION_CREDIT, "decrease": TransactionHistory.OPERATION_DEBIT},
+    "revenues": {"increase": TransactionHistory.OPERATION_CREDIT, "decrease": TransactionHistory.OPERATION_DEBIT},
+    "expenses": {"increase": TransactionHistory.OPERATION_DEBIT, "decrease": TransactionHistory.OPERATION_CREDIT},
+}
 
 
 def normalizeTransactionDate(value):
@@ -726,7 +733,19 @@ class AccountingService:
 
 class TransactionAccountService:
     @staticmethod
+    def sourcePayload(data):
+        data = dict(data or {})
+        if data.get("category_identifier") is None and data.get("operation") in ACCOUNT_OPERATION_MAP:
+            data["category_identifier"] = data.get("operation")
+        if data.get("category_identifier") is None and data.get("category"):
+            data["category_identifier"] = data.get("category")
+        data.pop("operation", None)
+        data.pop("category", None)
+        return data
+
+    @staticmethod
     def create(data, request):
+        data = TransactionAccountService.sourcePayload(data)
         parent_id = data.get("sub_category_id")
         parent = None
         if parent_id:
@@ -828,6 +847,7 @@ class TransactionAccountService:
 
     @staticmethod
     def update(account_id, data, request):
+        data = TransactionAccountService.sourcePayload(data)
         account = commonQuery.findOneRecord(
             TransactionAccount,
             {
@@ -875,6 +895,77 @@ class TransactionAccountService:
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         return successResponse("Transaction account status updated successfully.", data={"updated_count": count, "status": status})
+
+    @staticmethod
+    def getSubAccounts(request):
+        data = commonQuery.findAllRecords(
+            TransactionAccount,
+            {"sub_category_id__isnull": False},
+            {
+                "attributes": ["id", "name", "account", "category_identifier", "sub_category_id", "sub_category__name", "status"],
+                "order": ["category_identifier", "name"],
+            },
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
+        return successResponse("Transaction sub accounts retrieved successfully.", data=data)
+
+    @staticmethod
+    def getHistory(account_id, request):
+        account = commonQuery.findOneRecord(
+            TransactionAccount,
+            account_id,
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
+        if account is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
+        histories = commonQuery.findAllRecords(
+            TransactionHistory,
+            {"transaction_account_id": account_id},
+            {
+                "attributes": [
+                    "id",
+                    "transaction_id",
+                    "operation",
+                    "name",
+                    "type",
+                    "value",
+                    "trigger_date",
+                    "transaction_status",
+                    "status",
+                    "created_at",
+                ],
+                "order": ["-created_at"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Transaction account history retrieved successfully.", data=histories)
+
+    @staticmethod
+    def getFromCategory(identifier, exclude_id, request):
+        qs = commonQuery.branchScopedQueryset(
+            TransactionAccount,
+            {"category_identifier": identifier, "status__in": [0, 1]},
+            request,
+        )
+        if exclude_id:
+            qs = qs.exclude(id=exclude_id)
+        data = list(qs.order_by("name").values("id", "name", "account", "category_identifier", "sub_category_id"))
+        return successResponse("Transaction accounts retrieved successfully.", data=data)
+
+    @staticmethod
+    def resetDefaults(request):
+        commonQuery.hardDeleteRecords(TransactionHistory, {}, request=request, tenant_config=True)
+        commonQuery.hardDeleteRecords(Transaction, {}, request=request, tenant_config=True)
+        commonQuery.hardDeleteRecords(TransactionActionRule, {}, request=request, tenant_config=BRANCH_TENANT_CONFIG)
+        commonQuery.hardDeleteRecords(TransactionAccount, {}, request=request, tenant_config=BRANCH_TENANT_CONFIG)
+        accounts = AccountingService.ensureForRequest(request)
+        return successResponse(
+            "Default transaction accounts created successfully.",
+            data=[{"id": account.id, "name": account.name, "account": account.account, "category_identifier": account.category_identifier} for account in accounts.values()],
+        )
 
 
 class TransactionRuleService:
@@ -1017,6 +1108,95 @@ class TransactionService:
         return successResponse("Transaction created successfully.", data=record)
 
     @staticmethod
+    def sourcePayload(data):
+        data = dict(data or {})
+        if data.get("account_id") is None and data.get("category_id") is not None:
+            data["account_id"] = data.get("category_id")
+        if data.get("value") is None and data.get("amount") is not None:
+            data["value"] = data.get("amount")
+        tx_type = data.get("type") or Transaction.TYPE_DIRECT
+        type_aliases = {
+            "direct": Transaction.TYPE_DIRECT,
+            "scheduled": Transaction.TYPE_SCHEDULED,
+            "recurring": Transaction.TYPE_RECURRING,
+            "entity": Transaction.TYPE_ENTITY,
+            "indirect": Transaction.TYPE_INDIRECT,
+            "direct-transaction": Transaction.TYPE_DIRECT,
+            "scheduled-transaction": Transaction.TYPE_SCHEDULED,
+            "recurring-transaction": Transaction.TYPE_RECURRING,
+            "entity-transaction": Transaction.TYPE_ENTITY,
+            "indirect-transaction": Transaction.TYPE_INDIRECT,
+        }
+        data["type"] = type_aliases.get(tx_type, tx_type)
+        if data["type"] == Transaction.TYPE_RECURRING:
+            data["recurring"] = True
+        if data.get("active") is None:
+            data["active"] = False
+        return data
+
+    @staticmethod
+    def sourceFields(data):
+        data = TransactionService.sourcePayload(data)
+        allowed = {
+            "name",
+            "account_id",
+            "description",
+            "media_id",
+            "value",
+            "recurring",
+            "type",
+            "active",
+            "group_id",
+            "occurrence",
+            "occurrence_value",
+            "scheduled_date",
+        }
+        return {key: value for key, value in data.items() if key in allowed}
+
+    @staticmethod
+    def createSource(data, request):
+        fields = TransactionService.sourceFields(data)
+        if not fields.get("account_id"):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Transaction account is required.")
+        account = commonQuery.findOneRecord(
+            TransactionAccount,
+            {"id": fields["account_id"], "status__in": [0, 1]},
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
+        if account is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
+        transaction_record = commonQuery.createRecord(
+            Transaction,
+            fields,
+            request=request,
+            tenant_config=True,
+        )
+        process_result = TransactionService.processSourceTransaction(transaction_record["id"], request)
+        transaction_record["process"] = process_result.data
+        return successResponse("The transaction has been successfully saved.", data={"transaction": transaction_record})
+
+    @staticmethod
+    def updateSource(transaction_id, data, request):
+        existing = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
+        if existing is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the transaction using the provided identifier.")
+        fields = TransactionService.sourceFields(data)
+        if fields.get("account_id"):
+            account = commonQuery.findOneRecord(
+                TransactionAccount,
+                {"id": fields["account_id"], "status__in": [0, 1]},
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
+            if account is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
+        updated = commonQuery.updateRecordById(Transaction, transaction_id, fields, request=request, tenant_config=True)
+        process_result = TransactionService.processSourceTransaction(transaction_id, request)
+        updated["process"] = process_result.data
+        return successResponse("The transaction has been successfully updated.", data={"transaction": updated})
+
+    @staticmethod
     def getAll(data, request):
         result = commonQuery.fetchPaginatedData(
             Transaction,
@@ -1045,6 +1225,19 @@ class TransactionService:
             tenant_config=True,
         )
         return successResponse("Transactions retrieved successfully.", data=result)
+
+    @staticmethod
+    def getById(transaction_id, request):
+        transaction_record = commonQuery.findOneRecord(
+            Transaction,
+            transaction_id,
+            {"include": [{"path": "account"}]},
+            request=request,
+            tenant_config=True,
+        )
+        if transaction_record is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find the requested transaction using the provided id.")
+        return successResponse("Transaction retrieved successfully.", data=transaction_record)
 
     @staticmethod
     def history(data, request):
@@ -1090,11 +1283,20 @@ class TransactionService:
     @staticmethod
     def _buildHistory(transaction_record, request, *, status=None, trigger_date=None):
         tx_date = normalizeTransactionDate(trigger_date or transaction_record.get("scheduled_date") or timezone.now())
+        account = commonQuery.findOneRecord(
+            TransactionAccount,
+            transaction_record["account_id"],
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
+        if account is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
+        operation = ACCOUNT_OPERATION_MAP.get(account.get("category_identifier"), {}).get("increase", TransactionHistory.OPERATION_DEBIT)
         return commonQuery.createRecord(
             TransactionHistory,
             {
                 "transaction_id": transaction_record["id"],
-                "operation": "credit",
+                "operation": operation,
                 "transaction_account_id": transaction_record["account_id"],
                 "name": transaction_record["name"],
                 "type": transaction_record.get("type") or Transaction.TYPE_DIRECT,
@@ -1104,6 +1306,107 @@ class TransactionService:
             },
             request=request,
             tenant_config=True,
+        )
+
+    @staticmethod
+    def processSourceTransaction(transaction_id, request):
+        transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
+        if transaction_record is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
+        if transaction_record.get("type") in [Transaction.TYPE_SCHEDULED, Transaction.TYPE_ENTITY]:
+            return TransactionService.prepareTransactionHistory(transaction_id, request)
+        if transaction_record.get("type") == Transaction.TYPE_DIRECT:
+            return TransactionService.triggerTransaction(transaction_id, request)
+        return successResponse("Transaction processing skipped.", data={"transaction": transaction_record})
+
+    @staticmethod
+    def triggerTransaction(transaction_id, request):
+        transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
+        if transaction_record is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
+        if transaction_record.get("type") not in [
+            Transaction.TYPE_DIRECT,
+            Transaction.TYPE_ENTITY,
+            Transaction.TYPE_SCHEDULED,
+            Transaction.TYPE_INDIRECT,
+        ]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "This transaction type cannot be triggered.")
+        history = TransactionService._buildHistory(
+            transaction_record,
+            request,
+            status=TransactionHistory.STATUS_ACTIVE_TEXT,
+            trigger_date=timezone.now(),
+        )
+        history_date = normalizeTransactionDate(history.get("trigger_date") or timezone.now())
+        AccountingService.updateBalances(
+            transaction_record["account_id"],
+            transaction_record.get("value") or 0,
+            history.get("operation") or TransactionHistory.OPERATION_DEBIT,
+            history_date,
+            request,
+        )
+        updated = commonQuery.updateRecordById(
+            Transaction,
+            transaction_id,
+            {"active": False},
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("The transaction has been successfully triggered.", data={"transaction": updated, "histories": [history]})
+
+    @staticmethod
+    def deleteSource(transaction_id, request):
+        transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
+        if transaction_record is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
+        history_dates = list(
+            commonQuery.branchScopedQueryset(TransactionHistory, {"transaction_id": transaction_id}, request)
+            .values_list("trigger_date", flat=True)
+        )
+        commonQuery.branchScopedQueryset(TransactionHistory, {"transaction_id": transaction_id}, request).delete()
+        parsed_dates = [normalizeTransactionDate(value).date() for value in history_dates if value]
+        if parsed_dates:
+            AccountingService.recomputeBalances(min(parsed_dates).isoformat(), max(parsed_dates).isoformat(), request)
+        count = commonQuery.softDeleteById(Transaction, transaction_id, request=request, tenant_config=True)
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
+        return successResponse("The transaction has been correctly deleted.")
+
+    @staticmethod
+    def configurations(transaction_id, request):
+        transaction_record = None
+        if transaction_id:
+            transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
+            if transaction_record is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
+        transaction_record = transaction_record or {}
+        recurrence_options = [
+            ("month_starts", "First Day Of Month"),
+            ("month_ends", "Last Day Of Month"),
+            ("month_mid", "Month Middle"),
+            ("x_after_month_starts", "Days After Month Starts"),
+            ("x_before_month_ends", "Days Before Month Ends"),
+            ("on_specific_day", "Every Day Of Month"),
+            ("every_x_minutes", "Every Minutes"),
+            ("every_x_hours", "Every Hours"),
+            ("every_x_days", "Every Days"),
+        ]
+        configurations = [
+            {"identifier": Transaction.TYPE_DIRECT, "label": "Direct Expense", "fields": ["name", "account_id", "description", "media_id", "value", "type"]},
+            {"identifier": Transaction.TYPE_RECURRING, "label": "Recurring Expense", "fields": ["name", "account_id", "description", "media_id", "value", "occurrence", "occurrence_value", "type"]},
+            {"identifier": Transaction.TYPE_ENTITY, "label": "Entity Expense", "fields": ["name", "account_id", "description", "media_id", "value", "group_id", "scheduled_date", "type"]},
+            {"identifier": Transaction.TYPE_SCHEDULED, "label": "Scheduled Expense", "fields": ["name", "account_id", "description", "media_id", "value", "scheduled_date", "type"]},
+        ]
+        return successResponse(
+            "Transaction configurations retrieved successfully.",
+            data={
+                "recurrence": [
+                    {"type": "select", "label": "Condition", "name": "occurrence", "value": transaction_record.get("occurrence") or "", "options": [{"label": label, "value": value} for value, label in recurrence_options]},
+                    {"type": "number", "label": "Days", "name": "occurrence_value", "value": transaction_record.get("occurrence_value") or 0},
+                ],
+                "configurations": configurations,
+                "warningMessage": False,
+            },
         )
 
     @staticmethod

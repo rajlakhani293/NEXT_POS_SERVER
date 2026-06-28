@@ -14,6 +14,8 @@ from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 
 
 router = Router(tags=["accounting"], auth=auth_bearer)
+transactionsRouter = Router(tags=["transactions"], auth=auth_bearer)
+transactionAccountsRouter = Router(tags=["transaction-accounts"], auth=auth_bearer)
 
 
 @router.post("/accounts/", response=ApiResponse)
@@ -121,3 +123,135 @@ def recomputeAccountingBalances(request, payload: Optional[dict] = None):
 @permissionRequired("settings_update")
 def bootstrapAccounting(request):
     return AccountingService.bootstrapSystemAccounts(request)
+
+
+@transactionsRouter.get("/", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactions(request):
+    return TransactionService.getAll({}, request)
+
+
+@transactionsRouter.get("/configurations", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionConfigurations(request):
+    return TransactionService.configurations(None, request)
+
+
+@transactionsRouter.get("/configurations/{transaction_id}", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionConfigurationsById(request, transaction_id: int):
+    return TransactionService.configurations(transaction_id, request)
+
+
+@transactionsRouter.get("/rules", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionRules(request):
+    return TransactionRuleService.getAll(request)
+
+
+@transactionsRouter.get("/{transaction_id}", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransaction(request, transaction_id: int):
+    return TransactionService.getById(transaction_id, request)
+
+
+@transactionsRouter.post("/", response=ApiResponse)
+@permissionRequired("expenses_create")
+def createTransaction(request, payload: dict):
+    return TransactionService.createSource(payloadData(payload), request)
+
+
+@transactionsRouter.post("/rules", response=ApiResponse)
+@permissionRequired("expenses_update")
+def saveTransactionRule(request, payload: dict):
+    data = payloadData(payload)
+    rule = data.get("rule") or data
+    rule_id = rule.get("id")
+    if rule_id:
+        return TransactionRuleService.update(rule_id, rule, request)
+    return TransactionRuleService.create(rule, request)
+
+
+@transactionsRouter.put("/{transaction_id}", response=ApiResponse)
+@permissionRequired("expenses_update")
+def updateTransaction(request, transaction_id: int, payload: dict):
+    return TransactionService.updateSource(transaction_id, payloadData(payload, exclude_none=True), request)
+
+
+@transactionsRouter.delete("/{transaction_id}", response=ApiResponse)
+@permissionRequired("expenses_delete")
+def deleteTransaction(request, transaction_id: int):
+    return TransactionService.deleteSource(transaction_id, request)
+
+
+@transactionsRouter.get("/trigger/{transaction_id}", response=ApiResponse)
+@permissionRequired("expenses_update")
+def triggerTransaction(request, transaction_id: int):
+    return TransactionService.triggerTransaction(transaction_id, request)
+
+
+@transactionsRouter.get("/history/{history_id}/create-reflection", response=ApiResponse)
+@permissionRequired("expenses_create")
+def createTransactionReflection(request, history_id: int):
+    return AccountingService.reflectTransactionFromRule(history_id, request)
+
+
+@transactionAccountsRouter.get("/", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionAccounts(request):
+    return TransactionAccountService.getAll({}, request)
+
+
+@transactionAccountsRouter.get("/sub-accounts", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionSubAccounts(request):
+    return TransactionAccountService.getSubAccounts(request)
+
+
+@transactionAccountsRouter.get("/actions", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionActions(request):
+    return TransactionRuleService.eventOptions()
+
+
+@transactionAccountsRouter.post("/category-identifier", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionAccountsFromCategory(request, payload: dict):
+    data = payloadData(payload)
+    return TransactionAccountService.getFromCategory(data.get("identifier"), data.get("exclude"), request)
+
+
+@transactionAccountsRouter.get("/reset-defaults", response=ApiResponse)
+@permissionRequired("expenses_update")
+def resetDefaultTransactionAccounts(request):
+    return TransactionAccountService.resetDefaults(request)
+
+
+@transactionAccountsRouter.get("/{account_id}", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionAccount(request, account_id: int):
+    return TransactionAccountService.getById(account_id, request)
+
+
+@transactionAccountsRouter.get("/{account_id}/history", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransactionAccountHistory(request, account_id: int):
+    return TransactionAccountService.getHistory(account_id, request)
+
+
+@transactionAccountsRouter.post("/", response=ApiResponse)
+@permissionRequired("expenses_create")
+def createTransactionAccount(request, payload: dict):
+    return TransactionAccountService.create(payloadData(payload), request)
+
+
+@transactionAccountsRouter.put("/{account_id}", response=ApiResponse)
+@permissionRequired("expenses_update")
+def updateTransactionAccount(request, account_id: int, payload: dict):
+    return TransactionAccountService.update(account_id, payloadData(payload, exclude_none=True), request)
+
+
+@transactionAccountsRouter.delete("/{account_id}", response=ApiResponse)
+@permissionRequired("expenses_delete")
+def deleteTransactionAccount(request, account_id: int):
+    return TransactionAccountService.delete({"ids": [account_id]}, request)

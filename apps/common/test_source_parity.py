@@ -2767,7 +2767,7 @@ class PosParityFlowTest(TestCase):
             company=self.company,
             branch=self.branch,
             name="Recurring Revenue",
-            category_identifier="revenue",
+            category_identifier="revenues",
             account="rec-rev-001",
             status=0,
         )
@@ -2821,6 +2821,59 @@ class PosParityFlowTest(TestCase):
         # Branch balance remains unchanged
         balance_day.refresh_from_db()
         self.assertEqual(Decimal(str(balance_day.closing_balance)), Decimal("150.00"))
+
+    def test_source_transactions_accounts_and_configurations_follow_source_routes(self):
+        from apps.accounting.models import Transaction, TransactionBalanceDay
+        from apps.accounting.services import TransactionAccountService, TransactionRuleService, TransactionService
+
+        category = TransactionAccountService.create(
+            {
+                "name": "Source Rent",
+                "operation": "expenses",
+                "description": "Rent expense account.",
+            },
+            self.request,
+        ).data
+        self.assertEqual(category["category_identifier"], "expenses")
+        self.assertTrue(category["account"].endswith("expenses-source-rent"))
+
+        transaction = TransactionService.createSource(
+            {
+                "name": "June Rent",
+                "account_id": category["id"],
+                "description": "Monthly rent",
+                "value": Decimal("250"),
+                "type": Transaction.TYPE_DIRECT,
+                "active": True,
+            },
+            self.request,
+        ).data["transaction"]
+        tx = Transaction.objects.get(id=transaction["id"])
+        history = TransactionHistory.objects.get(transaction_id=tx.id)
+
+        self.assertFalse(tx.active)
+        self.assertEqual(history.operation, TransactionHistory.OPERATION_DEBIT)
+        self.assertEqual(history.transaction_status, TransactionHistory.STATUS_ACTIVE_TEXT)
+        balance_day = TransactionBalanceDay.objects.get(branch=self.branch)
+        self.assertEqual(Decimal(str(balance_day.expense)), Decimal("250.00000"))
+        self.assertEqual(Decimal(str(balance_day.closing_balance)), Decimal("-250.00000"))
+
+        config = TransactionService.configurations(tx.id, self.request).data
+        self.assertIn(Transaction.TYPE_DIRECT, [item["identifier"] for item in config["configurations"]])
+        self.assertIn("recurrence", config)
+
+        accounts = TransactionAccountService.getFromCategory("expenses", None, self.request).data
+        self.assertTrue(any(item["id"] == category["id"] for item in accounts))
+        account_history = TransactionAccountService.getHistory(category["id"], self.request).data
+        self.assertEqual(account_history[0]["id"], history.id)
+
+        rules = TransactionRuleService.eventOptions().data
+        self.assertIn("procurement_paid", [item["value"] for item in rules])
+
+        TransactionService.deleteSource(tx.id, self.request)
+        tx.refresh_from_db()
+        self.assertEqual(tx.status, 2)
+        self.assertFalse(TransactionHistory.objects.filter(transaction_id=tx.id).exists())
 
     def test_scheduler_enqueues_specific_jobs_based_on_time(self):
         import json
