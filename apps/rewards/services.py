@@ -273,7 +273,7 @@ class RewardSystemService:
     def getAll(data, request):
         fieldConfig = [["name", True, True]]
         options = {
-            "attributes": ["id", "name", "coupon_id", "target", "description", "status", "created_at"],
+            "attributes": ["id", "name", "coupon_id", "target", "description", "status", "created_at", "user__username"],
         }
         result = commonQuery.fetchPaginatedData(
             RewardSystem,
@@ -303,6 +303,7 @@ class RewardSystemService:
             item["coupon_name"] = coupon_name_map.get(item.get("coupon_id")) or "-"
             rule_count = len(item.get("rules") or [])
             item["name"] = f"{item['name']} ({rule_count})"
+            item["user_username"] = item.pop("user__username", None)
 
         return successResponse("Reward systems retrieved successfully.", data=result)
 
