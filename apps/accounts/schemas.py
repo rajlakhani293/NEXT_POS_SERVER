@@ -83,6 +83,7 @@ class UserIn(Schema):
     active: bool = True
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
+    roles: Optional[List[int]] = None
     group_id: Optional[int] = None
     birth_date: Optional[date] = None
     credit_limit_amount: Optional[Decimal] = Decimal("0")
@@ -101,6 +102,7 @@ class UserUpdateIn(Schema):
     active: Optional[bool] = None
     branch_id: Optional[int] = None
     role_id: Optional[int] = None
+    roles: Optional[List[int]] = None
     group_id: Optional[int] = None
     birth_date: Optional[date] = None
     credit_limit_amount: Optional[Decimal] = None

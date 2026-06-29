@@ -86,6 +86,41 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can manage modules"},
         )
+        p_users_view, _ = Permission.objects.get_or_create(
+            codename="users_view",
+            content_type=content_type,
+            defaults={"name": "Can view users"},
+        )
+        p_users_create, _ = Permission.objects.get_or_create(
+            codename="users_create",
+            content_type=content_type,
+            defaults={"name": "Can create users"},
+        )
+        p_users_delete, _ = Permission.objects.get_or_create(
+            codename="users_delete",
+            content_type=content_type,
+            defaults={"name": "Can delete users"},
+        )
+        p_roles_view, _ = Permission.objects.get_or_create(
+            codename="roles_view",
+            content_type=content_type,
+            defaults={"name": "Can view roles"},
+        )
+        p_roles_create, _ = Permission.objects.get_or_create(
+            codename="roles_create",
+            content_type=content_type,
+            defaults={"name": "Can create roles"},
+        )
+        p_roles_update, _ = Permission.objects.get_or_create(
+            codename="roles_update",
+            content_type=content_type,
+            defaults={"name": "Can update roles"},
+        )
+        p_roles_delete, _ = Permission.objects.get_or_create(
+            codename="roles_delete",
+            content_type=content_type,
+            defaults={"name": "Can delete roles"},
+        )
         # Ensure expenses_create permission also exists in the test DB
         Permission.objects.get_or_create(
             codename="expenses_create",
@@ -100,6 +135,13 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_settings_update)
         self.role_a.permissions.add(p_pos_taxes)
         self.role_a.permissions.add(p_manage_modules)
+        self.role_a.permissions.add(p_users_view)
+        self.role_a.permissions.add(p_users_create)
+        self.role_a.permissions.add(p_users_delete)
+        self.role_a.permissions.add(p_roles_view)
+        self.role_a.permissions.add(p_roles_create)
+        self.role_a.permissions.add(p_roles_update)
+        self.role_a.permissions.add(p_roles_delete)
 
         self.token_a = AccessToken.objects.create(
             user=self.user_a,
@@ -375,7 +417,7 @@ class PosApiIntegrationTest(TestCase):
             **self.headers_a,
         )
 
-        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.status_code, 200, list_response.content.decode())
         list_payload = list_response.json()
         self.assertTrue(list_payload["success"])
         self.assertEqual(list_payload["data"]["total"], 1)
@@ -427,7 +469,7 @@ class PosApiIntegrationTest(TestCase):
             **self.headers_a,
         )
 
-        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(list_response.status_code, 200, list_response.content.decode())
         list_payload = list_response.json()
         self.assertTrue(list_payload["success"])
         self.assertEqual(list_payload["data"]["total"], 1)
@@ -851,3 +893,99 @@ class PosApiIntegrationTest(TestCase):
         self.assertIn("total_disabled", payload)
         self.assertIn("total_invalid", payload)
         self.assertEqual(missing_response.status_code, 404)
+
+    def test_users_source_list_and_multi_role_assignment_match_source(self):
+        second_role = Role.objects.create(
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Supervisor A",
+            namespace="supervisor-a",
+            status=0,
+        )
+
+        create_response = self.client.post(
+            "/api/accounts/users/",
+            data=json.dumps(
+                {
+                    "username": "multi_role_user",
+                    "password": "password123",
+                    "email": "multi@example.com",
+                    "roles": [self.role_a.id, second_role.id],
+                    "active": True,
+                }
+            ),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        list_response = self.client.get("/api/users", **self.headers_a)
+        self_delete_response = self.client.delete(
+            "/api/accounts/users/delete",
+            data=json.dumps({"ids": [self.user_a.id]}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(create_response.status_code, 200)
+        created = create_response.json()["data"]
+        role_names = [role["name"] for role in created["roles"]]
+        self.assertIn("Cashier A", role_names)
+        self.assertIn("Supervisor A", role_names)
+        self.assertEqual(list_response.status_code, 200, list_response.content.decode())
+        source_users = list_response.json()["data"]
+        self.assertIsInstance(source_users, list)
+        self.assertIn("username", source_users[0])
+        self.assertNotIn("items", list_response.json()["data"])
+        self.assertEqual(self_delete_response.status_code, 400)
+
+    def test_roles_source_clone_and_locked_namespace_match_source(self):
+        create_response = self.client.post(
+            "/api/accounts/roles",
+            data=json.dumps(
+                {
+                    "name": "Floor Manager",
+                    "namespace": "",
+                    "description": "Handles floor permissions.",
+                    "locked": True,
+                    "permission_codenames": ["users_view"],
+                }
+            ),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(create_response.status_code, 200, create_response.content.decode())
+        created = create_response.json()["data"]
+        self.assertEqual(created["namespace"], "floor-manager")
+        self.assertFalse(created["locked"])
+        self.assertIn("users_view", created["permissions"])
+
+        locked_role = Role.objects.create(
+            company=self.company_a,
+            branch=self.branch_a,
+            user=self.user_a,
+            name="Locked Manager",
+            namespace="locked-manager",
+            locked=True,
+            status=0,
+        )
+        update_response = self.client.put(
+            f"/api/accounts/roles/{locked_role.id}",
+            data=json.dumps({"name": "Locked Manager Updated", "namespace": "changed-manager"}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        locked_role.refresh_from_db()
+
+        self.assertEqual(update_response.status_code, 200, update_response.content.decode())
+        self.assertEqual(locked_role.namespace, "locked-manager")
+
+        clone_response = self.client.get(f"/api/users/roles/{created['id']}/clone", **self.headers_a)
+        source_list_response = self.client.get("/api/users/roles", **self.headers_a)
+
+        self.assertEqual(clone_response.status_code, 200, clone_response.content.decode())
+        clone = clone_response.json()["data"]
+        self.assertEqual(clone["name"], "Floor Manager Copy")
+        self.assertEqual(clone["namespace"], "floor-manager-copy")
+        self.assertIn("users_view", clone["permissions"])
+        self.assertEqual(source_list_response.status_code, 200, source_list_response.content.decode())
+        self.assertIsInstance(source_list_response.json()["data"], list)

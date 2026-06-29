@@ -2,7 +2,7 @@ from typing import Optional
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
-from apps.accounts.models import Role
+from apps.accounts.models import Role, User
 from apps.accounts.schemas import (
     BranchSwitchIn,
     LoginIn,
@@ -259,7 +259,11 @@ def sourceCheckPermission(request, payload: dict):
 @sourceRouter.get("/users", response=ApiResponse)
 @permissionRequired("users_view")
 def sourceGetUsers(request):
-    data = AccountsService.listUsers(request.user, {})
+    data = list(
+        User.objects.filter(company_id=request.user.company_id, status__in=[0, 1])
+        .order_by("username")
+        .values("username", "id", "email")
+    )
     return successResponse("Users fetched successfully.", data=data)
 
 

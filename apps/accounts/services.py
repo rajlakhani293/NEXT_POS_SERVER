@@ -848,6 +848,7 @@ class AccountsService:
         data = payload.dict(exclude_unset=True)
         branch_id = data.get("branch_id") or user.branch_id
         role_id = data.get("role_id")
+        role_ids = data.get("roles") or ([role_id] if role_id else [])
 
         branch = commonQuery.scopedQueryset(
             Branch,
@@ -857,15 +858,16 @@ class AccountsService:
         if branch is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
 
-        role = None
-        if role_id:
-            role = commonQuery.scopedQueryset(
+        roles = []
+        if role_ids:
+            roles = list(commonQuery.scopedQueryset(
                 Role,
-                {"company_id": user.company_id, "branch_id": branch_id, "id": role_id, "status__in": [0, 1]},
+                {"company_id": user.company_id, "branch_id": branch_id, "id__in": role_ids, "status__in": [0, 1]},
                 tenant_config={},
-            ).first()
-            if role is None:
+            ))
+            if len(roles) != len(set(role_ids)):
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
+        role = roles[0] if roles else None
 
         username = data.get("username")
         password = data.get("password")
@@ -903,8 +905,8 @@ class AccountsService:
             status=0 if data.get("active", True) else 1,
             is_active=bool(data.get("active", True)),
         )
-        if role:
-            AccountsService.setUserRoles(target_user, [role])
+        if roles:
+            AccountsService.setUserRoles(target_user, roles)
         return AccountsService.serializeUser(target_user)
 
     @staticmethod
@@ -944,20 +946,24 @@ class AccountsService:
             if branch is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Branch not found.")
             target_user.branch = branch
-        if data.get("role_id"):
-            role = commonQuery.scopedQueryset(
+        role_ids = data.get("roles")
+        if role_ids is None and data.get("role_id"):
+            role_ids = [data["role_id"]]
+        if role_ids is not None:
+            role_ids = [role_id for role_id in role_ids if role_id]
+            roles = list(commonQuery.scopedQueryset(
                 Role,
                 {
                     "company_id": user.company_id,
                     "branch_id": target_user.branch_id,
-                    "id": data["role_id"],
+                    "id__in": role_ids,
                     "status__in": [0, 1],
                 },
                 tenant_config={},
-            ).first()
-            if role is None:
+            ))
+            if len(roles) != len(set(role_ids)):
                 raise api_error(404, ErrorCodes.ROLE_NOT_FOUND, "Role not found.")
-            AccountsService.setUserRoles(target_user, [role])
+            AccountsService.setUserRoles(target_user, roles)
 
         for field in ["username", "full_name", "first_name", "last_name", "phone", "email", "gender", "pobox"]:
             if field in data:
@@ -989,6 +995,8 @@ class AccountsService:
         ids = data.get("ids", [])
         if not isinstance(ids, list):
             ids = [ids]
+        if user.id in ids:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You cannot delete your own account.")
         count = commonQuery.scopedQueryset(
             User,
             {"company_id": user.company_id, "id__in": ids},
@@ -1004,6 +1012,8 @@ class AccountsService:
         ids = data.get("ids", [])
         if not isinstance(ids, list):
             ids = [ids]
+        if user.id in ids and status in [1, 2]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You cannot disable your own account.")
         count = commonQuery.scopedQueryset(
             User,
             {"company_id": user.company_id, "id__in": ids},
@@ -1084,7 +1094,7 @@ class AccountsService:
                 "description": payload.description,
                 "reward_system_id": payload.reward_system_id,
                 "minimal_credit_payment": payload.minimal_credit_payment,
-                "locked": payload.locked,
+                "locked": False,
             },
             tenant_config={},
         )
@@ -1108,6 +1118,9 @@ class AccountsService:
 
         data = payload.dict(exclude_unset=True)
         permission_codenames = data.pop("permission_codenames", None)
+        if role.locked:
+            data.pop("namespace", None)
+            data.pop("locked", None)
 
         if "namespace" in data and data["namespace"]:
             data["namespace"] = normalizeRoleNamespace(data["namespace"])
