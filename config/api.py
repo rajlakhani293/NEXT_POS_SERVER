@@ -11,6 +11,7 @@ from apps.accounts.api import sourceRouter as source_accounts_router
 from apps.accounting.api import router as accounting_router
 from apps.accounting.api import transactionAccountsRouter as transaction_accounts_router
 from apps.accounting.api import transactionsRouter as transactions_router
+from apps.catalog.api import inventoryRouter as inventory_router
 from apps.catalog.api import router as catalog_router
 from apps.customers.api import groupsRouter as customer_groups_router
 from apps.customers.api import router as customers_router
@@ -48,6 +49,7 @@ api.add_router("/organizations/", organizations_router)
 api.add_router("/customers/", customers_router)
 api.add_router("/customers-groups/", customer_groups_router)
 api.add_router("/catalog/", catalog_router, url_name_prefix="catalog")
+api.add_router("/inventory/", inventory_router)
 api.add_router("/purchases/", purchases_router)
 api.add_router("/providers/", providers_router)
 api.add_router("/procurements/", procurements_router)

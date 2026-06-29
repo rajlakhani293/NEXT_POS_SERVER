@@ -2028,6 +2028,108 @@ class ProductStockService:
                 )
         return successResponse("Stock adjustment completed successfully.", data=histories)
 
+    @staticmethod
+    def stockFlow(data, request):
+        result = commonQuery.fetchPaginatedData(
+            ProductHistory,
+            data,
+            [["product__name", True, True], ["operation_type", True, True], ["description", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "product_id",
+                    "product__name",
+                    "procurement_id",
+                    "order_id",
+                    "operation_type",
+                    "unit_id",
+                    "unit__name",
+                    "before_quantity",
+                    "quantity",
+                    "after_quantity",
+                    "unit_price",
+                    "total_price",
+                    "description",
+                    "user__username",
+                    "created_at",
+                    "status",
+                ],
+                "order": ["-created_at", "-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for item in result.get("items", []):
+            item["product_name"] = item.pop("product__name", None)
+            item["unit_name"] = item.pop("unit__name", None)
+            item["procurement_name"] = f"#{item.get('procurement_id')}" if item.get("procurement_id") else "-"
+            item["order_code"] = f"#{item.get('order_id')}" if item.get("order_id") else "-"
+            item["user_username"] = item.pop("user__username", None)
+        return successResponse("Product histories retrieved successfully.", data=result)
+
+    @staticmethod
+    def adjustments(data, request):
+        result = commonQuery.fetchPaginatedData(
+            ProductHistory,
+            data,
+            [["product__name", True, True], ["operation_type", True, True], ["description", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "product_id",
+                    "product__name",
+                    "operation_type",
+                    "quantity",
+                    "before_quantity",
+                    "after_quantity",
+                    "unit_price",
+                    "total_price",
+                    "description",
+                    "user__username",
+                    "created_at",
+                    "status",
+                ],
+                "order": ["-created_at", "-id"],
+            },
+            request=request,
+            tenant_config=True,
+            custom_where={"operation_type__in": list(ProductStockService.MANUAL_ACTIONS)},
+        )
+        for item in result.get("items", []):
+            item["code"] = f"ADJ-{item['id']}"
+            item["adjustment_type"] = item.get("operation_type")
+            item["adjustment_type_label"] = str(item.get("operation_type") or "").replace("-", " ").replace("_", " ").title()
+            item["reason"] = item.get("description") or "-"
+            item["note"] = item.get("description") or ""
+            item["product_name"] = item.pop("product__name", None)
+            item["user_username"] = item.pop("user__username", None)
+        return successResponse("Stock adjustments retrieved successfully.", data=result)
+
+    @staticmethod
+    def deleteAdjustments(data, request):
+        count = commonQuery.softDeleteById(
+            ProductHistory,
+            data.get("ids"),
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Stock adjustment not found.")
+        return successResponse("Stock adjustments deleted successfully.")
+
+    @staticmethod
+    def updateAdjustmentStatus(data, request):
+        count = commonQuery.updateStatusById(
+            ProductHistory,
+            data.get("ids"),
+            data.get("status"),
+            request=request,
+            tenant_config=True,
+        )
+        if count == 0:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Stock adjustment not found.")
+        return successResponse("Stock adjustment status updated successfully.", data={"updated_count": count, "status": data.get("status")})
+
 
 class ProductUnitQuantityService:
     @staticmethod

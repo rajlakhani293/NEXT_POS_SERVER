@@ -39,6 +39,7 @@ from apps.common.responses import ApiResponse
 
 
 router = Router(tags=["catalog"], auth=auth_bearer)
+inventoryRouter = Router(tags=["inventory"], auth=auth_bearer)
 
 
 @router.post("/categories/", response=ApiResponse)
@@ -604,3 +605,33 @@ def addProductGalleryImage(request, product_id: int, image: UploadedFile = File(
 @permissionRequired("pos.update.products")
 def deleteProductGalleryImage(request, product_id: int, gallery_id: int):
     return ProductService.deleteGalleryImage(product_id, gallery_id, request)
+
+
+@inventoryRouter.post("/ledger/get-transactions", response=ApiResponse)
+@permissionRequired("inventory_view")
+def getInventoryLedger(request, payload: Optional[dict] = None):
+    return ProductStockService.stockFlow(payload, request)
+
+
+@inventoryRouter.post("/adjustments/get-transactions", response=ApiResponse)
+@permissionRequired("inventory_view")
+def getInventoryAdjustments(request, payload: Optional[dict] = None):
+    return ProductStockService.adjustments(payload, request)
+
+
+@inventoryRouter.post("/adjustments/", response=ApiResponse)
+@permissionRequired("inventory_adjust")
+def createInventoryAdjustment(request, payload: ProductAdjustmentIn):
+    return ProductStockService.applyManualAdjustment(payloadData(payload), request)
+
+
+@inventoryRouter.delete("/adjustments/delete", response=ApiResponse)
+@permissionRequired("inventory_adjust")
+def deleteInventoryAdjustments(request, payload: BulkIdsSchema):
+    return ProductStockService.deleteAdjustments(payloadData(payload), request)
+
+
+@inventoryRouter.patch("/adjustments/status", response=ApiResponse)
+@permissionRequired("inventory_adjust")
+def updateInventoryAdjustmentStatus(request, payload: StatusUpdateSchema):
+    return ProductStockService.updateAdjustmentStatus(payloadData(payload), request)

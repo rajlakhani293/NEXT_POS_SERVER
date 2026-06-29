@@ -7,7 +7,7 @@ from django.contrib.auth.models import Permission
 from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
-from apps.catalog.models import Category, Product, Unit, UnitGroup
+from apps.catalog.models import Category, Product, ProductUnitQuantity, Unit, UnitGroup
 from apps.customers.models import CUSTOMER_ROLE_CODE
 from apps.customers.models import CustomerCoupon, CustomerReward
 from apps.promotions.models import Coupon
@@ -696,3 +696,99 @@ class PosApiIntegrationTest(TestCase):
         reflection_errors = (reflection_response.json().get("data") or {}).get("errors", {})
         self.assertNotIn("transaction_id", trigger_errors)
         self.assertNotIn("transaction_id", reflection_errors)
+
+    def test_inventory_source_stock_adjustment_and_stock_flow_records(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        inventory_view, _ = Permission.objects.get_or_create(
+            codename="inventory_view",
+            content_type=content_type,
+            defaults={"name": "Can view inventory"},
+        )
+        inventory_adjust, _ = Permission.objects.get_or_create(
+            codename="inventory_adjust",
+            content_type=content_type,
+            defaults={"name": "Can adjust inventory"},
+        )
+        self.role_a.permissions.add(inventory_view)
+        self.role_a.permissions.add(inventory_adjust)
+        unit_group = UnitGroup.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Count",
+            status=0,
+        )
+        unit = Unit.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            group=unit_group,
+            name="Piece",
+            identifier="inventory-piece",
+            value=1,
+            status=0,
+        )
+        product = Product.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Inventory Product",
+            sku="INVENTORY-PRODUCT",
+            barcode="INVENTORY-PRODUCT",
+            type="materialized",
+            stock_management="enabled",
+            status=0,
+        )
+        ProductUnitQuantity.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            product=product,
+            unit=unit,
+            quantity=5,
+            sale_price=10,
+            status=0,
+        )
+
+        adjustment_response = self.client.post(
+            "/api/inventory/adjustments/",
+            data=json.dumps(
+                {
+                    "products": [
+                        {
+                            "id": product.id,
+                            "adjust_action": "added",
+                            "adjust_quantity": 3,
+                            "adjust_reason": "Manual stock count",
+                            "adjust_unit": {"unit_id": unit.id, "sale_price": 10},
+                        }
+                    ]
+                }
+            ),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        adjustments_response = self.client.post(
+            "/api/inventory/adjustments/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        ledger_response = self.client.post(
+            "/api/inventory/ledger/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(adjustment_response.status_code, 200)
+        self.assertEqual(adjustments_response.status_code, 200)
+        self.assertEqual(ledger_response.status_code, 200)
+        self.assertEqual(adjustments_response.json()["data"]["total"], 1)
+        item = ledger_response.json()["data"]["items"][0]
+        self.assertEqual(item["product_name"], "Inventory Product")
+        self.assertEqual(item["operation_type"], "added")
+        self.assertEqual(item["before_quantity"], 5.0)
+        self.assertEqual(item["after_quantity"], 8.0)
