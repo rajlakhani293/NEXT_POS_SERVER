@@ -731,6 +731,92 @@ class AccountingService:
         )
 
 
+class AccountingSettingsService:
+    FIELD_KEYS = {
+        "expense_account_ids": "accounting_expense_accounts",
+        "paid_expense_offset_account_id": "accounting_default_paid_expense_offset_account",
+        "sales_revenue_account_id": "accounting_orders_revenues_account",
+        "order_cash_account_id": "accounting_orders_cash_account",
+        "receivable_account_id": "accounting_orders_unpaid_account",
+        "cogs_account_id": "accounting_orders_cogs_account",
+        "inventory_account_id": "accounting_inventory_account",
+        "procurement_cash_account_id": "accounting_procurement_cash_account",
+        "procurement_payable_account_id": "accounting_procurement_payable_account",
+    }
+
+    @staticmethod
+    def optionValue(request, key, default=None):
+        from apps.settings.services import OptionSettingService
+
+        return OptionSettingService.getOptionValue(request.user.company, request.user.branch, key, default)
+
+    @staticmethod
+    def get(request):
+        if not commonQuery.existsRecord(
+            TransactionAccount,
+            {"company_id": request.user.company_id, "branch_id": request.user.branch_id, "status__in": [0, 1]},
+            tenant_config={},
+        ):
+            AccountingService.ensureForRequest(request)
+        data = {}
+        for field, key in AccountingSettingsService.FIELD_KEYS.items():
+            default = [] if field == "expense_account_ids" else ""
+            data[field] = AccountingSettingsService.optionValue(request, key, default)
+        return successResponse("Accounting settings retrieved successfully.", data=data)
+
+    @staticmethod
+    def normalizePayload(data):
+        normalized = {}
+        for field, value in (data or {}).items():
+            if field in AccountingSettingsService.FIELD_KEYS:
+                normalized[field] = value
+        return normalized
+
+    @staticmethod
+    def validateAccountIds(data, request):
+        account_ids = []
+        for field, value in data.items():
+            if field == "expense_account_ids":
+                account_ids.extend(value or [])
+            elif value not in [None, ""]:
+                account_ids.append(value)
+        if not account_ids:
+            return
+        existing = commonQuery.branchScopedQueryset(
+            TransactionAccount,
+            {"id__in": account_ids, "status__in": [0, 1]},
+            request,
+        ).values_list("id", flat=True)
+        missing = set(int(account_id) for account_id in account_ids) - set(existing)
+        if missing:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting account not found.")
+
+    @staticmethod
+    def update(data, request):
+        from apps.settings.services import OptionSettingService
+
+        AccountingService.ensureForRequest(request)
+        normalized = AccountingSettingsService.normalizePayload(data)
+        if not normalized:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No accounting settings provided.")
+        expense_ids = normalized.get("expense_account_ids")
+        if expense_ids is not None and not isinstance(expense_ids, list):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Expense accounts must be a list.")
+        AccountingSettingsService.validateAccountIds(normalized, request)
+        saved = {}
+        for field, value in normalized.items():
+            key = AccountingSettingsService.FIELD_KEYS[field]
+            OptionSettingService.ensureOptionValue(
+                request.user.company,
+                request.user.branch,
+                key,
+                value,
+                user=request.user,
+            )
+            saved[field] = value
+        return successResponse("Accounting settings updated successfully.", data=saved)
+
+
 class TransactionAccountService:
     @staticmethod
     def sourcePayload(data):
@@ -831,6 +917,8 @@ class TransactionAccountService:
             request=request,
             tenant_config=BRANCH_TENANT_CONFIG,
         )
+        for item in data:
+            item["account_type"] = item.get("category_identifier")
         return successResponse("Dropdown list retrieved successfully.", data=data)
 
     @staticmethod

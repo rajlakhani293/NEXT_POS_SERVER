@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from ninja import Schema
 from apps.common.schemas import ActiveStatus
@@ -56,3 +56,15 @@ class TransactionRuleUpdateIn(Schema):
     do: Optional[RuleAction] = None
     offset_account_id: Optional[int] = None
     status: Optional[ActiveStatus] = None
+
+
+class AccountingSettingsIn(Schema):
+    expense_account_ids: Optional[List[int]] = None
+    paid_expense_offset_account_id: Optional[int] = None
+    sales_revenue_account_id: Optional[int] = None
+    order_cash_account_id: Optional[int] = None
+    receivable_account_id: Optional[int] = None
+    cogs_account_id: Optional[int] = None
+    inventory_account_id: Optional[int] = None
+    procurement_cash_account_id: Optional[int] = None
+    procurement_payable_account_id: Optional[int] = None

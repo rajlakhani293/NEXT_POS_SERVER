@@ -1,9 +1,10 @@
 from typing import Optional
 from ninja import Router
 from apps.accounts.auth import auth_bearer
-from apps.accounting.schemas import ManualTransactionIn, TransactionAccountIn, TransactionAccountUpdateIn, TransactionRuleIn, TransactionRuleUpdateIn
+from apps.accounting.schemas import AccountingSettingsIn, ManualTransactionIn, TransactionAccountIn, TransactionAccountUpdateIn, TransactionRuleIn, TransactionRuleUpdateIn
 from apps.accounting.services import (
     AccountingService,
+    AccountingSettingsService,
     TransactionAccountService,
     TransactionRuleService,
     TransactionService,
@@ -125,6 +126,18 @@ def bootstrapAccounting(request):
     return AccountingService.bootstrapSystemAccounts(request)
 
 
+@router.get("/settings", response=ApiResponse)
+@permissionRequired("reports_view")
+def getAccountingSettings(request):
+    return AccountingSettingsService.get(request)
+
+
+@router.put("/settings", response=ApiResponse)
+@permissionRequired("settings_update")
+def updateAccountingSettings(request, payload: AccountingSettingsIn):
+    return AccountingSettingsService.update(payloadData(payload, exclude_none=True), request)
+
+
 @transactionsRouter.get("/", response=ApiResponse)
 @permissionRequired("expenses_view")
 def getTransactions(request):
@@ -153,12 +166,6 @@ def getTransactionRules(request):
 @permissionRequired("expenses_update")
 def triggerPendingTransactions(request):
     return TransactionService.triggerTransaction(None, request)
-
-
-@transactionsRouter.get("/{transaction_id}", response=ApiResponse)
-@permissionRequired("expenses_view")
-def getTransaction(request, transaction_id: int):
-    return TransactionService.getById(transaction_id, request)
 
 
 @transactionsRouter.post("/", response=ApiResponse)
@@ -200,6 +207,12 @@ def triggerTransaction(request, transaction_id: int):
 @permissionRequired("expenses_create")
 def createTransactionReflection(request, history_id: int):
     return AccountingService.reflectTransactionFromRule(history_id, request)
+
+
+@transactionsRouter.get("/{transaction_id}", response=ApiResponse)
+@permissionRequired("expenses_view")
+def getTransaction(request, transaction_id: int):
+    return TransactionService.getById(transaction_id, request)
 
 
 @transactionAccountsRouter.get("/", response=ApiResponse)

@@ -609,3 +609,90 @@ class PosApiIntegrationTest(TestCase):
         product_item = products_response.json()["data"]["items"][0]
         self.assertEqual(product_item["procurement_name"], "PROC-1")
         self.assertEqual(product_item["received_quantity"], "6.0")
+
+    def test_accounting_settings_source_options_save_and_load(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        reports_view, _ = Permission.objects.get_or_create(
+            codename="reports_view",
+            content_type=content_type,
+            defaults={"name": "Can view reports"},
+        )
+        settings_update, _ = Permission.objects.get_or_create(
+            codename="settings_update",
+            content_type=content_type,
+            defaults={"name": "Can update settings"},
+        )
+        self.role_a.permissions.add(reports_view)
+        self.role_a.permissions.add(settings_update)
+        expense_account = TransactionAccount.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Expense Account",
+            account="5000-expense",
+            category_identifier="expenses",
+            status=0,
+        )
+        asset_account = TransactionAccount.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Cash Account",
+            account="1000-cash",
+            category_identifier="assets",
+            status=0,
+        )
+
+        payload = {
+            "expense_account_ids": [expense_account.id],
+            "paid_expense_offset_account_id": asset_account.id,
+            "sales_revenue_account_id": asset_account.id,
+            "order_cash_account_id": asset_account.id,
+            "receivable_account_id": asset_account.id,
+            "cogs_account_id": expense_account.id,
+            "inventory_account_id": asset_account.id,
+            "procurement_cash_account_id": asset_account.id,
+            "procurement_payable_account_id": asset_account.id,
+        }
+        update_response = self.client.put(
+            "/api/accounting/settings",
+            data=json.dumps(payload),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        get_response = self.client.get("/api/accounting/settings", **self.headers_a)
+
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(get_response.status_code, 200)
+        data = get_response.json()["data"]
+        self.assertEqual(data["expense_account_ids"], [expense_account.id])
+        self.assertEqual(data["paid_expense_offset_account_id"], asset_account.id)
+
+    def test_transaction_special_routes_do_not_parse_static_segments_as_ids(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        expenses_update, _ = Permission.objects.get_or_create(
+            codename="expenses_update",
+            content_type=content_type,
+            defaults={"name": "Can update expenses"},
+        )
+        expenses_create, _ = Permission.objects.get_or_create(
+            codename="expenses_create",
+            content_type=content_type,
+            defaults={"name": "Can create expenses"},
+        )
+        self.role_a.permissions.add(expenses_update)
+        self.role_a.permissions.add(expenses_create)
+
+        trigger_response = self.client.get("/api/transactions/trigger/1", **self.headers_a)
+        reflection_response = self.client.get("/api/transactions/history/1/create-reflection", **self.headers_a)
+
+        self.assertNotEqual(trigger_response.status_code, 422)
+        self.assertNotEqual(reflection_response.status_code, 422)
+        trigger_errors = (trigger_response.json().get("data") or {}).get("errors", {})
+        reflection_errors = (reflection_response.json().get("data") or {}).get("errors", {})
+        self.assertNotIn("transaction_id", trigger_errors)
+        self.assertNotIn("transaction_id", reflection_errors)
