@@ -46,3 +46,8 @@ class RewardRedeemIn(Schema):
     reward_system_id: int
     points: Decimal = Field(..., ge=0)
     note: str = ""
+
+
+class CustomerRewardUpdateIn(Schema):
+    points: Optional[Decimal] = Field(None, ge=0)
+    target: Optional[Decimal] = Field(None, ge=0)

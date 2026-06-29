@@ -9,6 +9,7 @@ from apps.common.responses import ApiResponse, successResponse
 from apps.customers.models import CustomerCoupon
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 from apps.rewards.schemas import (
+    CustomerRewardUpdateIn,
     RewardBalanceAdjustIn,
     RewardRedeemIn,
     RewardSaleEarnIn,
@@ -68,6 +69,18 @@ def updateRewardSystem(request, reward_system_id: int, payload: RewardSystemUpda
 @permissionRequired("rewards_view")
 def getCustomerRewardBalance(request, customer_id: int):
     return CustomerRewardService.getBalance(customer_id, request)
+
+
+@router.get("/customers/{customer_id}/rewards/{reward_id}", response=ApiResponse)
+@permissionRequired("rewards_view")
+def getCustomerRewardById(request, customer_id: int, reward_id: int):
+    return CustomerRewardService.getById(customer_id, reward_id, request)
+
+
+@router.put("/customers/{customer_id}/rewards/{reward_id}", response=ApiResponse)
+@permissionRequired("rewards_update")
+def updateCustomerReward(request, customer_id: int, reward_id: int, payload: CustomerRewardUpdateIn):
+    return CustomerRewardService.update(customer_id, reward_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.post("/customers/balances/get-transactions", response=ApiResponse)

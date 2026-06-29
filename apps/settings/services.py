@@ -705,16 +705,78 @@ class PaymentTypeService:
 
 
 class MediaService:
-    ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"]
+    SOURCE_MIME_TYPES = {
+        "aac": "audio/aac",
+        "abw": "application/x-abiword",
+        "arc": "application/octet-stream",
+        "avi": "video/x-msvideo",
+        "azw": "application/vnd.amazon.ebook",
+        "bin": "application/octet-stream",
+        "bmp": "image/bmp",
+        "bz": "application/x-bzip",
+        "bz2": "application/x-bzip2",
+        "csh": "application/x-csh",
+        "css": "text/css",
+        "csv": "text/csv",
+        "doc": "application/msword",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "eot": "application/vnd.ms-fontobject",
+        "epub": "application/epub+zip",
+        "gif": "image/gif",
+        "htm": "text/html",
+        "html": "text/html",
+        "ico": "image/x-icon",
+        "ics": "text/calendar",
+        "jpeg": "image/jpeg",
+        "jpg": "image/jpeg",
+        "js": "application/javascript",
+        "json": "application/json",
+        "mpeg": "video/mpeg",
+        "odp": "application/vnd.oasis.opendocument.presentation",
+        "ods": "application/vnd.oasis.opendocument.spreadsheet",
+        "odt": "application/vnd.oasis.opendocument.text",
+        "oga": "audio/ogg",
+        "ogv": "video/ogg",
+        "ogx": "application/ogg",
+        "otf": "font/otf",
+        "png": "image/png",
+        "pdf": "application/pdf",
+        "ppt": "application/vnd.ms-powerpoint",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "rar": "application/x-rar-compressed",
+        "rtf": "application/rtf",
+        "sh": "application/x-sh",
+        "svg": "image/svg+xml",
+        "tar": "application/x-tar",
+        "ts": "application/typescript",
+        "ttf": "font/ttf",
+        "wav": "audio/x-wav",
+        "weba": "audio/webm",
+        "webm": "video/webm",
+        "webp": "image/webp",
+        "woff": "font/woff",
+        "woff2": "font/woff2",
+        "xhtml": "application/xhtml+xml",
+        "xls": "application/vnd.ms-excel",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "xml": "application/xml",
+        "xul": "application/vnd.mozilla.xul+xml",
+        "zip": "application/zip",
+        "7z": "application/x-7z-compressed",
+    }
+    IMAGE_EXTENSIONS = {"bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "webp"}
     MAX_FILE_SIZE = 5 * 1024 * 1024
 
     @staticmethod
     def mediaData(media):
         data = serializeModelInstance(media)
         original_path = f"{media.slug}.{media.extension}"
-        data["sizes"] = {
-            "original": f"{settings.UPLOAD_URL}{original_path}",
-        }
+        original_url = f"{settings.UPLOAD_URL}{original_path}"
+        data["sizes"] = {"original": original_url}
+        if media.extension in MediaService.IMAGE_EXTENSIONS:
+            data["sizes"]["thumb"] = original_url
+        user = getattr(media, "user", None)
+        data["user"] = serializeModelInstance(user) if user else None
         return data
 
     @staticmethod
@@ -742,8 +804,13 @@ class MediaService:
         if getattr(file, "size", 0) > MediaService.MAX_FILE_SIZE:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "File size must be 5MB or less.")
         content_type = getattr(file, "content_type", "") or ""
-        if content_type and content_type not in MediaService.ALLOWED_IMAGE_TYPES:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Only image files are allowed.")
+        extension = Path(getattr(file, "name", "upload")).suffix.lstrip(".").lower()
+        if extension not in MediaService.SOURCE_MIME_TYPES:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported media file type.")
+        if content_type and content_type != MediaService.SOURCE_MIME_TYPES.get(extension):
+            allowed_image_match = extension in ["jpg", "jpeg"] and content_type == "image/jpeg"
+            if not allowed_image_match:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Unsupported media file type.")
 
         name, extension, slug = MediaService.buildStoredName(file, request)
         storage = FileSystemStorage(location=settings.UPLOAD_ROOT, base_url=settings.UPLOAD_URL)
@@ -787,15 +854,24 @@ class MediaService:
             request=request,
             tenant_config=True,
         )
+        media_ids = [item["id"] for item in result["items"]]
+        instances = commonQuery.branchScopedQueryset(
+            Media,
+            {"id__in": media_ids},
+            request,
+        ).select_related("user")
+        media_map = {media.id: MediaService.mediaData(media) for media in instances}
+        result["items"] = [media_map.get(item["id"], item) for item in result["items"]]
         return successResponse("Media retrieved successfully.", data=result)
 
     @staticmethod
     def update(media_id, data, request):
-        data = {key: value for key, value in data.items() if key in ["name", "extension", "slug"]}
+        data = {key: value for key, value in data.items() if key in ["name"]}
         updated = commonQuery.updateRecordById(Media, media_id, data, request=request, tenant_config=True)
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Media not found.")
-        return successResponse("Media updated successfully.", data=updated)
+        media = commonQuery.findOneInstance(Media, media_id, request=request, tenant_config=True)
+        return successResponse("Media updated successfully.", data=MediaService.mediaData(media))
 
     @staticmethod
     def delete(data, request):

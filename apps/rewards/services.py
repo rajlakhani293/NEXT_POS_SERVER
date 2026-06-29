@@ -447,6 +447,39 @@ class CustomerRewardService:
         return successResponse("Reward balance retrieved successfully.", data=balances)
 
     @staticmethod
+    def getById(customer_id, reward_id, request):
+        ensureCustomer(customer_id, request)
+        reward = commonQuery.findOneRecord(
+            CustomerReward,
+            {"id": reward_id, "customer_id": customer_id},
+            request=request,
+            tenant_config=True,
+        )
+        if reward is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer reward not found.")
+        return successResponse("Customer reward retrieved successfully.", data=reward)
+
+    @staticmethod
+    def update(customer_id, reward_id, data, request):
+        ensureCustomer(customer_id, request)
+        reward = commonQuery.findOneRecord(
+            CustomerReward,
+            {"id": reward_id, "customer_id": customer_id},
+            request=request,
+            tenant_config=True,
+        )
+        if reward is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer reward not found.")
+        updated = commonQuery.updateRecordById(
+            CustomerReward,
+            reward_id,
+            data,
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer reward updated successfully.", data=updated)
+
+    @staticmethod
     def earn(data, request):
         points = money(data.get("points") or 0)
         if points <= 0:

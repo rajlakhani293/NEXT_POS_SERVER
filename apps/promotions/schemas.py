@@ -38,3 +38,9 @@ class CouponUpdateIn(Schema):
     category_ids: Optional[List[int]] = None
     customer_ids: Optional[List[int]] = None
     customer_group_ids: Optional[List[int]] = None
+
+
+class CustomerCouponUpdateIn(Schema):
+    name: Optional[str] = None
+    usage: Optional[int] = Field(None, ge=0)
+    limit_usage: Optional[int] = Field(None, ge=0)

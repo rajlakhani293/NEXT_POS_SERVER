@@ -193,7 +193,15 @@ def deleteNotifications(request, payload: BulkIdsSchema):
 @sourceMediaRouter.get("/", response=ApiResponse)
 @permissionRequired("settings_view")
 def sourceGetMedias(request):
-    return MediaService.getAll({}, request)
+    query = request.GET
+    payload = {
+        "page": query.get("page") or 1,
+        "limit": query.get("per_page") or query.get("limit") or 20,
+        "search": query.get("search") or "",
+    }
+    if query.get("user_id"):
+        payload["user_id"] = query.get("user_id")
+    return MediaService.getAll(payload, request)
 
 
 @sourceMediaRouter.post("/", response=ApiResponse)

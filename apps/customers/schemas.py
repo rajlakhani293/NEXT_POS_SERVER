@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from ninja import Field, Schema
 from apps.common.schemas import ActiveStatus
@@ -102,9 +102,10 @@ class CustomerSearchIn(Schema):
 
 
 class CustomerAccountTransactionIn(Schema):
-    operation: str
-    amount: Decimal
+    operation: Optional[str] = None
+    amount: Optional[Decimal] = None
     description: str = ""
+    general: Optional[Dict[str, Union[str, Decimal]]] = None
 
 
 class CustomerGroupTransferIn(Schema):

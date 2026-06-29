@@ -33,6 +33,12 @@ def getAllCustomers(request, payload: Optional[dict] = None):
     return CustomerService.getAll(payload, request)
 
 
+@router.get("/", response=ApiResponse)
+@permissionRequired("pos.read.customers")
+def listCustomers(request):
+    return CustomerService.getAll({}, request)
+
+
 @router.get("/dropdown-list", response=ApiResponse)
 @permissionRequired("pos.read.customers")
 def getCustomerDropdown(request):
@@ -189,9 +195,25 @@ def getCustomerCreditLedger(request, customer_id: int, payload: Optional[dict] =
     return CustomerService.creditLedger(customer_id, payload, request)
 
 
-@router.post("/{customer_id}/account-history", response=ApiResponse)
+@router.get("/{customer_id}/account-history", response=ApiResponse)
 @permissionRequired("pos.read.customers")
-def getCustomerAccountHistory(request, customer_id: int, payload: Optional[dict] = None):
+def getCustomerAccountHistory(request, customer_id: int, page: int = 1, limit: int = 20, search: str = ""):
+    return CustomerService.creditLedger(
+        customer_id,
+        {"page": page, "limit": limit, "search": search},
+        request,
+    )
+
+
+@router.post("/{customer_id}/account-history", response=ApiResponse)
+@permissionRequired("pos.customers.manage-account-history")
+def createCustomerAccountTransaction(request, customer_id: int, payload: CustomerAccountTransactionIn):
+    return CustomerService.accountTransaction(customer_id, payloadData(payload, exclude_none=True), request)
+
+
+@router.post("/{customer_id}/account-history/get-transactions", response=ApiResponse)
+@permissionRequired("pos.read.customers")
+def getCustomerAccountHistoryTransactions(request, customer_id: int, payload: Optional[dict] = None):
     return CustomerService.creditLedger(customer_id, payload, request)
 
 

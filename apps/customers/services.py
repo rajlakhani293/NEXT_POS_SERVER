@@ -515,12 +515,13 @@ class CustomerService:
 
     @staticmethod
     def accountTransaction(customer_id, data, request):
+        general = data.get("general") or {}
         return CustomerAccountService.saveTransaction(
             customer_id,
-            data.get("operation"),
-            data.get("amount"),
+            data.get("operation") or general.get("operation"),
+            data.get("amount") or general.get("amount"),
             request,
-            data.get("description") or "",
+            data.get("description") or general.get("description") or "",
         )
 
     @staticmethod

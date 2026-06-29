@@ -6,7 +6,7 @@ from apps.accounts.auth import auth_bearer
 from apps.common.authz import permissionRequired
 from apps.common.responses import ApiResponse
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
-from apps.promotions.schemas import CouponIn, CouponUpdateIn
+from apps.promotions.schemas import CouponIn, CouponUpdateIn, CustomerCouponUpdateIn
 from apps.promotions.services import CouponService
 
 
@@ -70,3 +70,21 @@ def getCustomerCouponHistory(
     payload: Optional[dict] = None,
 ):
     return CouponService.getCustomerCouponHistory(customer_id, customer_coupon_id, payload, request)
+
+
+@router.post("/customers/coupons-generated/get-transactions", response=ApiResponse)
+@permissionRequired("promotions_view")
+def getGeneratedCustomerCoupons(request, payload: Optional[dict] = None):
+    return CouponService.getGeneratedCoupons(payload, request)
+
+
+@router.get("/customers/coupons-generated/{customer_coupon_id}", response=ApiResponse)
+@permissionRequired("promotions_view")
+def getGeneratedCustomerCouponById(request, customer_coupon_id: int):
+    return CouponService.getGeneratedCouponById(customer_coupon_id, request)
+
+
+@router.put("/customers/coupons-generated/{customer_coupon_id}", response=ApiResponse)
+@permissionRequired("promotions_update")
+def updateGeneratedCustomerCoupon(request, customer_coupon_id: int, payload: CustomerCouponUpdateIn):
+    return CouponService.updateGeneratedCoupon(payloadData(payload, exclude_none=True), request, customer_coupon_id)

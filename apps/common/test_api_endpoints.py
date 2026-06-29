@@ -8,7 +8,12 @@ from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
 from apps.catalog.models import Category
+from apps.customers.models import CUSTOMER_ROLE_CODE
+from apps.customers.models import CustomerCoupon, CustomerReward
+from apps.promotions.models import Coupon
+from apps.rewards.models import RewardSystem
 from apps.sales.models import Order, OrderInstalment
+from apps.settings.models import Media
 
 
 class PosApiIntegrationTest(TestCase):
@@ -60,6 +65,16 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can read POS order instalments"},
         )
+        p_settings_view, _ = Permission.objects.get_or_create(
+            codename="settings_view",
+            content_type=content_type,
+            defaults={"name": "Can view settings"},
+        )
+        p_settings_update, _ = Permission.objects.get_or_create(
+            codename="settings_update",
+            content_type=content_type,
+            defaults={"name": "Can update settings"},
+        )
         # Ensure expenses_create permission also exists in the test DB
         Permission.objects.get_or_create(
             codename="expenses_create",
@@ -70,6 +85,8 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_pos_categories)
         self.role_a.permissions.add(p_pos_orders)
         self.role_a.permissions.add(p_pos_order_instalments)
+        self.role_a.permissions.add(p_settings_view)
+        self.role_a.permissions.add(p_settings_update)
 
         self.token_a = AccessToken.objects.create(
             user=self.user_a,
@@ -265,3 +282,231 @@ class PosApiIntegrationTest(TestCase):
         self.assertEqual(item["order_code"], "ORD-1")
         self.assertIn("customer", item)
         self.assertIn("paid", item)
+
+    def test_source_medias_endpoint_returns_gallery_sizes_and_user_like_source(self):
+        Media.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="store-logo",
+            extension="png",
+            slug="2026/06/store-logo",
+            status=0,
+        )
+
+        response = self.client.get("/api/medias/?page=1&per_page=20&search=logo", **self.headers_a)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["total"], 1)
+        item = payload["data"]["items"][0]
+        self.assertEqual(item["name"], "store-logo")
+        self.assertEqual(item["extension"], "png")
+        self.assertIn("original", item["sizes"])
+        self.assertIn("thumb", item["sizes"])
+        self.assertEqual(item["user"]["username"], "user_a")
+
+    def test_customer_account_history_source_routes_create_and_list_transactions(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        read_customers, _ = Permission.objects.get_or_create(
+            codename="pos.read.customers",
+            content_type=content_type,
+            defaults={"name": "Can read customers"},
+        )
+        manage_history, _ = Permission.objects.get_or_create(
+            codename="pos.customers.manage-account-history",
+            content_type=content_type,
+            defaults={"name": "Can manage customer account history"},
+        )
+        self.role_a.permissions.add(read_customers)
+        self.role_a.permissions.add(manage_history)
+        customer_role = Role.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Store Customer",
+            namespace=CUSTOMER_ROLE_CODE,
+            status=0,
+        )
+        customer = User.objects.create_user(
+            username="customer-a",
+            email="customer-a@example.com",
+            password="password123",
+            company=self.company_a,
+            branch=self.branch_a,
+            role=customer_role,
+            first_name="Customer",
+            last_name="A",
+            account_amount=0,
+            status=0,
+        )
+
+        response = self.client.post(
+            f"/api/customers/{customer.id}/crud/account-history",
+            data=json.dumps({"general": {"operation": "add", "amount": 25, "description": "Opening balance"}}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["operation"], "add")
+        self.assertEqual(payload["data"]["description"], "Opening balance")
+
+        list_response = self.client.get(
+            f"/api/customers/{customer.id}/account-history?page=1&limit=20",
+            **self.headers_a,
+        )
+
+        self.assertEqual(list_response.status_code, 200)
+        list_payload = list_response.json()
+        self.assertTrue(list_payload["success"])
+        self.assertEqual(list_payload["data"]["total"], 1)
+        self.assertEqual(list_payload["data"]["items"][0]["next_amount"], 25.0)
+
+    def test_generated_customer_coupon_source_routes_list_and_update(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        promotions_view, _ = Permission.objects.get_or_create(
+            codename="promotions_view",
+            content_type=content_type,
+            defaults={"name": "Can view promotions"},
+        )
+        promotions_update, _ = Permission.objects.get_or_create(
+            codename="promotions_update",
+            content_type=content_type,
+            defaults={"name": "Can update promotions"},
+        )
+        self.role_a.permissions.add(promotions_view)
+        self.role_a.permissions.add(promotions_update)
+        coupon = Coupon.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Reward Coupon",
+            code="REWARD",
+            type="flat_discount",
+            discount_value=5,
+            status=0,
+        )
+        customer_coupon = CustomerCoupon.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            coupon=coupon,
+            customer=self.user_a,
+            name="Generated Coupon",
+            code="REWARD-1",
+            usage=0,
+            limit_usage=1,
+            status=0,
+        )
+
+        list_response = self.client.post(
+            "/api/promotions/customers/coupons-generated/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(list_response.status_code, 200)
+        list_payload = list_response.json()
+        self.assertTrue(list_payload["success"])
+        self.assertEqual(list_payload["data"]["total"], 1)
+
+        update_response = self.client.put(
+            f"/api/promotions/customers/coupons-generated/{customer_coupon.id}",
+            data=json.dumps({"name": "Updated Coupon", "usage": 1, "limit_usage": 2}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(update_response.status_code, 200)
+        update_payload = update_response.json()
+        self.assertTrue(update_payload["success"])
+        self.assertEqual(update_payload["data"]["name"], "Updated Coupon")
+        self.assertEqual(update_payload["data"]["usage"], 1)
+
+    def test_customer_reward_source_route_updates_points_and_target_only(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        rewards_view, _ = Permission.objects.get_or_create(
+            codename="rewards_view",
+            content_type=content_type,
+            defaults={"name": "Can view rewards"},
+        )
+        rewards_update, _ = Permission.objects.get_or_create(
+            codename="rewards_update",
+            content_type=content_type,
+            defaults={"name": "Can update rewards"},
+        )
+        self.role_a.permissions.add(rewards_view)
+        self.role_a.permissions.add(rewards_update)
+        customer_role = Role.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Store Customer",
+            namespace=CUSTOMER_ROLE_CODE,
+            status=0,
+        )
+        customer = User.objects.create_user(
+            username="reward-customer",
+            email="reward-customer@example.com",
+            password="password123",
+            company=self.company_a,
+            branch=self.branch_a,
+            role=customer_role,
+            first_name="Reward",
+            last_name="Customer",
+            status=0,
+        )
+        coupon = Coupon.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Reward Coupon",
+            code="REWARD-POINTS",
+            type="flat_discount",
+            discount_value=5,
+            status=0,
+        )
+        reward_system = RewardSystem.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Points",
+            coupon=coupon,
+            target=100,
+            status=0,
+        )
+        customer_reward = CustomerReward.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            customer=customer,
+            reward=reward_system,
+            reward_name="Points",
+            points=10,
+            target=100,
+            status=0,
+        )
+
+        response = self.client.put(
+            f"/api/rewards/customers/{customer.id}/rewards/{customer_reward.id}",
+            data=json.dumps({"points": 30, "target": 120}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["points"], 30.0)
+        self.assertEqual(payload["data"]["target"], 120.0)

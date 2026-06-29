@@ -421,3 +421,65 @@ class CouponService:
         )
         result["customer_coupon"] = customer_coupon
         return successResponse("Customer coupon history retrieved successfully.", data=result)
+
+    @staticmethod
+    def getGeneratedCoupons(data, request):
+        result = commonQuery.fetchPaginatedData(
+            CustomerCoupon,
+            data,
+            [["name", True, True], ["code", True, True], ["customer__full_name", True, True], ["coupon__name", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "name",
+                    "usage",
+                    "limit_usage",
+                    "code",
+                    "coupon_id",
+                    "coupon__name",
+                    "coupon__type",
+                    "coupon__discount_value",
+                    "customer_id",
+                    "customer__full_name",
+                    "status",
+                    "user__username",
+                    "created_at",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for item in result.get("items", []):
+            item["user_username"] = item.pop("user__username", None)
+        return successResponse("Customer coupons retrieved successfully.", data=result)
+
+    @staticmethod
+    def getGeneratedCouponById(customer_coupon_id, request):
+        customer_coupon = commonQuery.findOneRecord(
+            CustomerCoupon,
+            customer_coupon_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer_coupon is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer coupon not found.")
+        return successResponse("Customer coupon retrieved successfully.", data=customer_coupon)
+
+    @staticmethod
+    def updateGeneratedCoupon(data, request, customer_coupon_id):
+        customer_coupon = commonQuery.findOneRecord(
+            CustomerCoupon,
+            customer_coupon_id,
+            request=request,
+            tenant_config=True,
+        )
+        if customer_coupon is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer coupon not found.")
+        updated = commonQuery.updateRecordById(
+            CustomerCoupon,
+            customer_coupon_id,
+            data,
+            request=request,
+            tenant_config=True,
+        )
+        return successResponse("Customer coupon updated successfully.", data=updated)
