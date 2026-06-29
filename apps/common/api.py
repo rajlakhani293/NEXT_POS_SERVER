@@ -1,7 +1,8 @@
 # type: ignore
 from django.apps import apps
 from django.db import transaction
-from ninja import Router
+from typing import Optional
+from ninja import File, Router, UploadedFile
 
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permissionRequired
@@ -10,6 +11,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import serializeModelInstance
 from apps.common.responses import ApiResponse, successResponse
+from apps.common.services import ModuleService
 from apps.common.tenantDefaults import TenantDefaultsService
 from apps.settings.services import OptionSettingService
 
@@ -269,28 +271,53 @@ def crudBulkActions(request, resource: str, payload: dict):
 
 
 @router.get("/modules", response=ApiResponse)
+@permissionRequired("manage.modules")
 def getModules(request):
-    modules = []
-    return successResponse("Modules fetched successfully.", data=modules)
+    return ModuleService.listModules(request.user)
 
 
 @router.get("/modules/{argument}", response=ApiResponse)
+@permissionRequired("manage.modules")
 def getModule(request, argument: str):
-    return successResponse("Module fetched successfully.", data=None)
+    if argument in ["enabled", "disabled", "invalid"]:
+        return ModuleService.listModules(request.user, argument)
+    return successResponse("Module fetched successfully.", data=ModuleService.getModule(request.user, argument))
 
 
 @router.post("/modules/symlink", response=ApiResponse)
+@permissionRequired("manage.modules")
+def createModuleSymlink(request, payload: dict = None):
+    return ModuleService.createSymlink(payload)
+
+
 @router.post("/modules/fix-permissions", response=ApiResponse)
+@permissionRequired("manage.modules")
+def fixModulePermissions(request, payload: dict = None):
+    return ModuleService.fixPermissions()
+
+
 @router.post("/modules", response=ApiResponse)
-def moduleOperation(request, payload: dict = None):
-    return successResponse("Module operation completed successfully.", data={"module": None})
+@permissionRequired("manage.modules")
+def uploadModule(request, module: Optional[UploadedFile] = File(None)):
+    return ModuleService.upload(request.user, module)
 
 
 @router.put("/modules/{argument}/disable", response=ApiResponse)
+@permissionRequired("manage.modules")
+def disableModule(request, argument: str, payload: dict = None):
+    return ModuleService.disable(request.user, argument)
+
+
 @router.put("/modules/{argument}/enable", response=ApiResponse)
+@permissionRequired("manage.modules")
+def enableModule(request, argument: str, payload: dict = None):
+    return ModuleService.enable(request.user, argument)
+
+
 @router.delete("/modules/{argument}/delete", response=ApiResponse)
-def identifiedModuleOperation(request, argument: str, payload: dict = None):
-    return successResponse("Module operation completed successfully.", data={"module": argument})
+@permissionRequired("manage.modules")
+def deleteModule(request, argument: str, payload: dict = None):
+    return ModuleService.delete(request.user, argument)
 
 
 @router.post("/reset", response=ApiResponse)

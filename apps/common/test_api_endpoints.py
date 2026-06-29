@@ -81,6 +81,11 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can read taxes"},
         )
+        p_manage_modules, _ = Permission.objects.get_or_create(
+            codename="manage.modules",
+            content_type=content_type,
+            defaults={"name": "Can manage modules"},
+        )
         # Ensure expenses_create permission also exists in the test DB
         Permission.objects.get_or_create(
             codename="expenses_create",
@@ -94,6 +99,7 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_settings_view)
         self.role_a.permissions.add(p_settings_update)
         self.role_a.permissions.add(p_pos_taxes)
+        self.role_a.permissions.add(p_manage_modules)
 
         self.token_a = AccessToken.objects.create(
             user=self.user_a,
@@ -831,3 +837,17 @@ class PosApiIntegrationTest(TestCase):
         self.assertEqual(group_payload["name"], "GST")
         self.assertEqual(group_payload["taxes"][0]["tax_id"], tax.id)
         self.assertNotIn("id", group_payload["taxes"][0])
+
+    def test_modules_source_routes_return_counts_and_filters(self):
+        list_response = self.client.get("/api/modules", **self.headers_a)
+        enabled_response = self.client.get("/api/modules/enabled", **self.headers_a)
+        missing_response = self.client.get("/api/modules/unknown-module", **self.headers_a)
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(enabled_response.status_code, 200)
+        payload = list_response.json()["data"]
+        self.assertIn("modules", payload)
+        self.assertIn("total_enabled", payload)
+        self.assertIn("total_disabled", payload)
+        self.assertIn("total_invalid", payload)
+        self.assertEqual(missing_response.status_code, 404)
