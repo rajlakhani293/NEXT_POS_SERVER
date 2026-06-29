@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
@@ -2151,6 +2151,104 @@ class SaleService:
         for item in result["items"]:
             item["author_username"] = item.pop("user__username", None)
         return successResponse("Sales retrieved successfully.", data=result)
+
+    @staticmethod
+    def listInstallments(data, request):
+        data = data or {}
+        page = max(int(data.get("page") or 1), 1)
+        limit_value = data.get("limit")
+        fetch_all = limit_value in ["all", "All"]
+        limit = None if fetch_all else int(limit_value or 10)
+        offset = 0 if fetch_all else (page - 1) * limit
+
+        queryset = commonQuery.branchScopedQueryset(OrderInstalment, {}, request).select_related(
+            "sale_order",
+            "sale_order__customer",
+        )
+
+        search = str(data.get("search") or "").strip()
+        if search:
+            queryset = queryset.filter(
+                Q(sale_order__code__icontains=search)
+                | Q(sale_order__customer__first_name__icontains=search)
+                | Q(sale_order__customer__last_name__icontains=search)
+                | Q(sale_order__customer__username__icontains=search)
+                | Q(sale_order__customer__email__icontains=search)
+            )
+
+        start_date = data.get("startDate")
+        end_date = data.get("endDate")
+        if start_date:
+            start_value = parse_datetime(start_date) if isinstance(start_date, str) else start_date
+            if start_value:
+                queryset = queryset.filter(date__gte=start_value)
+        if end_date:
+            end_value = parse_datetime(end_date) if isinstance(end_date, str) else end_date
+            if end_value:
+                queryset = queryset.filter(date__lte=end_value)
+
+        sort_by = data.get("sortBy")
+        sort_direction = data.get("sortDirection") or "descending"
+        sortable_fields = ["amount", "date", "paid", "created_at"]
+        if sort_by in sortable_fields:
+            queryset = queryset.order_by(("-" if sort_direction == "descending" else "") + sort_by)
+        else:
+            queryset = queryset.order_by("-date", "-id")
+
+        total = queryset.count()
+        if not fetch_all:
+            queryset = queryset[offset : offset + limit]
+
+        items = []
+        for installment in queryset:
+            order = installment.sale_order
+            customer = getattr(order, "customer", None)
+            customer_name = (
+                getattr(customer, "full_name", None)
+                or " ".join(
+                    part
+                    for part in [
+                        getattr(customer, "first_name", None),
+                        getattr(customer, "last_name", None),
+                    ]
+                    if part
+                )
+                or getattr(customer, "username", None)
+                or "Walk-in Customer"
+            )
+            items.append(
+                jsonsafe(
+                    {
+                        "id": installment.id,
+                        "order_id": order.id if order else None,
+                        "order_code": order.code if order else None,
+                        "customer": customer_name,
+                        "amount": installment.amount,
+                        "date": installment.date,
+                        "paid": installment.paid,
+                        "created_at": installment.created_at,
+                    }
+                )
+            )
+
+        return successResponse(
+            "Instalments retrieved successfully.",
+            data={
+                "items": items,
+                "total": total,
+                "totals": {},
+                "currentPage": 1 if fetch_all else page,
+                "pageSize": total if fetch_all else limit,
+                "totalPages": 1 if fetch_all else (total + (limit - 1)) // (limit or 1),
+                "hasNextPage": False if fetch_all else (offset + limit) < total,
+                "hasPreviousPage": False if fetch_all else page > 1,
+                "appliedFilters": {
+                    **data,
+                    "searchFields": ["order_code", "customer"],
+                    "sortableFields": sortable_fields,
+                },
+            },
+        )
 
     @staticmethod
     def getOrders(data, request):

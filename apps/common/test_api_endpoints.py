@@ -7,6 +7,8 @@ from django.contrib.auth.models import Permission
 from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
+from apps.catalog.models import Category
+from apps.sales.models import Order, OrderInstalment
 
 
 class PosApiIntegrationTest(TestCase):
@@ -43,6 +45,21 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can view expenses"},
         )
+        p_pos_categories, _ = Permission.objects.get_or_create(
+            codename="pos.read.categories",
+            content_type=content_type,
+            defaults={"name": "Can read POS categories"},
+        )
+        p_pos_orders, _ = Permission.objects.get_or_create(
+            codename="pos.read.orders",
+            content_type=content_type,
+            defaults={"name": "Can read POS orders"},
+        )
+        p_pos_order_instalments, _ = Permission.objects.get_or_create(
+            codename="pos.read.orders-instalments",
+            content_type=content_type,
+            defaults={"name": "Can read POS order instalments"},
+        )
         # Ensure expenses_create permission also exists in the test DB
         Permission.objects.get_or_create(
             codename="expenses_create",
@@ -50,6 +67,9 @@ class PosApiIntegrationTest(TestCase):
             defaults={"name": "Can create expenses"},
         )
         self.role_a.permissions.add(p_view)
+        self.role_a.permissions.add(p_pos_categories)
+        self.role_a.permissions.add(p_pos_orders)
+        self.role_a.permissions.add(p_pos_order_instalments)
 
         self.token_a = AccessToken.objects.create(
             user=self.user_a,
@@ -180,3 +200,68 @@ class PosApiIntegrationTest(TestCase):
         self.assertFalse(res_data["success"])
         self.assertEqual(res_data["message"], "Validation failed.")
         self.assertIn("name", res_data["data"]["errors"])
+
+    def test_pos_categories_route_does_not_parse_pos_as_category_id(self):
+        Category.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Food",
+            displays_on_pos=True,
+            status=0,
+        )
+
+        response = self.client.get("/api/catalog/categories/pos", **self.headers_a)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertIn("categories", payload["data"])
+
+    def test_sale_refund_receipt_route_does_not_parse_refunds_as_order_id(self):
+        response = self.client.get("/api/sales/refunds/1/receipt", **self.headers_a)
+
+        self.assertNotEqual(response.status_code, 422)
+        payload = response.json()
+        self.assertFalse(payload["success"])
+        errors = (payload.get("data") or {}).get("errors", {})
+        self.assertNotIn("sale_order_id", errors)
+
+    def test_sale_instalments_endpoint_lists_order_instalments_like_source(self):
+        order = Order.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            code="ORD-1",
+            customer=self.user_a,
+            payment_status="partially_paid",
+            total=100,
+            tendered_amount=50,
+            status=0,
+        )
+        OrderInstalment.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            sale_order=order,
+            amount=50,
+            paid=False,
+            date=timezone.now(),
+            status=0,
+        )
+
+        response = self.client.post(
+            "/api/sales/instalments/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["total"], 1)
+        item = payload["data"]["items"][0]
+        self.assertEqual(item["order_code"], "ORD-1")
+        self.assertIn("customer", item)
+        self.assertIn("paid", item)

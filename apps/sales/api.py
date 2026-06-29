@@ -102,6 +102,18 @@ def getPosSession(request):
     return SaleService.getPosSession(request)
 
 
+@router.get("/refunds/{refund_id}/receipt", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getSaleRefundReceipt(request, refund_id: int):
+    return SaleService.getRefundReceipt(refund_id, request)
+
+
+@router.post("/instalments/get-transactions", response=ApiResponse)
+@permissionRequired("pos.read.orders-instalments")
+def listSaleInstalments(request, payload: SaleListIn):
+    return SaleService.listInstallments(payloadData(payload), request)
+
+
 @router.get("/{sale_order_id}", response=ApiResponse)
 @permissionRequired("pos.read.orders")
 def getSale(request, sale_order_id: int):
@@ -194,12 +206,6 @@ def paySaleInstallment(
 @permissionRequired("pos.read.orders")
 def getSaleRefunds(request, sale_order_id: int):
     return SaleService.getRefunds(sale_order_id, request)
-
-
-@router.get("/refunds/{refund_id}/receipt", response=ApiResponse)
-@permissionRequired("pos.read.orders")
-def getSaleRefundReceipt(request, refund_id: int):
-    return SaleService.getRefundReceipt(refund_id, request)
 
 
 @router.get("/{sale_order_id}/products/refunded", response=ApiResponse)

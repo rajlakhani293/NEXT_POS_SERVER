@@ -71,12 +71,6 @@ def deleteCategories(request, payload: BulkIdsSchema):
     return CategoryService.delete(payloadData(payload), request)
 
 
-@router.delete("/categories/{category_id}", response=ApiResponse)
-@permissionRequired("pos.delete.categories")
-def deleteCategorySource(request, category_id: int):
-    return CategoryService.delete({"ids": [category_id]}, request)
-
-
 @router.patch("/categories/status", response=ApiResponse)
 @permissionRequired("pos.update.categories")
 def updateCategoryStatus(request, payload: StatusUpdateSchema):
@@ -87,6 +81,18 @@ def updateCategoryStatus(request, payload: StatusUpdateSchema):
 @permissionRequired("pos.update.categories")
 def reorderCategories(request, payload: dict):
     return CategoryService.reorderCategories(payload, request)
+
+
+@router.get("/categories/pos", response=ApiResponse)
+@permissionRequired("pos.read.categories")
+def getPOSCategoriesRoot(request):
+    return CategoryService.getPOSCategories(request, parent_id=None)
+
+
+@router.get("/categories/pos/{parent_id}", response=ApiResponse)
+@permissionRequired("pos.read.categories")
+def getPOSCategoriesSub(request, parent_id: str):
+    return CategoryService.getPOSCategories(request, parent_id=parent_id)
 
 
 @router.get("/categories/{category_id}/products", response=ApiResponse)
@@ -113,16 +119,10 @@ def updateCategory(request, category_id: int, payload: CategoryUpdateIn):
     return CategoryService.update(payloadData(payload, exclude_none=True), request, category_id)
 
 
-@router.get("/categories/pos", response=ApiResponse)
-@permissionRequired("pos.read.categories")
-def getPOSCategoriesRoot(request):
-    return CategoryService.getPOSCategories(request, parent_id=None)
-
-
-@router.get("/categories/pos/{parent_id}", response=ApiResponse)
-@permissionRequired("pos.read.categories")
-def getPOSCategoriesSub(request, parent_id: str):
-    return CategoryService.getPOSCategories(request, parent_id=parent_id)
+@router.delete("/categories/{category_id}", response=ApiResponse)
+@permissionRequired("pos.delete.categories")
+def deleteCategorySource(request, category_id: int):
+    return CategoryService.delete({"ids": [category_id]}, request)
 
 
 @router.post("/unit-groups/", response=ApiResponse)
