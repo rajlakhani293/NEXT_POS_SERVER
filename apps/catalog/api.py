@@ -345,12 +345,6 @@ def deleteTaxes(request, payload: BulkIdsSchema):
     return TaxService.delete(payloadData(payload), request)
 
 
-@router.delete("/taxes/{tax_id}", response=ApiResponse)
-@permissionRequired("pos.delete.taxes")
-def deleteTaxSource(request, tax_id: int):
-    return TaxService.delete({"ids": [tax_id]}, request)
-
-
 @router.patch("/taxes/status", response=ApiResponse)
 @permissionRequired("pos.update.taxes")
 def updateTaxStatus(request, payload: StatusUpdateSchema):
@@ -385,6 +379,12 @@ def getTaxById(request, tax_id: int):
 @permissionRequired("pos.update.taxes")
 def updateTax(request, tax_id: int, payload: TaxUpdateIn):
     return TaxService.update(payloadData(payload, exclude_none=True), request, tax_id)
+
+
+@router.delete("/taxes/{tax_id}", response=ApiResponse)
+@permissionRequired("pos.delete.taxes")
+def deleteTaxSource(request, tax_id: int):
+    return TaxService.delete({"ids": [tax_id]}, request)
 
 
 @router.post("/scale-ranges/", response=ApiResponse)

@@ -7,7 +7,7 @@ from django.contrib.auth.models import Permission
 from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
-from apps.catalog.models import Category, Product, ProductUnitQuantity, Unit, UnitGroup
+from apps.catalog.models import Category, Product, ProductUnitQuantity, Tax, TaxGroup, Unit, UnitGroup
 from apps.customers.models import CUSTOMER_ROLE_CODE
 from apps.customers.models import CustomerCoupon, CustomerReward
 from apps.promotions.models import Coupon
@@ -76,6 +76,11 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can update settings"},
         )
+        p_pos_taxes, _ = Permission.objects.get_or_create(
+            codename="pos.read.taxes",
+            content_type=content_type,
+            defaults={"name": "Can read taxes"},
+        )
         # Ensure expenses_create permission also exists in the test DB
         Permission.objects.get_or_create(
             codename="expenses_create",
@@ -88,6 +93,7 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_pos_order_instalments)
         self.role_a.permissions.add(p_settings_view)
         self.role_a.permissions.add(p_settings_update)
+        self.role_a.permissions.add(p_pos_taxes)
 
         self.token_a = AccessToken.objects.create(
             user=self.user_a,
@@ -792,3 +798,36 @@ class PosApiIntegrationTest(TestCase):
         self.assertEqual(item["operation_type"], "added")
         self.assertEqual(item["before_quantity"], 5.0)
         self.assertEqual(item["after_quantity"], 8.0)
+
+    def test_tax_source_routes_return_groups_and_tax_id_children_like_source(self):
+        group = TaxGroup.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="GST",
+            description="Goods tax",
+            status=0,
+        )
+        tax = Tax.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            tax_group=group,
+            name="CGST",
+            rate=8,
+            description="Central tax",
+            status=0,
+        )
+
+        taxes_response = self.client.get("/api/taxes", **self.headers_a)
+        groups_response = self.client.get("/api/taxes/groups", **self.headers_a)
+        group_response = self.client.get(f"/api/taxes/groups/{group.id}", **self.headers_a)
+
+        self.assertEqual(taxes_response.status_code, 200)
+        self.assertEqual(groups_response.status_code, 200)
+        self.assertEqual(group_response.status_code, 200)
+        self.assertEqual(taxes_response.json()["data"][0]["name"], "CGST")
+        group_payload = group_response.json()["data"]
+        self.assertEqual(group_payload["name"], "GST")
+        self.assertEqual(group_payload["taxes"][0]["tax_id"], tax.id)
+        self.assertNotIn("id", group_payload["taxes"][0])
