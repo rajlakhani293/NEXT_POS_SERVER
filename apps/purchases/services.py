@@ -168,6 +168,54 @@ class SupplierService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
         return successResponse("Provider status updated successfully.", data={"updated_count": count, "status": data.get("status")})
 
+    @staticmethod
+    def products(provider_id, data, request):
+        provider = commonQuery.findOneRecord(Provider, provider_id, request=request, tenant_config=True)
+        if provider is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
+        result = commonQuery.fetchPaginatedData(
+            ProcurementsProduct,
+            {
+                **(data or {}),
+                "filter": {
+                    **((data or {}).get("filter") or {}),
+                    "procurement__provider_id": provider_id,
+                },
+            },
+            [["name", True, True], ["product__name", True, True], ["procurement__name", True, True], ["barcode", True, True]],
+            {
+                "attributes": [
+                    "id",
+                    "procurement_id",
+                    "procurement__name",
+                    "product_id",
+                    "product__name",
+                    "name",
+                    "purchase_price",
+                    "quantity",
+                    "available_quantity",
+                    "tax_value",
+                    "total_purchase_price",
+                    "unit_id",
+                    "unit__name",
+                    "created_at",
+                    "status",
+                ],
+                "order": ["-id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for item in result["items"]:
+            item["procurement_name"] = item.pop("procurement__name", None)
+            item["product_name"] = item.pop("product__name", None)
+            item["unit_name"] = item.pop("unit__name", None)
+            item["ordered_quantity"] = item.get("quantity")
+            item["received_quantity"] = qty(item.get("quantity")) - qty(item.get("available_quantity"))
+            item["cost_price"] = item.get("purchase_price")
+            item["total"] = item.get("total_purchase_price")
+        return successResponse("Provider products retrieved successfully.", data=result)
+
 
 class PurchaseOrderService:
     PAYMENT_PAID = "paid"

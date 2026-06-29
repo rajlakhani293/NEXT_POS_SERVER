@@ -7,10 +7,11 @@ from django.contrib.auth.models import Permission
 from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
-from apps.catalog.models import Category
+from apps.catalog.models import Category, Product, Unit, UnitGroup
 from apps.customers.models import CUSTOMER_ROLE_CODE
 from apps.customers.models import CustomerCoupon, CustomerReward
 from apps.promotions.models import Coupon
+from apps.purchases.models import Procurement, ProcurementsProduct, Provider
 from apps.rewards.models import RewardSystem
 from apps.sales.models import Order, OrderInstalment
 from apps.settings.models import Media
@@ -510,3 +511,101 @@ class PosApiIntegrationTest(TestCase):
         self.assertTrue(payload["success"])
         self.assertEqual(payload["data"]["points"], 30.0)
         self.assertEqual(payload["data"]["target"], 120.0)
+
+    def test_provider_source_routes_list_procurements_and_products(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        purchases_view, _ = Permission.objects.get_or_create(
+            codename="purchases_view",
+            content_type=content_type,
+            defaults={"name": "Can view purchases"},
+        )
+        self.role_a.permissions.add(purchases_view)
+        provider = Provider.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            first_name="Provider",
+            last_name="A",
+            email="provider-a@example.com",
+            status=0,
+        )
+        unit_group = UnitGroup.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Count",
+            status=0,
+        )
+        unit = Unit.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            group=unit_group,
+            name="Piece",
+            identifier="piece",
+            value=1,
+            status=0,
+        )
+        product = Product.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Provider Product",
+            sku="PROVIDER-PRODUCT",
+            barcode="PROVIDER-PRODUCT",
+            status=0,
+        )
+        procurement = Procurement.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            provider=provider,
+            name="PROC-1",
+            value=100,
+            total_items=1,
+            status=0,
+        )
+        ProcurementsProduct.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            procurement=procurement,
+            product=product,
+            unit=unit,
+            name="Provider Product",
+            purchase_price=10,
+            quantity=10,
+            available_quantity=4,
+            total_purchase_price=100,
+            status=0,
+        )
+
+        list_response = self.client.post(
+            "/api/providers/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        procurements_response = self.client.post(
+            f"/api/providers/{provider.id}/procurements/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        products_response = self.client.post(
+            f"/api/providers/{provider.id}/products/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(list_response.status_code, 200)
+        self.assertEqual(procurements_response.status_code, 200)
+        self.assertEqual(products_response.status_code, 200)
+        self.assertEqual(list_response.json()["data"]["total"], 1)
+        self.assertEqual(procurements_response.json()["data"]["total"], 1)
+        product_item = products_response.json()["data"]["items"][0]
+        self.assertEqual(product_item["procurement_name"], "PROC-1")
+        self.assertEqual(product_item["received_quantity"], "6.0")
