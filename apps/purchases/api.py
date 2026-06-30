@@ -97,6 +97,12 @@ def updateProvider(request, provider_id: int, payload: SupplierUpdateIn):
     return SupplierService.update(provider_id, payloadData(payload, exclude_none=True), request)
 
 
+@providersRouter.patch("/status", response=ApiResponse)
+@permissionRequired("purchases_update")
+def updateProviderStatus(request, payload: StatusUpdateSchema):
+    return SupplierService.updateStatus(payloadData(payload), request)
+
+
 @providersRouter.get("/{provider_id}/procurements", response=ApiResponse)
 @permissionRequired("purchases_view")
 def getProviderProcurements(request, provider_id: int):
