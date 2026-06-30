@@ -132,6 +132,12 @@ def getSaleReceipt(request, sale_order_id: int):
     return SaleService.getReceipt(sale_order_id, request)
 
 
+@router.get("/{sale_order_id}/invoice", response=ApiResponse)
+@permissionRequired("pos.read.orders")
+def getSaleInvoice(request, sale_order_id: int):
+    return SaleService.getOrderInvoice(sale_order_id, request)
+
+
 @router.post("/{sale_order_id}/refund", response=ApiResponse)
 @permissionRequired("pos.refund.orders")
 def createSaleReturn(request, sale_order_id: int, payload: SaleReturnCreateIn):

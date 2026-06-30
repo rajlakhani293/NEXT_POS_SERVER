@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F, Q
+from django.db.models import Count, F, OuterRef, Q, Subquery
 from django.utils import timezone
 from django.utils.dateparse import parse_date, parse_datetime
 
@@ -2142,8 +2142,18 @@ class SaleService:
                     "tendered_amount",
                     "change_amount",
                     "created_at",
+                    "refunds_count",
+                    "latest_refund_id",
                 ],
                 "order": ["-id"],
+                "annotate": {
+                    "refunds_count": Count("returns"),
+                    "latest_refund_id": Subquery(
+                        OrdersRefund.objects.filter(sale_order_id=OuterRef("pk"))
+                        .order_by("-id")
+                        .values("id")[:1]
+                    ),
+                },
             },
             request=request,
             tenant_config=True,
