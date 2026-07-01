@@ -1,5 +1,6 @@
 # type: ignore
 import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -209,6 +210,18 @@ class ModuleService:
         if directory.exists() and directory.is_dir():
             shutil.rmtree(directory)
         return successResponse("The module has correctly been deleted.", data={"module": namespace})
+
+    @staticmethod
+    def archive(user, namespace):
+        module = ModuleService.getModule(user, namespace)
+        directory = Path(module.get("path") or "")
+        if not directory.exists() or not directory.is_dir():
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to locate the requested module.")
+
+        archive_root = Path(tempfile.mkdtemp(prefix="module-download-"))
+        archive_base = archive_root / namespace
+        archive_path = shutil.make_archive(str(archive_base), "zip", root_dir=directory.parent, base_dir=directory.name)
+        return Path(archive_path), module
 
     @staticmethod
     def upload(user, uploaded_file):

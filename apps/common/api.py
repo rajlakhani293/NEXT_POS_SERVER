@@ -1,6 +1,7 @@
 # type: ignore
 from django.apps import apps
 from django.db import transaction
+from django.http import FileResponse
 from typing import Optional
 from ninja import File, Router, UploadedFile
 
@@ -282,6 +283,14 @@ def getModule(request, argument: str):
     if argument in ["enabled", "disabled", "invalid"]:
         return ModuleService.listModules(request.user, argument)
     return successResponse("Module fetched successfully.", data=ModuleService.getModule(request.user, argument))
+
+
+@router.get("/modules/download/{argument}")
+@permissionRequired("manage.modules")
+def downloadModule(request, argument: str):
+    archive_path, module = ModuleService.archive(request.user, argument)
+    filename = f'{str(module.get("name") or argument).lower().replace(" ", "-")}-{module.get("version") or "module"}.zip'
+    return FileResponse(archive_path.open("rb"), as_attachment=True, filename=filename)
 
 
 @router.post("/modules/symlink", response=ApiResponse)
