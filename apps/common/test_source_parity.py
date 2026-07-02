@@ -6,6 +6,7 @@ from django.utils import timezone
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
 from apps.accounts.models import Role, User
 from apps.accounts.schemas import LoginIn, RegisterIn
+from apps.accounts.services import AccountsService
 from apps.catalog.models import Category, Product, ProductHistory, ProductSubItem, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
 from apps.catalog.services import CategoryService, ProductService, ProductUnitQuantityService, ScaleRangeService, TaxGroupService, TaxService, UnitGroupService, UnitService
 from apps.customers.models import CustomerAccountHistory, CustomerCoupon, CustomerGroup, CustomerReward
@@ -182,6 +183,27 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(transaction["next_amount"], Decimal("35"))
         self.assertEqual(customer.account_amount, Decimal("35.00000"))
 
+    def test_customer_and_user_listing_transactions_do_not_error(self):
+        group = CustomerGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Default Customers",
+        )
+        customer = self.create_customer(group=group, username="listing-customer")
+        customer.first_name = "Listing"
+        customer.last_name = "Customer"
+        customer.save(update_fields=["first_name", "last_name"])
+
+        customers_response = CustomerService.getAll({"page": 1, "limit": 10}, self.request)
+        self.assertTrue(customers_response.success)
+        self.assertEqual(customers_response.data["total"], 1)
+        self.assertEqual(customers_response.data["items"][0]["user_username"], "listing-customer")
+
+        users_result = AccountsService.listUsers(self.user, {"page": 1, "limit": 10})
+        self.assertGreaterEqual(users_result["total"], 1)
+        self.assertIn("roles_names", users_result["items"][0])
+
     def test_order_product_and_payment_read_wrappers_follow_source_routes(self):
         order = Order.objects.create(
             user=self.user,
@@ -219,6 +241,33 @@ class PosParityFlowTest(TestCase):
 
         deleted = SaleService.deleteOrderProduct(order.id, products[0]["id"], self.request).data
         self.assertEqual(deleted["total_items"], 0)
+
+    def test_sales_listing_returns_refund_annotations_without_server_error(self):
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-002",
+            order_type="takeaway",
+            payment_status="paid",
+            total=Decimal("100"),
+            tendered_amount=Decimal("100"),
+        )
+        refund = OrdersRefund.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            sale_order=order,
+            total=Decimal("10"),
+            shipping=Decimal("0"),
+            payment_method="cash-payment",
+        )
+
+        response = SaleService.listSales({"page": 1, "limit": 10}, self.request)
+        self.assertTrue(response.success)
+        self.assertEqual(response.data["total"], 1)
+        self.assertEqual(response.data["items"][0]["refunds_count"], 1)
+        self.assertEqual(response.data["items"][0]["latest_refund_id"], refund.id)
 
     def test_order_payment_allows_source_value_identifier_and_change(self):
         self.stock_product(3)

@@ -794,7 +794,7 @@ class AccountsService:
                     "owed_amount",
                     "purchases_amount",
                     "status",
-                    "created_at",
+                    "date_joined",
                 ]
             },
             tenant_config={},
@@ -813,6 +813,7 @@ class AccountsService:
         for item in result["items"]:
             names = roles_map.get(item["id"], [])
             item["roles_names"] = ", ".join(names) if names else "Not Assigned"
+            item["created_at"] = item.pop("date_joined", None)
 
         return result
 

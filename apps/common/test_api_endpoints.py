@@ -8,7 +8,7 @@ from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
 from apps.accounting.models import TransactionAccount
 from apps.catalog.models import Category, Product, ProductUnitQuantity, Tax, TaxGroup, Unit, UnitGroup
-from apps.customers.models import CUSTOMER_ROLE_CODE
+from apps.customers.models import CUSTOMER_ROLE_CODE, CustomerGroup
 from apps.customers.models import CustomerCoupon, CustomerReward
 from apps.promotions.models import Coupon
 from apps.purchases.models import Procurement, ProcurementsProduct, Provider
@@ -189,6 +189,50 @@ class PosApiIntegrationTest(TestCase):
         # Requesting without authorization header must fail with 401
         response = self.client.get("/api/expenses/categories/dropdown-list")
         self.assertEqual(response.status_code, 401)
+
+    def test_auth_register_login_and_failed_login_flow(self):
+        register_response = self.client.post(
+            "/api/accounts/register",
+            data=json.dumps(
+                {
+                    "username": "signup_owner",
+                    "email": "signup-owner@example.com",
+                    "password": "password123",
+                    "password_confirm": "password123",
+                    "device_name": "Web App",
+                }
+            ),
+            content_type="application/json",
+        )
+        failed_login_response = self.client.post(
+            "/api/accounts/login",
+            data=json.dumps(
+                {
+                    "username": "signup_owner",
+                    "password": "wrong-password",
+                    "device_name": "Web App",
+                }
+            ),
+            content_type="application/json",
+        )
+        login_response = self.client.post(
+            "/api/accounts/login",
+            data=json.dumps(
+                {
+                    "username": "signup_owner",
+                    "password": "password123",
+                    "device_name": "Web App",
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(register_response.status_code, 200, register_response.content.decode())
+        self.assertIn("token", register_response.json()["data"])
+        self.assertEqual(failed_login_response.status_code, 401)
+        self.assertFalse(failed_login_response.json()["success"])
+        self.assertEqual(login_response.status_code, 200, login_response.content.decode())
+        self.assertIn("token", login_response.json()["data"])
 
     def test_tenant_isolation_list_and_direct_access(self):
         # 1. Create Tenant A Category (mapped to TransactionAccount)
@@ -936,6 +980,70 @@ class PosApiIntegrationTest(TestCase):
         self.assertIn("username", source_users[0])
         self.assertNotIn("items", list_response.json()["data"])
         self.assertEqual(self_delete_response.status_code, 400)
+
+    def test_customer_and_settings_user_transaction_routes_return_paginated_data(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        read_customers, _ = Permission.objects.get_or_create(
+            codename="pos.read.customers",
+            content_type=content_type,
+            defaults={"name": "Can read customers"},
+        )
+        self.role_a.permissions.add(read_customers)
+
+        customer_role = Role.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Store Customer",
+            namespace=CUSTOMER_ROLE_CODE,
+            status=0,
+        )
+        customer_group = CustomerGroup.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Retail Customers",
+        )
+        User.objects.create_user(
+            username="listing-customer-api",
+            email="listing-customer-api@example.com",
+            password="password123",
+            company=self.company_a,
+            branch=self.branch_a,
+            role=customer_role,
+            group=customer_group,
+            first_name="Listing",
+            last_name="Customer",
+            status=0,
+        )
+
+        customers_response = self.client.post(
+            "/api/customers/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        users_response = self.client.post(
+            "/api/accounts/users/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(customers_response.status_code, 200, customers_response.content.decode())
+        self.assertEqual(users_response.status_code, 200, users_response.content.decode())
+
+        customers_payload = customers_response.json()["data"]
+        users_payload = users_response.json()["data"]
+
+        self.assertGreaterEqual(customers_payload["total"], 1)
+        self.assertIn("created_at", customers_payload["items"][0])
+        self.assertIn("user_username", customers_payload["items"][0])
+        self.assertGreaterEqual(users_payload["total"], 1)
+        self.assertIn("created_at", users_payload["items"][0])
+        self.assertIn("roles_names", users_payload["items"][0])
 
     def test_roles_source_clone_and_locked_namespace_match_source(self):
         create_response = self.client.post(

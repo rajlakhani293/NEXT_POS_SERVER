@@ -229,8 +229,8 @@ class CustomerService:
                 "account_amount",
                 "status",
                 "group_id",
-                "user__username",
-                "created_at",
+                "username",
+                "date_joined",
             ],
         }
         result = commonQuery.fetchPaginatedData(
@@ -250,7 +250,8 @@ class CustomerService:
         for item in result.get("items", []):
             item["name"] = f"{item.get('first_name') or ''} {item.get('last_name') or ''}".strip()
             item["group_name"] = group_map.get(item.get("group_id"))
-            item["user_username"] = item.pop("user__username", None)
+            item["user_username"] = item.get("username")
+            item["created_at"] = item.pop("date_joined", None)
         return successResponse("Customers retrieved successfully.", data=result)
 
     @staticmethod

@@ -642,6 +642,10 @@ class commonQuery:
 
             queryset = model.objects.filter(q)
 
+            annotations = options.get("annotate")
+            if annotations:
+                queryset = queryset.annotate(**annotations)
+
             # Sorting
             sort_by = req_body.get("sortBy")
             sort_dir = req_body.get("sortDirection", "descending")
