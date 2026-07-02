@@ -1,10 +1,11 @@
 # type: ignore
+import json
 from decimal import Decimal
 from types import SimpleNamespace
-from django.test import TestCase
+from django.test import Client, TestCase
 from django.utils import timezone
 from apps.accounting.models import TransactionActionRule, TransactionAccount, TransactionHistory
-from apps.accounts.models import Role, User
+from apps.accounts.models import AccessToken, Role, User
 from apps.accounts.schemas import LoginIn, RegisterIn
 from apps.accounts.services import AccountsService
 from apps.catalog.models import Category, Product, ProductHistory, ProductSubItem, ProductUnitQuantity, ScaleRange, Tax, TaxGroup, Unit, UnitGroup
@@ -603,6 +604,48 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(summary["Total Cash"]["value"], Decimal("140.00000"))
         self.assertEqual(summary["Total Change"]["value"], Decimal("20.00000"))
         self.assertEqual(summary["On Hand"]["value"], Decimal("170.00000"))
+
+    def test_register_shift_transactions_endpoint_accepts_table_filter_payload(self):
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        token = AccessToken.objects.create(
+            user=self.user,
+            token="register-shift-token",
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        register = Register.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Endpoint Register",
+            register_status=Register.STATUS_OPENED,
+            used_by=self.user,
+            balance=Decimal("25"),
+        )
+        RegisterService.recordHistory(
+            register.id,
+            RegistersHistory.ACTION_OPENING,
+            Decimal("25"),
+            self.request,
+            "Opening",
+        )
+
+        response = Client().post(
+            "/api/registers/shifts/get-transactions",
+            data=json.dumps({
+                "page": 1,
+                "limit": 10,
+                "filter": {"register_id": register.id},
+            }),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        payload = response.json()
+        self.assertTrue(payload["success"])
+        self.assertEqual(payload["data"]["register"]["id"], register.id)
+        self.assertEqual(payload["data"]["total"], 1)
 
     def test_register_z_report_follows_source_session_totals(self):
         register = Register.objects.create(

@@ -1,5 +1,5 @@
 # type: ignore
-from ninja import Router
+from ninja import Body, Router
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permissionRequired
 from apps.common.responses import ApiResponse, successResponse
@@ -48,25 +48,25 @@ def getUsedRegister(request):
 
 
 @router.post("/", response=ApiResponse)
-@permissionRequired("cash_register_open")
+@permissionRequired("cash_register_create")
 def createRegister(request, payload: CashRegisterIn):
     return RegisterService.create(payloadData(payload), request)
 
 
 @router.post("/get-transactions", response=ApiResponse)
 @permissionRequired("cash_register_view")
-def getAllRegisters(request, payload: dict = None):
+def getAllRegisters(request, payload: dict = Body(None)):
     return RegisterService.getAll(payload, request)
 
 
 @router.delete("/delete", response=ApiResponse)
-@permissionRequired("cash_register_close")
+@permissionRequired("cash_register_delete")
 def deleteRegisters(request, payload: BulkIdsSchema):
     return RegisterService.delete(payloadData(payload), request)
 
 
 @router.patch("/status", response=ApiResponse)
-@permissionRequired("cash_register_close")
+@permissionRequired("cash_register_update")
 def updateRegisterStatus(request, payload: StatusUpdateSchema):
     return RegisterService.updateStatus(payloadData(payload), request)
 
@@ -143,7 +143,7 @@ def cashOutShift(request, payload: ShiftMoneyActionIn):
 
 @router.post("/shifts/get-transactions", response=ApiResponse)
 @permissionRequired("cash_register_view")
-def getShiftsData(request, payload: dict = None):
+def getShiftsData(request, payload: dict = Body(None)):
     return RegisterService.getShiftsData(payload, request)
 
 
@@ -178,6 +178,6 @@ def getRegisterById(request, register_id: int):
 
 
 @router.put("/{register_id}", response=ApiResponse)
-@permissionRequired("cash_register_close")
+@permissionRequired("cash_register_update")
 def updateRegister(request, register_id: int, payload: CashRegisterUpdateIn):
     return RegisterService.update(register_id, payloadData(payload, exclude_none=True), request)
