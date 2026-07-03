@@ -3091,6 +3091,24 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(ReportService.dashboardBestCashiers(self.request).data[0]["user_id"], self.user.id)
         self.assertIn("result", ReportService.dashboardWeekReports(self.request).data)
 
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        token = AccessToken.objects.create(
+            user=self.user,
+            token="report-sale-token",
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        response = Client().post(
+            "/api/reports/sale-report",
+            data=json.dumps({"page": 1, "limit": 10, "search": "RPT-001"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        report_payload = response.json()
+        self.assertTrue(report_payload["success"])
+        self.assertEqual(report_payload["data"]["items"][0]["code"], "RPT-001")
+
         category = TransactionAccountService.create(
             {"name": "Report Expense", "operation": "expenses"},
             self.request,
