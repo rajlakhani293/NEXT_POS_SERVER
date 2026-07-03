@@ -76,6 +76,26 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can update settings"},
         )
+        p_media_view, _ = Permission.objects.get_or_create(
+            codename="media_view",
+            content_type=content_type,
+            defaults={"name": "Can view media"},
+        )
+        p_media_upload, _ = Permission.objects.get_or_create(
+            codename="media_upload",
+            content_type=content_type,
+            defaults={"name": "Can upload media"},
+        )
+        p_media_update, _ = Permission.objects.get_or_create(
+            codename="media_update",
+            content_type=content_type,
+            defaults={"name": "Can update media"},
+        )
+        p_media_delete, _ = Permission.objects.get_or_create(
+            codename="media_delete",
+            content_type=content_type,
+            defaults={"name": "Can delete media"},
+        )
         p_pos_taxes, _ = Permission.objects.get_or_create(
             codename="pos.read.taxes",
             content_type=content_type,
@@ -133,6 +153,10 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_pos_order_instalments)
         self.role_a.permissions.add(p_settings_view)
         self.role_a.permissions.add(p_settings_update)
+        self.role_a.permissions.add(p_media_view)
+        self.role_a.permissions.add(p_media_upload)
+        self.role_a.permissions.add(p_media_update)
+        self.role_a.permissions.add(p_media_delete)
         self.role_a.permissions.add(p_pos_taxes)
         self.role_a.permissions.add(p_manage_modules)
         self.role_a.permissions.add(p_users_view)

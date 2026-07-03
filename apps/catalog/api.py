@@ -84,6 +84,12 @@ def reorderCategories(request, payload: dict):
     return CategoryService.reorderCategories(payload, request)
 
 
+@router.get("/categories/{category_id}/compute-products", response=ApiResponse)
+@permissionRequired("pos.update.categories")
+def computeCategoryProducts(request, category_id: int):
+    return CategoryService.computeProducts(category_id, request)
+
+
 @router.get("/categories/pos", response=ApiResponse)
 @permissionRequired("pos.read.categories")
 def getPOSCategoriesRoot(request):

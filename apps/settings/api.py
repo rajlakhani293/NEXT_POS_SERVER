@@ -132,7 +132,7 @@ def deletePaymentTypes(request, payload: BulkIdsSchema):
 
 
 @mediaRouter.post("/upload", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_upload")
 def uploadMedia(
     request,
     file: UploadedFile = File(...),
@@ -145,19 +145,19 @@ def uploadMedia(
 
 
 @mediaRouter.post("/get-transactions", response=ApiResponse)
-@permissionRequired("settings_view")
+@permissionRequired("media_view")
 def getMedia(request, payload: Optional[dict] = Body(None)):
     return MediaService.getAll(payload, request)
 
 
 @mediaRouter.put("/{media_id}", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_update")
 def updateMedia(request, media_id: int, payload: MediaUpdateIn):
     return MediaService.update(media_id, payloadData(payload, exclude_none=True), request)
 
 
 @mediaRouter.delete("/delete", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_delete")
 def deleteMedia(request, payload: BulkIdsSchema):
     return MediaService.delete(payloadData(payload), request)
 
@@ -191,7 +191,7 @@ def deleteNotifications(request, payload: BulkIdsSchema):
 
 
 @sourceMediaRouter.get("/", response=ApiResponse)
-@permissionRequired("settings_view")
+@permissionRequired("media_view")
 def sourceGetMedias(request):
     query = request.GET
     payload = {
@@ -205,7 +205,7 @@ def sourceGetMedias(request):
 
 
 @sourceMediaRouter.post("/", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_upload")
 def sourceUploadMedia(
     request,
     file: UploadedFile = File(...),
@@ -218,19 +218,19 @@ def sourceUploadMedia(
 
 
 @sourceMediaRouter.post("/bulk-delete", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_delete")
 def sourceBulkDeleteMedias(request, payload: BulkIdsSchema):
     return MediaService.delete(payloadData(payload), request)
 
 
 @sourceMediaRouter.put("/{media_id}", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_update")
 def sourceUpdateMedia(request, media_id: int, payload: MediaUpdateIn):
     return MediaService.update(media_id, payloadData(payload, exclude_none=True), request)
 
 
 @sourceMediaRouter.delete("/{media_id}", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("media_delete")
 def sourceDeleteMedia(request, media_id: int):
     return MediaService.delete({"ids": [media_id]}, request)
 
