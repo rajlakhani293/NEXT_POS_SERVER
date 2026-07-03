@@ -3416,6 +3416,11 @@ class PosParityFlowTest(TestCase):
         feature_fields = {field["name"] for field in form.data["tabs"]["features"]["fields"]}
         self.assertIn("pos_order_types", feature_fields)
         self.assertIn("pos_quick_product", feature_fields)
+        printing_fields = {field["name"] for field in form.data["tabs"]["printing"]["fields"]}
+        self.assertEqual(
+            printing_fields,
+            {"pos_printing_document", "pos_printing_enabled_for", "pos_printing_gateway"},
+        )
 
         saved = OptionSettingService.saveForm(
             "pos",
@@ -3424,6 +3429,9 @@ class PosParityFlowTest(TestCase):
                 "pos_order_types": ["takeaway"],
                 "pos_quick_product": "no",
                 "scale_barcode_prefix": "<b>27</b>",
+                "pos_printing_document": "invoice",
+                "pos_printing_enabled_for": "all_orders",
+                "pos_printing_gateway": "default",
                 "unknown_field": "ignored",
             },
         )
@@ -3436,6 +3444,29 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(OptionSettingService.getOptionValue(self.company, self.branch, "order_types"), ["takeaway"])
         self.assertEqual(OptionSettingService.getOptionValue(self.company, self.branch, "quick_product"), False)
         self.assertEqual(OptionSettingService.getOptionValue(self.company, self.branch, "scale_barcode_prefix"), 27)
+        session_settings = OptionSettingService.buildSessionSettings(self.user)["settings"]
+        self.assertEqual(session_settings["printing_document"], "invoice")
+        self.assertEqual(session_settings["printing_enabled_for"], "all_orders")
+        self.assertEqual(session_settings["printing_gateway"], "default")
+
+        self.user.is_superuser = True
+        self.user.save(update_fields=["is_superuser"])
+        token = AccessToken.objects.create(
+            user=self.user,
+            token="settings-save-token",
+            expires_at=timezone.now() + timezone.timedelta(hours=1),
+        )
+        response = Client().post(
+            "/api/settings/pos",
+            data=json.dumps({"pos_printing_document": "receipt"}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token.token}",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            OptionSettingService.buildSessionSettings(self.user)["settings"]["printing_document"],
+            "receipt",
+        )
 
         OptionSettingService.saveForm("pos", self.user, {"scale_barcode_prefix": None})
         self.assertFalse(

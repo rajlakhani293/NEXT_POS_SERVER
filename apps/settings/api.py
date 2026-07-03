@@ -1,6 +1,6 @@
 # type: ignore
 from typing import Optional
-from ninja import File, Form, Router, UploadedFile
+from ninja import Body, File, Form, Router, UploadedFile
 
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permissionRequired
@@ -47,7 +47,7 @@ def getSettingsForm(request, identifier: str):
 
 @router.post("/{identifier}", response=ApiResponse)
 @permissionRequired("settings_update")
-def saveSettingsForm(request, identifier: str, payload: dict):
+def saveSettingsForm(request, identifier: str, payload: dict = Body(...)):
     return OptionSettingService.saveForm(identifier, request.user, payload or {})
 
 
@@ -146,7 +146,7 @@ def uploadMedia(
 
 @mediaRouter.post("/get-transactions", response=ApiResponse)
 @permissionRequired("settings_view")
-def getMedia(request, payload: Optional[dict] = None):
+def getMedia(request, payload: Optional[dict] = Body(None)):
     return MediaService.getAll(payload, request)
 
 
@@ -170,7 +170,7 @@ def createNotification(request, payload: NotificationIn):
 
 @notificationsRouter.post("/get-transactions", response=ApiResponse)
 @permissionRequired("settings_view")
-def getNotifications(request, payload: Optional[dict] = None):
+def getNotifications(request, payload: Optional[dict] = Body(None)):
     return NotificationService.getAll(payload, request)
 
 

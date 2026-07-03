@@ -44,6 +44,11 @@ BUSINESS_SETTING_FIELDS = [
     "orders_quotation_expiration",
     "pos_tax_group",
     "pos_tax_type",
+    "printing_document",
+    "printing_enabled_for",
+    "printing_gateway",
+    "reports_email",
+    "workers_enabled",
 ]
 
 
@@ -82,6 +87,11 @@ OPTION_KEY_MAP = {
     "orders_quotation_expiration": "orders_quotation_expiration",
     "pos_tax_group": "pos_tax_group",
     "pos_tax_type": "pos_tax_type",
+    "printing_document": "pos_printing_document",
+    "printing_enabled_for": "pos_printing_enabled_for",
+    "printing_gateway": "pos_printing_gateway",
+    "reports_email": "reports_email",
+    "workers_enabled": "workers_enabled",
 }
 
 
@@ -102,7 +112,7 @@ STATIC_OPTION_DEFAULTS = {
     "hide_empty_categories": "yes",
     "unit_price_editable": "yes",
     "order_types": ["takeaway", "delivery"],
-    "scale_barcode_product_length": 4,
+    "scale_barcode_product_length": 5,
     "scale_barcode_value_length": 5,
     "scale_barcode_type": "weight",
     "orders_code_type": "sequential",
@@ -119,6 +129,11 @@ STATIC_OPTION_DEFAULTS = {
     "pos_tax_type": "",
     "scale_barcode_enabled": "no",
     "scale_barcode_prefix": "2",
+    "pos_printing_document": "receipt",
+    "pos_printing_enabled_for": "only_paid_orders",
+    "pos_printing_gateway": "default",
+    "reports_email": "no",
+    "workers_enabled": "no",
 }
 
 
@@ -258,7 +273,7 @@ def defaultBusinessSettings():
         "store_name": "POS",
         "scale_barcode_enabled": False,
         "scale_barcode_prefix": "2",
-        "scale_barcode_product_length": 4,
+        "scale_barcode_product_length": 5,
         "scale_barcode_value_length": 5,
         "scale_barcode_type": "weight",
         "orders_code_type": "sequential",
@@ -267,6 +282,11 @@ def defaultBusinessSettings():
         "orders_quotation_expiration": "never",
         "pos_tax_group": "",
         "pos_tax_type": "",
+        "printing_document": "receipt",
+        "printing_enabled_for": "only_paid_orders",
+        "printing_gateway": "default",
+        "reports_email": "no",
+        "workers_enabled": "no",
     }
 
 

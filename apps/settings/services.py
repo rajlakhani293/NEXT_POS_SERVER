@@ -54,6 +54,11 @@ class OptionSettingService:
         "orders_quotation_expiration",
         "pos_tax_group",
         "pos_tax_type",
+        "pos_printing_document",
+        "pos_printing_enabled_for",
+        "pos_printing_gateway",
+        "reports_email",
+        "workers_enabled",
     }
     INTEGER_SETTING_FIELDS = {
         "currency_precision",
@@ -151,8 +156,9 @@ class OptionSettingService:
                     ("pos_new_item_audio", "switch", "New Item Audio", ""),
                 ],
                 "printing": [
-                    ("pos_printing_enabled", "switch", "Printing", ""),
-                    ("pos_printing_gateway", "select", "Gateway", ""),
+                    ("pos_printing_document", "select", "Printed Document", ""),
+                    ("pos_printing_enabled_for", "select", "Printing Enabled For", ""),
+                    ("pos_printing_gateway", "select", "Printing Gateway", ""),
                 ],
                 "registers": [
                     ("registers_enabled", "switch", "Registers", ""),
@@ -194,7 +200,7 @@ class OptionSettingService:
         "reports": {
             "title": "Reports Settings",
             "description": "Configure report delivery settings.",
-            "tabs": {"general": [("reports_email", "text", "Report Email", "")]},
+            "tabs": {"general": [("reports_email", "switch", "Enable Email Reporting", "")]},
         },
         "invoice": {
             "title": "Invoice Settings",
