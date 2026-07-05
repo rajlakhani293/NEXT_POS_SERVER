@@ -411,12 +411,20 @@ class SaleStockService:
             if tax_result["tax_type"] == "exclusive" and getattr(settings, "pos_preferred_price", "net_prices") == "net_prices"
             else line_base
         )
+        unit_name = item.get("unit_name")
+        if not unit_name and unit_quantity:
+            unit_name = unit_quantity.get("unit__name") or unit_quantity.get("unit_name")
 
         sale_item = commonQuery.createRecord(
             OrdersProduct,
             {
                 "sale_order_id": sale_order["id"],
                 "product_id": product["id"],
+                "name": item.get("name") or product.get("name") or "Unnamed Product",
+                "unit_name": unit_name,
+                "mode": item.get("mode") or "normal",
+                "product_type": item.get("product_type") or product.get("product_type") or "product",
+                "rate": money(item.get("rate")),
                 "unit_id": unit_id,
                 "unit_quantity_id": unit_quantity.get("id") if unit_quantity else None,
                 "quantity": item_qty,

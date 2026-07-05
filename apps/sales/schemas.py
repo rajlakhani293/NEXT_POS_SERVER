@@ -12,6 +12,11 @@ ReturnCondition = Literal["unspoiled", "damaged"]
 class SaleItemIn(Schema):
     product_id: Optional[int] = None
     barcode: Optional[str] = None
+    name: Optional[str] = None
+    unit_name: Optional[str] = None
+    mode: str = "normal"
+    product_type: str = "product"
+    rate: Decimal = Field(Decimal("0"), ge=0)
     unit_id: Optional[int] = None
     unit_quantity_id: Optional[int] = None
     quantity: Decimal = Field(Decimal("1"), gt=0)
