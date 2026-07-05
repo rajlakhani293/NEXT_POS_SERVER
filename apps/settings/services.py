@@ -13,6 +13,8 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.accounts.models import Role, User
+from apps.accounting.models import TransactionAccount
+from apps.catalog.models import TaxGroup, Unit
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
@@ -30,6 +32,7 @@ from apps.common.tenantDefaults import (
     ensureOptionValue,
 )
 from apps.organizations.models import Branch
+from apps.customers.models import Customer, CustomerGroup
 from apps.settings.models import FailedJob, Job, Media, Notification, PaymentType, paymentTypeValues
 
 
@@ -290,6 +293,15 @@ class OptionSettingService:
         },
     }
 
+    ACCOUNT_OPTION_CATEGORIES = {
+        "accounting_expenses_accounts": "expenses",
+        "accounting_default_paid_expense_offset_account": "assets",
+        "accounting_orders_revenues_account": "revenues",
+        "accounting_orders_cash_account": "assets",
+        "accounting_orders_unpaid_account": "assets",
+        "accounting_orders_cogs_account": "expenses",
+    }
+
     @staticmethod
     def defaultValues():
         return defaultBusinessSettings()
@@ -347,6 +359,54 @@ class OptionSettingService:
         return OptionSettingService.getOptionValue(user.company, user.branch, key)
 
     @staticmethod
+    def optionRows(rows, label):
+        options = []
+        for row in rows:
+            label_value = label(row)
+            if not label_value:
+                label_value = f"#{row.id}"
+            options.append({"value": str(row.id), "label": label_value, "id": row.id, "name": label_value})
+        return options
+
+    @staticmethod
+    def fieldOptions(user, field):
+        base_filters = {
+            "company_id": user.company_id,
+            "branch_id": user.branch_id,
+            "status": 0,
+        }
+        if field == "registration_role":
+            rows = Role.objects.filter(**base_filters).order_by("name")
+            return OptionSettingService.optionRows(rows, lambda row: row.name)
+        if field == "customers_default":
+            rows = Customer.objects.filter(**base_filters).order_by("first_name", "last_name")
+            return OptionSettingService.optionRows(
+                rows,
+                lambda row: (
+                    f"{row.first_name or ''} {row.last_name or ''}".strip()
+                    or row.phone
+                    or row.username
+                ),
+            )
+        if field == "customers_default_group":
+            rows = CustomerGroup.objects.filter(**base_filters).order_by("name")
+            return OptionSettingService.optionRows(rows, lambda row: row.name)
+        if field == "pos_tax_group":
+            rows = TaxGroup.objects.filter(**base_filters).order_by("name")
+            return OptionSettingService.optionRows(rows, lambda row: row.name)
+        if field == "pos_quick_product_default_unit":
+            rows = Unit.objects.filter(**base_filters).order_by("name")
+            return OptionSettingService.optionRows(rows, lambda row: row.name)
+        if field in OptionSettingService.ACCOUNT_OPTION_CATEGORIES:
+            rows = TransactionAccount.objects.filter(
+                **base_filters,
+                category_identifier=OptionSettingService.ACCOUNT_OPTION_CATEGORIES[field],
+                sub_category_id__isnull=False,
+            ).order_by("name")
+            return OptionSettingService.optionRows(rows, lambda row: row.name)
+        return None
+
+    @staticmethod
     def getForm(identifier, user):
         OptionSettingService.ensureSettings(user)
         form = OptionSettingService.SETTING_FORMS.get(identifier)
@@ -364,6 +424,7 @@ class OptionSettingService:
                         "label": label,
                         "validation": validation,
                         "value": OptionSettingService.fieldValue(user, name),
+                        "options": OptionSettingService.fieldOptions(user, name),
                     }
                     for name, field_type, label, validation in fields
                 ],

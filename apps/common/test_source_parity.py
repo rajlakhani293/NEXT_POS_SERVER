@@ -3409,6 +3409,132 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(data_child["products"][0]["id"], child_product.id)
 
     def test_settings_forms_save_options_like_source(self):
+        customer_group = CustomerGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Retail Settings Group",
+        )
+        customer = self.create_customer(group=customer_group, username="settings-customer")
+        customer.first_name = "Settings"
+        customer.last_name = "Buyer"
+        customer.save(update_fields=["first_name", "last_name"])
+        tax_group = TaxGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Settings VAT",
+        )
+        assets_parent = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Assets",
+            account="settings-assets",
+            category_identifier="assets",
+        )
+        assets_child = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Cash Drawer",
+            account="settings-assets-cash",
+            category_identifier="assets",
+            sub_category=assets_parent,
+        )
+        expenses_parent = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Expenses",
+            account="settings-expenses",
+            category_identifier="expenses",
+        )
+        expenses_child = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Direct Expense",
+            account="settings-expenses-direct",
+            category_identifier="expenses",
+            sub_category=expenses_parent,
+        )
+        revenues_parent = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Revenues",
+            account="settings-revenues",
+            category_identifier="revenues",
+        )
+        revenues_child = TransactionAccount.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Sales Revenue",
+            account="settings-revenues-sales",
+            category_identifier="revenues",
+            sub_category=revenues_parent,
+        )
+
+        general_form = OptionSettingService.getForm("general", self.user)
+        seeded_role = Role.objects.filter(
+            company=self.company,
+            branch=self.branch,
+            status=0,
+        ).first()
+        self.assertIsNotNone(seeded_role)
+        registration_role_field = next(
+            field
+            for field in general_form.data["tabs"]["registration"]["fields"]
+            if field["name"] == "registration_role"
+        )
+        self.assertIn(
+            str(seeded_role.id),
+            {option["value"] for option in registration_role_field["options"]},
+        )
+
+        customers_form = OptionSettingService.getForm("customers", self.user)
+        customer_fields = {
+            field["name"]: field for field in customers_form.data["tabs"]["general"]["fields"]
+        }
+        self.assertIn(
+            str(customer.id),
+            {option["value"] for option in customer_fields["customers_default"]["options"]},
+        )
+        self.assertIn(
+            str(customer_group.id),
+            {option["value"] for option in customer_fields["customers_default_group"]["options"]},
+        )
+
+        accounting_form = OptionSettingService.getForm("accounting", self.user)
+        accounting_general_fields = {
+            field["name"]: field for field in accounting_form.data["tabs"]["general"]["fields"]
+        }
+        accounting_order_fields = {
+            field["name"]: field for field in accounting_form.data["tabs"]["orders"]["fields"]
+        }
+        self.assertIn(
+            str(expenses_child.id),
+            {option["value"] for option in accounting_general_fields["accounting_expenses_accounts"]["options"]},
+        )
+        self.assertIn(
+            str(assets_child.id),
+            {option["value"] for option in accounting_general_fields["accounting_default_paid_expense_offset_account"]["options"]},
+        )
+        self.assertIn(
+            str(revenues_child.id),
+            {option["value"] for option in accounting_order_fields["accounting_orders_revenues_account"]["options"]},
+        )
+        self.assertIn(
+            str(assets_child.id),
+            {option["value"] for option in accounting_order_fields["accounting_orders_cash_account"]["options"]},
+        )
+        self.assertIn(
+            str(expenses_child.id),
+            {option["value"] for option in accounting_order_fields["accounting_orders_cogs_account"]["options"]},
+        )
+
         form = OptionSettingService.getForm("pos", self.user)
         self.assertTrue(form.success)
         self.assertEqual(form.data["identifier"], "pos")
@@ -3416,6 +3542,22 @@ class PosParityFlowTest(TestCase):
         feature_fields = {field["name"] for field in form.data["tabs"]["features"]["fields"]}
         self.assertIn("pos_order_types", feature_fields)
         self.assertIn("pos_quick_product", feature_fields)
+        vat_fields = {field["name"]: field for field in form.data["tabs"]["vat"]["fields"]}
+        self.assertIn(
+            str(tax_group.id),
+            {option["value"] for option in vat_fields["pos_tax_group"]["options"]},
+        )
+        self.assertIn(
+            str(self.unit.id),
+            {
+                option["value"]
+                for option in next(
+                    field
+                    for field in form.data["tabs"]["features"]["fields"]
+                    if field["name"] == "pos_quick_product_default_unit"
+                )["options"]
+            },
+        )
         printing_fields = {field["name"] for field in form.data["tabs"]["printing"]["fields"]}
         self.assertEqual(
             printing_fields,
