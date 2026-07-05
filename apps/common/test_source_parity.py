@@ -3489,6 +3489,21 @@ class PosParityFlowTest(TestCase):
             for field in general_form.data["tabs"]["registration"]["fields"]
             if field["name"] == "registration_role"
         )
+        date_fields = {
+            field["name"]: field for field in general_form.data["tabs"]["date"]["fields"]
+        }
+        self.assertIn(
+            "Y-m-d",
+            {option["value"] for option in date_fields["date_format"]["options"]},
+        )
+        self.assertIn(
+            "Y-m-d H:i",
+            {option["value"] for option in date_fields["datetime_format"]["options"]},
+        )
+        self.assertIn(
+            "UTC",
+            {option["value"] for option in date_fields["datetime_timezone"]["options"]},
+        )
         self.assertIn(
             str(seeded_role.id),
             {option["value"] for option in registration_role_field["options"]},
@@ -3546,6 +3561,12 @@ class PosParityFlowTest(TestCase):
         self.assertIn(
             str(tax_group.id),
             {option["value"] for option in vat_fields["pos_tax_group"]["options"]},
+        )
+        register_fields = {
+            field["name"]: field for field in form.data["tabs"]["registers"]["fields"]
+        }
+        self.assertTrue(
+            register_fields["pos_registers_default_change_payment_type"]["options"]
         )
         self.assertIn(
             str(self.unit.id),

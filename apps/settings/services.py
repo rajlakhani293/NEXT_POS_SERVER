@@ -3,6 +3,7 @@ import datetime
 import json
 import re
 import time
+import zoneinfo
 from pathlib import Path
 from types import SimpleNamespace
 from django.conf import settings
@@ -301,6 +302,24 @@ class OptionSettingService:
         "accounting_orders_unpaid_account": "assets",
         "accounting_orders_cogs_account": "expenses",
     }
+    DATE_FORMAT_OPTIONS = [
+        "Y-m-d",
+        "Y/m/d",
+        "d-m-y",
+        "d/m/y",
+        "M dS, Y",
+        "d M Y",
+        "d.m.Y",
+    ]
+    DATETIME_FORMAT_OPTIONS = [
+        "Y-m-d H:i",
+        "Y/m/d H:i",
+        "d-m-y H:i",
+        "d/m/y H:i",
+        "M dS, Y H:i",
+        "d M Y, H:i",
+        "d.m.Y, H:i",
+    ]
 
     @staticmethod
     def defaultValues():
@@ -369,6 +388,13 @@ class OptionSettingService:
         return options
 
     @staticmethod
+    def keyValueOptions(values):
+        return [
+            {"value": str(value), "label": str(value), "id": str(value), "name": str(value)}
+            for value in values
+        ]
+
+    @staticmethod
     def fieldOptions(user, field):
         base_filters = {
             "company_id": user.company_id,
@@ -397,6 +423,15 @@ class OptionSettingService:
         if field == "pos_quick_product_default_unit":
             rows = Unit.objects.filter(**base_filters).order_by("name")
             return OptionSettingService.optionRows(rows, lambda row: row.name)
+        if field == "pos_registers_default_change_payment_type":
+            rows = PaymentType.objects.filter(**base_filters).order_by("priority", "label")
+            return OptionSettingService.optionRows(rows, lambda row: row.label)
+        if field == "date_format":
+            return OptionSettingService.keyValueOptions(OptionSettingService.DATE_FORMAT_OPTIONS)
+        if field == "datetime_format":
+            return OptionSettingService.keyValueOptions(OptionSettingService.DATETIME_FORMAT_OPTIONS)
+        if field == "datetime_timezone":
+            return OptionSettingService.keyValueOptions(sorted(zoneinfo.available_timezones()))
         if field in OptionSettingService.ACCOUNT_OPTION_CATEGORIES:
             rows = TransactionAccount.objects.filter(
                 **base_filters,
