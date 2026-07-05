@@ -3504,6 +3504,17 @@ class PosParityFlowTest(TestCase):
             "UTC",
             {option["value"] for option in date_fields["datetime_timezone"]["options"]},
         )
+        identification_fields = {
+            field["name"]: field for field in general_form.data["tabs"]["identification"]["fields"]
+        }
+        self.assertEqual(
+            identification_fields["store_square_logo"]["type"],
+            "media",
+        )
+        self.assertEqual(
+            identification_fields["store_square_logo"]["description"],
+            "Choose what is the square logo of the store.",
+        )
         self.assertIn(
             str(seeded_role.id),
             {option["value"] for option in registration_role_field["options"]},
@@ -3567,6 +3578,10 @@ class PosParityFlowTest(TestCase):
         }
         self.assertTrue(
             register_fields["pos_registers_default_change_payment_type"]["options"]
+        )
+        self.assertEqual(
+            register_fields["pos_registers_default_change_payment_type"]["description"],
+            "Define the payment type that will be used for all change from the registers.",
         )
         self.assertIn(
             str(self.unit.id),

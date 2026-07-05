@@ -110,8 +110,8 @@ class OptionSettingService:
                     ("store_pobox", "text", "Store PO.Box", ""),
                     ("store_fax", "text", "Store Fax", ""),
                     ("store_additional", "textarea", "Store Additional Information", ""),
-                    ("store_square_logo", "media", "Store Square Logo", ""),
-                    ("store_rectangle_logo", "media", "Store Rectangle Logo", ""),
+                    ("store_square_logo", "media", "Store Square Logo", "", "Choose what is the square logo of the store."),
+                    ("store_rectangle_logo", "media", "Store Rectangle Logo", "", "Choose what is the rectangle logo of the store."),
                     ("store_language", "select", "Language", ""),
                     ("default_theme", "select", "Theme", ""),
                 ],
@@ -125,9 +125,9 @@ class OptionSettingService:
                     ("currency_precision", "select", "Currency Precision", ""),
                 ],
                 "date": [
-                    ("date_format", "select", "Date Format", ""),
-                    ("datetime_format", "select", "Date Time Format", ""),
-                    ("datetime_timezone", "select", "Timezone", ""),
+                    ("date_format", "select", "Date Format", "", 'This define how the date should be defined. The default format is "Y-m-d".'),
+                    ("datetime_format", "select", "Date Time Format", "", 'This define how the date and times should be formated. The default format is "Y-m-d H:i".'),
+                    ("datetime_timezone", "select", "Timezone", "", "Determine the default timezone of the store."),
                 ],
                 "registration": [
                     ("registration_enabled", "select", "Registration", ""),
@@ -182,7 +182,7 @@ class OptionSettingService:
                     ("pos_registers_enabled", "select", "Enable Cash Registers", ""),
                     ("pos_idle_counter", "select", "Cashier Idle Counter", ""),
                     ("pos_disbursement", "select", "Cash Disbursement", ""),
-                    ("pos_registers_default_change_payment_type", "select", "Default Change Payment Type", "required"),
+                    ("pos_registers_default_change_payment_type", "select", "Default Change Payment Type", "required", "Define the payment type that will be used for all change from the registers."),
                 ],
                 "vat": [
                     ("pos_vat", "select", "VAT", ""),
@@ -246,7 +246,7 @@ class OptionSettingService:
             "tabs": {
                 "receipts": [
                     ("invoice_receipt_template", "select", "Receipt Template", ""),
-                    ("invoice_receipt_logo", "media", "Receipt Logo", ""),
+                    ("invoice_receipt_logo", "media", "Receipt Logo", "", "Provide a URL to the logo."),
                     ("invoice_merge_similar_products", "switch", "Merge Similar Products", ""),
                     ("invoice_display_tax_breakdown", "switch", "Display Tax Breakdown", ""),
                     ("invoice_receipt_footer", "textarea", "Receipt Footer", ""),
@@ -373,6 +373,12 @@ class OptionSettingService:
         return fields
 
     @staticmethod
+    def fieldConfig(field):
+        name, field_type, label, validation = field[:4]
+        description = field[4] if len(field) > 4 else ""
+        return name, field_type, label, validation, description
+
+    @staticmethod
     def fieldValue(user, field):
         key = OptionSettingService.sourceOptionKey(field)
         return OptionSettingService.getOptionValue(user.company, user.branch, key)
@@ -458,10 +464,13 @@ class OptionSettingService:
                         "type": field_type,
                         "label": label,
                         "validation": validation,
+                        "description": description,
                         "value": OptionSettingService.fieldValue(user, name),
                         "options": OptionSettingService.fieldOptions(user, name),
                     }
-                    for name, field_type, label, validation in fields
+                    for name, field_type, label, validation, description in [
+                        OptionSettingService.fieldConfig(field) for field in fields
+                    ]
                 ],
             }
         return successResponse(
