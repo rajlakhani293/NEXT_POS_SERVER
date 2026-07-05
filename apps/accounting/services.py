@@ -194,7 +194,6 @@ class AccountingService:
             defaults={"opening_balance": opening_balance, "closing_balance": opening_balance},
             request=request,
             tenant_config=BRANCH_TENANT_CONFIG,
-            for_update=True,
         )
         if operation == "credit":
             day.income = F("income") + amount
@@ -218,7 +217,6 @@ class AccountingService:
             defaults={"opening_balance": month_opening_balance, "closing_balance": month_opening_balance},
             request=request,
             tenant_config=BRANCH_TENANT_CONFIG,
-            for_update=True,
         )
         if operation == "credit":
             month.income = F("income") + amount
@@ -832,22 +830,7 @@ class TransactionAccountService:
     @staticmethod
     def create(data, request):
         data = TransactionAccountService.sourcePayload(data)
-        parent_id = data.get("sub_category_id")
-        parent = None
-        if parent_id:
-            parent = commonQuery.findOneInstance(
-                TransactionAccount,
-                {
-                    "id": parent_id,
-                    "status__in": [0, 1],
-                },
-                request=request,
-                tenant_config=BRANCH_TENANT_CONFIG,
-            )
-            if parent is None:
-                raise api_error(404, ErrorCodes.NOT_FOUND, "Parent account not found.")
-            if parent.sub_category_id:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Three level of accounts is not allowed.")
+        TransactionAccountService.validateParent(data.get("sub_category_id"), request)
 
         if not data.get("category_identifier"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Accounting category is required.")
@@ -866,6 +849,26 @@ class TransactionAccountService:
             tenant_config=BRANCH_TENANT_CONFIG,
         )
         return successResponse("Transaction account created successfully.", data=account)
+
+    @staticmethod
+    def validateParent(parent_id, request, account_id=None):
+        if not parent_id:
+            return
+        if account_id and int(parent_id) == int(account_id):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "An account cannot be its own parent.")
+        parent = commonQuery.findOneInstance(
+            TransactionAccount,
+            {
+                "id": parent_id,
+                "status__in": [0, 1],
+            },
+            request=request,
+            tenant_config=BRANCH_TENANT_CONFIG,
+        )
+        if parent is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Parent account not found.")
+        if parent.sub_category_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Three level of accounts is not allowed.")
 
     @staticmethod
     def getAll(data, request):
@@ -947,6 +950,8 @@ class TransactionAccountService:
         )
         if account is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
+        if "sub_category_id" in data:
+            TransactionAccountService.validateParent(data.get("sub_category_id"), request, account_id=account_id)
         updated = commonQuery.updateRecordById(
             TransactionAccount,
             account_id,
@@ -1307,11 +1312,15 @@ class TransactionService:
                     "occurrence_value",
                     "scheduled_date",
                     "status",
+                    "user__username",
+                    "created_at",
                 ],
             },
             request=request,
             tenant_config=True,
         )
+        for item in result.get("items", []):
+            item["user_username"] = item.pop("user__username", None)
         return successResponse("Transactions retrieved successfully.", data=result)
 
     @staticmethod
@@ -1354,6 +1363,7 @@ class TransactionService:
                     "type",
                     "value",
                     "trigger_date",
+                    "transaction_status",
                     "status",
                     "user__username",
                     "created_at",

@@ -438,14 +438,23 @@ class PurchaseOrderService:
         )
         if provider:
             provider["name"] = SupplierService.displayName(provider)
+        for product in products:
+            product["ordered_quantity"] = qty(product.get("quantity"))
+            product["received_quantity"] = qty(product.get("quantity")) - qty(product.get("available_quantity"))
+            product["cost_price"] = product.get("purchase_price")
+            product["tax_amount"] = product.get("tax_value")
+            product["total"] = product.get("total_purchase_price")
         is_paid = order.get("payment_status") == "paid"
         total_value = money(order.get("value"))
         order["provider"] = provider
         order["Provider"] = provider
+        order["supplier"] = provider
         order["products"] = products
         order["items"] = products
         order["due_amount"] = Decimal("0") if is_paid else total_value
         order["code"] = order.get("name")
+        order["order_date"] = order.get("invoice_date")
+        order["expected_date"] = order.get("delivery_time")
         order["total"] = order.get("value")
         order["paid_amount"] = total_value if is_paid else Decimal("0")
         order["workflow_status"] = order.get("delivery_status")
