@@ -277,8 +277,8 @@ class OptionSettingService:
             "description": "Reset application data.",
             "tabs": {
                 "reset": [
-                    ("mode", "select", "Mode", ""),
-                    ("create_sales", "checkbox", "Create Sales", ""),
+                    ("mode", "select", "Mode", "required"),
+                    ("create_sales", "checkbox", "Create Sales (needs Procurements)", ""),
                     ("create_procurements", "checkbox", "Create Procurements", ""),
                 ],
             },
