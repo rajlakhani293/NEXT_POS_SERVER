@@ -3565,9 +3565,21 @@ class PosParityFlowTest(TestCase):
         self.assertTrue(form.success)
         self.assertEqual(form.data["identifier"], "pos")
         self.assertIn("features", form.data["tabs"])
+        self.assertNotIn("pos_actions", form.data["tabs"])
+        self.assertNotIn("scale-barcode", form.data["tabs"])
         feature_fields = {field["name"] for field in form.data["tabs"]["features"]["fields"]}
         self.assertIn("pos_order_types", feature_fields)
         self.assertIn("pos_quick_product", feature_fields)
+        vat_fields = {field["name"]: field for field in form.data["tabs"]["vat"]["fields"]}
+        self.assertEqual(set(vat_fields), {"pos_vat"})
+
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_vat", "flat_vat", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "registers_enabled", "yes", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_action_permission_enabled", "yes", user=self.user)
+        OptionSettingService.ensureOptionValue(self.company, self.branch, "scale_barcode_enabled", "yes", user=self.user)
+        form = OptionSettingService.getForm("pos", self.user)
+        self.assertIn("pos_actions", form.data["tabs"])
+        self.assertIn("scale-barcode", form.data["tabs"])
         vat_fields = {field["name"]: field for field in form.data["tabs"]["vat"]["fields"]}
         self.assertIn(
             str(tax_group.id),
@@ -3599,6 +3611,11 @@ class PosParityFlowTest(TestCase):
             printing_fields,
             {"pos_printing_document", "pos_printing_enabled_for", "pos_printing_gateway"},
         )
+
+        invoices_form = OptionSettingService.getForm("invoices", self.user)
+        self.assertTrue(invoices_form.success)
+        self.assertEqual(invoices_form.data["identifier"], "invoices")
+        self.assertIn("receipts", invoices_form.data["tabs"])
 
         saved = OptionSettingService.saveForm(
             "pos",

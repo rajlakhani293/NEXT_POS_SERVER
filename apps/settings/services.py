@@ -240,9 +240,9 @@ class OptionSettingService:
             "description": "Configure report delivery settings.",
             "tabs": {"general": [("reports_email", "switch", "Enable Email Reporting", "")]},
         },
-        "invoice": {
+        "invoices": {
             "title": "Invoice Settings",
-            "description": "Configure receipt and invoice settings.",
+            "description": "Configure how invoice and receipts are used.",
             "tabs": {
                 "receipts": [
                     ("invoice_receipt_template", "select", "Receipt Template", ""),
@@ -320,6 +320,150 @@ class OptionSettingService:
         "d M Y, H:i",
         "d.m.Y, H:i",
     ]
+    YES_NO_OPTIONS = [
+        ("yes", "Yes"),
+        ("no", "No"),
+    ]
+    STATIC_FIELD_OPTIONS = {
+        "default_theme": [
+            ("light", "Light"),
+            ("dark", "Dark"),
+            ("phosphor", "Phosphor"),
+        ],
+        "currency_position": [
+            ("before", "Before the amount"),
+            ("after", "After the amount"),
+        ],
+        "currency_prefered": [
+            ("iso", "ISO Currency"),
+            ("symbol", "Symbol"),
+        ],
+        "currency_precision": [(str(index), f"{index} numbers after the decimal") for index in range(0, 6)],
+        "registration_enabled": YES_NO_OPTIONS,
+        "registration_validated": YES_NO_OPTIONS,
+        "orders_code_type": [
+            ("date_sequential", "Sequential"),
+            ("random_code", "Random Code"),
+            ("number_sequential", "Number Sequential"),
+        ],
+        "orders_allow_unpaid": YES_NO_OPTIONS,
+        "orders_allow_partial": YES_NO_OPTIONS,
+        "orders_strict_instalments": YES_NO_OPTIONS,
+        "orders_quotation_expiration": [
+            ("never", "Never"),
+            ("3", "3 Days"),
+            ("5", "5 Days"),
+            ("10", "10 Days"),
+            ("15", "15 Days"),
+            ("30", "30 Days"),
+        ],
+        "customers_rewards_enabled": YES_NO_OPTIONS,
+        "customers_force_valid_email": YES_NO_OPTIONS,
+        "customers_force_unique_phone": YES_NO_OPTIONS,
+        "customers_credit_enabled": YES_NO_OPTIONS,
+        "pos_layout": [
+            ("grocery_shop", "Retail Layout"),
+            ("clothing_shop", "Clothing Shop"),
+        ],
+        "pos_complete_sale_audio": [
+            ("", "Disabled"),
+            ("/audio/bubble.mp3", "Bubble"),
+            ("/audio/ding.mp3", "Ding"),
+            ("/audio/pop.mp3", "Pop"),
+            ("/audio/cash-sound.mp3", "Cash Sound"),
+        ],
+        "pos_new_item_audio": [
+            ("", "Disabled"),
+            ("/audio/bubble.mp3", "Bubble"),
+            ("/audio/ding.mp3", "Ding"),
+            ("/audio/pop.mp3", "Pop"),
+            ("/audio/cash-sound.mp3", "Cash Sound"),
+        ],
+        "pos_printing_document": [
+            ("invoice", "Invoice"),
+            ("receipt", "Receipt"),
+        ],
+        "pos_printing_enabled_for": [
+            ("disabled", "Disabled"),
+            ("all_orders", "All Orders"),
+            ("partially_paid_orders", "From Partially Paid Orders"),
+            ("only_paid_orders", "Only Paid Orders"),
+        ],
+        "pos_printing_gateway": [("default", "Default Printing (web)")],
+        "pos_registers_enabled": YES_NO_OPTIONS,
+        "pos_idle_counter": [
+            ("disabled", "Disabled"),
+            ("5min", "5 Minutes"),
+            ("10min", "10 Minutes"),
+            ("15min", "15 Minutes"),
+            ("20min", "20 Minutes"),
+            ("30min", "30 Minutes"),
+        ],
+        "pos_disbursement": YES_NO_OPTIONS,
+        "pos_vat": [
+            ("disabled", "Disabled"),
+            ("flat_vat", "Flat Rate"),
+            ("variable_vat", "Flexible Rate"),
+            ("products_vat", "Products Vat"),
+        ],
+        "pos_tax_type": [
+            ("inclusive", "Inclusive"),
+            ("exclusive", "Exclusive"),
+        ],
+        "pos_show_quantity": YES_NO_OPTIONS,
+        "pos_items_merge": YES_NO_OPTIONS,
+        "pos_allow_wholesale_price": YES_NO_OPTIONS,
+        "pos_allow_decimal_quantities": YES_NO_OPTIONS,
+        "pos_quick_product": YES_NO_OPTIONS,
+        "pos_unit_price_ediable": YES_NO_OPTIONS,
+        "pos_prefered_price": [
+            ("gross_prices", "Gross Prices"),
+            ("net_prices", "Net Prices"),
+        ],
+        "pos_order_types": [(option["value"], option["label"]) for option in ORDER_TYPE_OPTIONS],
+        "pos_numpad": [
+            ("default", "Default"),
+            ("advanced", "Advanced"),
+        ],
+        "pos_force_autofocus": YES_NO_OPTIONS,
+        "pos_hide_exhausted_products": YES_NO_OPTIONS,
+        "pos_hide_empty_categories": YES_NO_OPTIONS,
+        "pos_action_permission_enabled": YES_NO_OPTIONS,
+        "scale_barcode_enabled": YES_NO_OPTIONS,
+        "pos_enable_reordering": YES_NO_OPTIONS,
+        "pos_enable_pinned_products": YES_NO_OPTIONS,
+        "pos_show_preview_pinned_products": YES_NO_OPTIONS,
+        "pos_action_permission_duration": [
+            ("1", "1 Minute"),
+            ("5", "5 Minutes"),
+            ("10", "10 Minutes"),
+        ],
+        "pos_action_permission_cooldown_features": [
+            ("0", "No Cooldown"),
+            ("5", "5 Minutes"),
+            ("10", "10 Minutes"),
+            ("15", "15 Minutes"),
+            ("30", "30 Minutes"),
+            ("60", "1 Hour"),
+        ],
+        "scale_barcode_type": [
+            ("weight", "Weight"),
+            ("price", "Price"),
+        ],
+        "invoice_receipt_template": [("default", "Default")],
+        "invoice_merge_similar_products": YES_NO_OPTIONS,
+        "invoice_display_tax_breakdown": YES_NO_OPTIONS,
+        "reports_email": YES_NO_OPTIONS,
+        "workers_enabled": [
+            ("no", "No"),
+            ("await_confirm", "Test"),
+            ("yes", "Yes"),
+        ],
+        "mode": [
+            ("wipe_all", "Wipe All"),
+            ("wipe_plus_grocery", "Wipe Plus Grocery"),
+        ],
+    }
 
     @staticmethod
     def defaultValues():
@@ -401,6 +545,13 @@ class OptionSettingService:
         ]
 
     @staticmethod
+    def labeledOptions(values):
+        return [
+            {"value": str(value), "label": str(label), "id": str(value), "name": str(label)}
+            for value, label in values
+        ]
+
+    @staticmethod
     def fieldOptions(user, field):
         base_filters = {
             "company_id": user.company_id,
@@ -445,7 +596,52 @@ class OptionSettingService:
                 sub_category_id__isnull=False,
             ).order_by("name")
             return OptionSettingService.optionRows(rows, lambda row: row.name)
+        if field in OptionSettingService.STATIC_FIELD_OPTIONS:
+            return OptionSettingService.labeledOptions(OptionSettingService.STATIC_FIELD_OPTIONS[field])
         return None
+
+    @staticmethod
+    def isTruthySourceOption(value):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        return str(value).lower() in {"yes", "true", "1", "enabled"}
+
+    @staticmethod
+    def formTabs(identifier, user):
+        form = OptionSettingService.SETTING_FORMS.get(identifier)
+        if form is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to initialize the settings page.")
+        tabs = {tab_identifier: list(fields) for tab_identifier, fields in form["tabs"].items()}
+        if identifier != "pos":
+            return tabs
+
+        registers_enabled = OptionSettingService.isTruthySourceOption(
+            OptionSettingService.getOptionValue(user.company, user.branch, "registers_enabled")
+        )
+        if not registers_enabled:
+            tabs["registers"] = [
+                field for field in tabs.get("registers", []) if field[0] == "pos_registers_enabled"
+            ]
+
+        if OptionSettingService.getOptionValue(user.company, user.branch, "pos_vat") != "flat_vat":
+            tabs["vat"] = [
+                field for field in tabs.get("vat", []) if field[0] == "pos_vat"
+            ]
+
+        action_permission_enabled = OptionSettingService.isTruthySourceOption(
+            OptionSettingService.getOptionValue(user.company, user.branch, "pos_action_permission_enabled")
+        )
+        if not action_permission_enabled:
+            tabs.pop("pos_actions", None)
+
+        scale_barcode_enabled = OptionSettingService.isTruthySourceOption(
+            OptionSettingService.getOptionValue(user.company, user.branch, "scale_barcode_enabled")
+        )
+        if not scale_barcode_enabled:
+            tabs.pop("scale-barcode", None)
+        return tabs
 
     @staticmethod
     def getForm(identifier, user):
@@ -454,7 +650,7 @@ class OptionSettingService:
         if form is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to initialize the settings page.")
         tabs = {}
-        for tab_identifier, fields in form["tabs"].items():
+        for tab_identifier, fields in OptionSettingService.formTabs(identifier, user).items():
             tabs[tab_identifier] = {
                 "identifier": tab_identifier,
                 "label": tab_identifier.replace("-", " ").replace("_", " ").title(),
@@ -487,7 +683,7 @@ class OptionSettingService:
     def saveForm(identifier, user, data):
         from apps.settings.models import Option
 
-        allowed_fields = {field[0] for field in OptionSettingService.formFields(identifier)}
+        allowed_fields = {field[0] for fields in OptionSettingService.formTabs(identifier, user).values() for field in fields}
         saved = {}
         for field, value in (data or {}).items():
             if field not in allowed_fields:
