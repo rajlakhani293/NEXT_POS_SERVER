@@ -19,6 +19,7 @@ from apps.customers.models import Customer, CustomerAccountHistory
 from apps.purchases.models import Procurement, Provider
 from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
 from apps.sales.models import OrderPayment, OrdersProduct, Order
+from apps.settings.models import PaymentType
 from apps.settings.services import NotificationService
 
 
@@ -824,26 +825,48 @@ class ReportService:
 
     @staticmethod
     def paymentTypesReport(data, request):
-        result = commonQuery.fetchPaginatedData(
-            OrderPayment,
-            data,
-            [["identifier", True, True], ["sale_order__code", True, True]],
-            {
-                "attributes": [
-                    "id",
-                    "sale_order_id",
-                    "sale_order__code",
-                    "identifier",
-                    "value",
-                    "created_at",
-                    "status",
-                ],
-                "sumField": ["value"],
-            },
+        data = data or {}
+        payment_types = commonQuery.findAllRecords(
+            PaymentType,
+            {"status": 0},
+            {"attributes": ["id", "label", "identifier"], "order": ["priority", "label"]},
             request=request,
             tenant_config=True,
         )
-        return successResponse("Payment types report retrieved successfully.", data=result)
+        identifiers = [payment_type["identifier"] for payment_type in payment_types]
+        filters = {
+            **tenantFilter(request),
+            **dateFilter("created_at", data),
+            "identifier__in": identifiers,
+            "sale_order__payment_status": "paid",
+        }
+        payments = list(
+            commonQuery.scopedQueryset(OrderPayment, filters, request, tenant_config={})
+            .values("id", "sale_order_id", "sale_order__code", "identifier", "value", "created_at", "status")
+            .order_by("-created_at", "-id")
+        )
+        total = sum((payment.get("value") or Decimal("0") for payment in payments), Decimal("0"))
+        summary = []
+        for payment_type in payment_types:
+            payment_total = sum(
+                (
+                    payment.get("value") or Decimal("0")
+                    for payment in payments
+                    if payment.get("identifier") == payment_type["identifier"]
+                ),
+                Decimal("0"),
+            )
+            summary.append(
+                {
+                    "label": payment_type["label"],
+                    "identifier": payment_type["identifier"],
+                    "total": payment_total,
+                }
+            )
+        return successResponse(
+            "Payment types report retrieved successfully.",
+            data=jsonsafe({"summary": summary, "total": total, "entries": payments}),
+        )
 
     @staticmethod
     def accountSummaryReport(data, request):
