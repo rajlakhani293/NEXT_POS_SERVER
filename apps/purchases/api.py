@@ -388,7 +388,7 @@ def getPurchaseOrderProducts(request, order_id: int):
 @router.get("/orders/{order_id}/refresh", response=ApiResponse)
 @permissionRequired("purchases_view")
 def refreshPurchaseOrder(request, order_id: int):
-    return PurchaseOrderService.refresh(order_id, request)
+    return PurchaseOrderService.enqueueRefresh(order_id, request)
 
 
 @router.post("/orders/{order_id}/queue-refresh", response=ApiResponse)

@@ -194,6 +194,11 @@ class SupplierService:
                     "purchase_price",
                     "quantity",
                     "available_quantity",
+                    "tax_group_id",
+                    "tax_group__name",
+                    "barcode",
+                    "expiration_date",
+                    "tax_type",
                     "tax_value",
                     "total_purchase_price",
                     "unit_id",
@@ -210,6 +215,7 @@ class SupplierService:
             item["procurement_name"] = item.pop("procurement__name", None)
             item["product_name"] = item.pop("product__name", None)
             item["unit_name"] = item.pop("unit__name", None)
+            item["tax_group_name"] = item.pop("tax_group__name", None)
             item["ordered_quantity"] = item.get("quantity")
             item["received_quantity"] = qty(item.get("quantity")) - qty(item.get("available_quantity"))
             item["cost_price"] = item.get("purchase_price")
@@ -599,10 +605,13 @@ class PurchaseOrderService:
                     "quantity",
                     "available_quantity",
                     "tax_group_id",
+                    "barcode",
+                    "expiration_date",
                     "tax_value",
                     "total_purchase_price",
                     "unit_id",
                     "unit__name",
+                    "user__username",
                     "created_at",
                     "status",
                 ],
@@ -614,6 +623,9 @@ class PurchaseOrderService:
         for item in result["items"]:
             item["purchase_order_id"] = item.get("procurement_id")
             item["purchase_order__code"] = item.pop("procurement__name", None)
+            item["procurement_name"] = item.get("purchase_order__code")
+            item["unit_name"] = item.pop("unit__name", None)
+            item["user_username"] = item.pop("user__username", None)
             item["ordered_quantity"] = item.get("quantity")
             item["received_quantity"] = qty(item.get("quantity")) - qty(item.get("available_quantity"))
             item["cost_price"] = item.get("purchase_price")
@@ -954,7 +966,7 @@ class PurchaseOrderService:
 
     @staticmethod
     def setAsPaid(order_id, request):
-        return PurchaseOrderService.changePaymentStatus(
+        response = PurchaseOrderService.changePaymentStatus(
             order_id,
             {
                 "payment_status": PurchaseOrderService.PAYMENT_PAID,
@@ -963,6 +975,8 @@ class PurchaseOrderService:
             },
             request,
         )
+        response.message = "The procurement has been marked as paid."
+        return response
 
     @staticmethod
     def changePaymentStatus(order_id, data, request):
