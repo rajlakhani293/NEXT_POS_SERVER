@@ -166,7 +166,13 @@ def getRegisterZReport(request, register_id: int):
 
 
 @router.post("/{action}/{register_id}", response=ApiResponse)
-@permissionRequired("cash_register_open")
+@permissionRequired(
+    "cash_register_open",
+    "cash_register_close",
+    "cash_register_cash_in",
+    "cash_register_cash_out",
+    match="any",
+)
 def performRegisterAction(request, action: str, register_id: int, payload: SourceRegisterActionIn):
     return RegisterService.performSourceAction(action, register_id, payloadData(payload), request)
 
