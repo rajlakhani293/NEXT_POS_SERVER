@@ -823,6 +823,8 @@ class TransactionAccountService:
             data["category_identifier"] = data.get("operation")
         if data.get("category_identifier") is None and data.get("category"):
             data["category_identifier"] = data.get("category")
+        if data.get("sub_category_id") in ["", 0, "0"]:
+            data["sub_category_id"] = None
         data.pop("operation", None)
         data.pop("category", None)
         return data
@@ -835,13 +837,13 @@ class TransactionAccountService:
         if not data.get("category_identifier"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Accounting category is required.")
         if not data.get("account"):
-            siblings = commonQuery.countRecords(
+            account_count = commonQuery.countRecords(
                 TransactionAccount,
-                {"category_identifier": data.get("category_identifier")},
+                {},
                 request=request,
                 tenant_config=BRANCH_TENANT_CONFIG,
             )
-            data["account"] = f"{str(siblings + 1).zfill(4)}-{data['category_identifier']}-{data['name'].lower().replace(' ', '-')}"
+            data["account"] = str(account_count + 1).zfill(5)
         account = commonQuery.createRecord(
             TransactionAccount,
             data,
@@ -952,6 +954,8 @@ class TransactionAccountService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
         if "sub_category_id" in data:
             TransactionAccountService.validateParent(data.get("sub_category_id"), request, account_id=account_id)
+        if not data.get("account"):
+            data["account"] = str(account_id).zfill(5)
         updated = commonQuery.updateRecordById(
             TransactionAccount,
             account_id,
@@ -1376,7 +1380,29 @@ class TransactionService:
             item["category_identifier"] = item.pop("transaction_account__category_identifier", None)
             item["account_name"] = item.pop("transaction_account__name", None)
             item["user_username"] = item.pop("user__username", None)
+            item["has_transaction"] = bool(item.get("transaction_id"))
+            item["has_reflection"] = commonQuery.branchScopedQueryset(
+                TransactionHistory,
+                {"reflection_source_id": item["id"], "status__in": [0, 1]},
+                request,
+            ).exists()
         return successResponse("Transaction history retrieved successfully.", data=result)
+
+    @staticmethod
+    def deleteHistory(history_id, request):
+        history = commonQuery.findOneInstance(
+            TransactionHistory,
+            {"id": history_id, "status__in": [0, 1]},
+            request=request,
+            tenant_config=True,
+        )
+        if history is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction history not found.")
+        result = AccountingService.deleteHistoriesAndTransactions(
+            commonQuery.branchScopedQueryset(TransactionHistory, {"id": history_id}, request),
+            request,
+        )
+        return successResponse("Transaction history deleted successfully.", data=result)
 
     @staticmethod
     def _buildHistory(transaction_record, request, *, status=None, trigger_date=None):
@@ -1481,7 +1507,7 @@ class TransactionService:
         recurrence_options = [
             ("month_starts", "First Day Of Month"),
             ("month_ends", "Last Day Of Month"),
-            ("month_mid", "Month Middle"),
+            ("month_mids", "Month Middle"),
             ("x_after_month_starts", "Days After Month Starts"),
             ("x_before_month_ends", "Days Before Month Ends"),
             ("on_specific_day", "Every Day Of Month"),

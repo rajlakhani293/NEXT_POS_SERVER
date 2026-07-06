@@ -114,6 +114,12 @@ def getTransactionHistory(request, payload: Optional[dict] = None):
     return TransactionService.history(payload, request)
 
 
+@router.delete("/history/{history_id}", response=ApiResponse)
+@permissionRequired("expenses_delete")
+def deleteAccountingHistory(request, history_id: int):
+    return TransactionService.deleteHistory(history_id, request)
+
+
 @router.post("/balances/recompute", response=ApiResponse)
 @permissionRequired("settings_update")
 def recomputeAccountingBalances(request, payload: Optional[dict] = None):
@@ -207,6 +213,12 @@ def triggerTransaction(request, transaction_id: int):
 @permissionRequired("expenses_create")
 def createTransactionReflection(request, history_id: int):
     return AccountingService.reflectTransactionFromRule(history_id, request)
+
+
+@transactionsRouter.delete("/history/{history_id}", response=ApiResponse)
+@permissionRequired("expenses_delete")
+def deleteTransactionHistory(request, history_id: int):
+    return TransactionService.deleteHistory(history_id, request)
 
 
 @transactionsRouter.get("/{transaction_id}", response=ApiResponse)

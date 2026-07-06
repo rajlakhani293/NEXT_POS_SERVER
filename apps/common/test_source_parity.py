@@ -2954,7 +2954,7 @@ class PosParityFlowTest(TestCase):
             self.request,
         ).data
         self.assertEqual(category["category_identifier"], "expenses")
-        self.assertTrue(category["account"].endswith("expenses-source-rent"))
+        self.assertRegex(category["account"], r"^\d{5}$")
 
         transaction = TransactionService.createSource(
             {
