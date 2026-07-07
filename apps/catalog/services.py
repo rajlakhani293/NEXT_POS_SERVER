@@ -682,7 +682,7 @@ class TaxGroupService:
     @staticmethod
     def create(data, request):
         tax_group = commonQuery.createRecord(TaxGroup, data, request=request, tenant_config=True)
-        return successResponse("Tax group created successfully.", data=tax_group)
+        return successResponse("The tax group has been correctly saved.", data=tax_group)
 
     @staticmethod
     def update(data, request, tax_group_id):
@@ -787,7 +787,7 @@ class TaxService:
     def create(data, request):
         data["tax_group_id"] = validateTenantRelationId(TaxGroup, data["tax_group_id"], request=request, label="Tax group", tenant_config=True)
         tax = commonQuery.createRecord(Tax, data, request=request, tenant_config=True)
-        return successResponse("Tax created successfully.", data=tax)
+        return successResponse("The tax has been correctly created.", data=tax)
 
     @staticmethod
     def update(data, request, tax_id):
