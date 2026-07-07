@@ -6,6 +6,7 @@ from django.db import IntegrityError
 from ninja import NinjaAPI
 from ninja.errors import HttpError, ValidationError
 
+from apps.accounts.api import authRouter as auth_router
 from apps.accounts.api import router as accounts_router
 from apps.accounts.api import sourceRouter as source_accounts_router
 from apps.accounting.api import router as accounting_router
@@ -39,6 +40,7 @@ from apps.common.api import router as platform_router
 api = NinjaAPI(title="Retail POS API", version="1.0.0")
 
 api.add_router("/accounts/", accounts_router)
+api.add_router("/auth/", auth_router)
 api.add_router("/", source_accounts_router)
 api.add_router("/", platform_router)
 api.add_router("/", catalog_router, url_name_prefix="source_catalog")

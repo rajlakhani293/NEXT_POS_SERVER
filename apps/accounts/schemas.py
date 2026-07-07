@@ -22,6 +22,15 @@ class RegisterIn(Schema):
     device_name: Optional[str] = Field("", example="Owner Laptop")
 
 
+class PasswordLostIn(Schema):
+    email: str = Field(..., example="owner@example.com")
+
+
+class NewPasswordIn(Schema):
+    password: str = Field(..., min_length=6, example="StrongPassword123!")
+    password_confirm: str = Field(..., min_length=6, example="StrongPassword123!")
+
+
 class UserOut(Schema):
     id: int
     username: str
@@ -72,6 +81,11 @@ class PermissionAccessApproveIn(Schema):
     permission: str = Field(..., example="cart_product_discount")
 
 
+class TokenCreateIn(Schema):
+    name: str = Field(..., example="Owner Laptop")
+    device_name: Optional[str] = Field(None, example="Owner Laptop")
+
+
 class UserIn(Schema):
     username: str = Field(..., min_length=3, example="counterstaff")
     password: str = Field(..., min_length=8, example="StrongPassword123!")
@@ -109,6 +123,19 @@ class UserUpdateIn(Schema):
     gender: Optional[str] = None
     pobox: Optional[str] = None
     status: Optional[ActiveStatus] = None
+
+
+class UserProfileUpdateIn(Schema):
+    username: Optional[str] = Field(None, min_length=3)
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    theme: Optional[str] = None
+    language: Optional[str] = None
+    avatar_link: Optional[str] = None
+    old_password: Optional[str] = None
+    password: Optional[str] = Field(None, min_length=6)
+    password_confirm: Optional[str] = Field(None, min_length=6)
 
 
 class LoginOut(Schema):

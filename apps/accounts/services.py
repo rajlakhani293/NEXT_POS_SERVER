@@ -194,6 +194,7 @@ class AccountsService:
         roles = AccountsService.getUserRoles(user)
         return {
             **user_data,
+            "avatar_link": user_data.get("profile_image") or "",
             "permissions": sorted(list(getUserPermissionCodenames(user))),
             "role": AccountsService.serializeRole(user.role) if getattr(user, "role", None) else None,
             "roles": [AccountsService.serializeRole(role) for role in roles],
@@ -520,6 +521,51 @@ class AccountsService:
         )
 
     @staticmethod
+    def passwordLost(payload):
+        email = payload.email.strip()
+        user = commonQuery.scopedQueryset(
+            User,
+            {"email__iexact": email, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
+        if user is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Unable to find a record matching your entry.")
+
+        user.activation_token = secrets.token_urlsafe(15)[:20]
+        user.activation_expiration = timezone.now() + timedelta(minutes=30)
+        user.save(update_fields=["activation_token", "activation_expiration"])
+        return {
+            "user_id": user.id,
+            "token": user.activation_token,
+            "redirectTo": "/sign-in",
+        }
+
+    @staticmethod
+    def newPassword(user_id: int, token: str, payload):
+        if payload.password != payload.password_confirm:
+            raise api_error(422, ErrorCodes.VALIDATION_ERROR, "Password confirmation does not match.")
+
+        user = commonQuery.scopedQueryset(
+            User,
+            {"id": user_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
+        if user is None:
+            raise api_error(404, ErrorCodes.USER_NOT_FOUND, "Unable to find the requested user.")
+        if user.status != 0 or not user.is_active:
+            raise api_error(403, ErrorCodes.PERMISSION_DENIED, "Unable to submit a new password for a non active user.")
+        if user.activation_token != token:
+            raise api_error(403, ErrorCodes.PERMISSION_DENIED, "Unable to proceed, the provided token is not valid.")
+        if not user.activation_expiration or user.activation_expiration < timezone.now():
+            raise api_error(403, ErrorCodes.PERMISSION_DENIED, "Unable to proceed, the token has expired.")
+
+        user.set_password(payload.password)
+        user.activation_token = None
+        user.activation_expiration = timezone.now()
+        user.save(update_fields=["password", "activation_token", "activation_expiration"])
+        return {"redirectTo": "/sign-in"}
+
+    @staticmethod
     def currentUser(user: User):
         return AccountsService.buildSessionData(user)
 
@@ -566,6 +612,7 @@ class AccountsService:
         return [
             {
                 **serializeModelInstance(token),
+                "name": token.device_name or "",
                 "token": token.token[-8:].rjust(len(token.token), "*"),
                 "expired": token.is_expired,
             }
@@ -990,6 +1037,46 @@ class AccountsService:
             target_user.set_password(data["password"])
         target_user.save()
         return AccountsService.serializeUser(target_user)
+
+    @staticmethod
+    def updateOwnProfile(user: User, payload):
+        data = payload.dict(exclude_unset=True)
+
+        validateUniqueFields(
+            User,
+            {
+                "username": data.get("username"),
+                "phone": data.get("phone"),
+                "email": data.get("email"),
+            },
+            scope="global",
+            exclude_id=user.id,
+            status_in=(0, 1),
+            case_insensitive=["username", "email"],
+            messages={
+                "username": "Username already exists.",
+                "phone": "Phone already exists.",
+                "email": "Email already exists.",
+            },
+        )
+
+        for field in ["username", "full_name", "phone", "email"]:
+            if field in data:
+                setattr(user, field, data[field] or "")
+
+        if "avatar_link" in data:
+            user.profile_image = data["avatar_link"] or ""
+
+        password = data.get("password") or ""
+        if password:
+            if password != (data.get("password_confirm") or ""):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Password confirmation does not match.")
+            if not user.check_password(data.get("old_password") or ""):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Wrong old password provided")
+            user.set_password(password)
+
+        user.save()
+        return AccountsService.serializeUser(user)
 
     @staticmethod
     def deleteUsers(user: User, data):

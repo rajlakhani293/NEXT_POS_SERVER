@@ -141,6 +141,11 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can delete roles"},
         )
+        p_manage_profile, _ = Permission.objects.get_or_create(
+            codename="manage.profile",
+            content_type=content_type,
+            defaults={"name": "Can manage profile"},
+        )
         # Ensure expenses_create permission also exists in the test DB
         Permission.objects.get_or_create(
             codename="expenses_create",
@@ -166,6 +171,7 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_roles_create)
         self.role_a.permissions.add(p_roles_update)
         self.role_a.permissions.add(p_roles_delete)
+        self.role_a.permissions.add(p_manage_profile)
 
         self.token_a = AccessToken.objects.create(
             user=self.user_a,
@@ -216,11 +222,11 @@ class PosApiIntegrationTest(TestCase):
 
     def test_auth_register_login_and_failed_login_flow(self):
         register_response = self.client.post(
-            "/api/accounts/register",
+            "/api/auth/sign-up",
             data=json.dumps(
                 {
-                    "username": "signup_owner",
-                    "email": "signup-owner@example.com",
+                    "username": "source_signup_owner",
+                    "email": "source-signup-owner@example.com",
                     "password": "password123",
                     "password_confirm": "password123",
                     "device_name": "Web App",
@@ -229,10 +235,10 @@ class PosApiIntegrationTest(TestCase):
             content_type="application/json",
         )
         failed_login_response = self.client.post(
-            "/api/accounts/login",
+            "/api/auth/sign-in",
             data=json.dumps(
                 {
-                    "username": "signup_owner",
+                    "username": "source_signup_owner",
                     "password": "wrong-password",
                     "device_name": "Web App",
                 }
@@ -240,10 +246,10 @@ class PosApiIntegrationTest(TestCase):
             content_type="application/json",
         )
         login_response = self.client.post(
-            "/api/accounts/login",
+            "/api/auth/sign-in",
             data=json.dumps(
                 {
-                    "username": "signup_owner",
+                    "username": "source_signup_owner",
                     "password": "password123",
                     "device_name": "Web App",
                 }
@@ -257,6 +263,71 @@ class PosApiIntegrationTest(TestCase):
         self.assertFalse(failed_login_response.json()["success"])
         self.assertEqual(login_response.status_code, 200, login_response.content.decode())
         self.assertIn("token", login_response.json()["data"])
+
+    def test_source_password_recovery_flow(self):
+        lost_response = self.client.post(
+            "/api/auth/password-lost",
+            data=json.dumps({"email": "user_a@example.com"}),
+            content_type="application/json",
+        )
+        self.assertEqual(lost_response.status_code, 200, lost_response.content.decode())
+        self.user_a.refresh_from_db()
+        self.assertTrue(self.user_a.activation_token)
+
+        invalid_password_response = self.client.post(
+            f"/api/auth/new-password/{self.user_a.id}/{self.user_a.activation_token}",
+            data=json.dumps({"password": "password456", "password_confirm": "wrong"}),
+            content_type="application/json",
+        )
+        self.assertEqual(invalid_password_response.status_code, 422)
+
+        new_password_response = self.client.post(
+            f"/api/auth/new-password/{self.user_a.id}/{self.user_a.activation_token}",
+            data=json.dumps({"password": "password456", "password_confirm": "password456"}),
+            content_type="application/json",
+        )
+        self.assertEqual(new_password_response.status_code, 200, new_password_response.content.decode())
+        self.user_a.refresh_from_db()
+        self.assertTrue(self.user_a.check_password("password456"))
+        self.assertIsNone(self.user_a.activation_token)
+
+    def test_source_profile_and_token_flow(self):
+        profile_response = self.client.post(
+            "/api/users/profile",
+            data=json.dumps(
+                {
+                    "username": "user_a",
+                    "full_name": "Updated Profile",
+                    "email": "updated-profile@example.com",
+                    "phone": "9191919191",
+                    "avatar_link": "https://example.com/avatar.png",
+                }
+            ),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        self.assertEqual(profile_response.status_code, 200, profile_response.content.decode())
+        profile = profile_response.json()["data"]
+        self.assertEqual(profile["full_name"], "Updated Profile")
+        self.assertEqual(profile["avatar_link"], "https://example.com/avatar.png")
+
+        token_response = self.client.post(
+            "/api/users/create-token",
+            data=json.dumps({"name": "Integration Token"}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        self.assertEqual(token_response.status_code, 200, token_response.content.decode())
+
+        tokens_response = self.client.get("/api/users/tokens", **self.headers_a)
+        self.assertEqual(tokens_response.status_code, 200, tokens_response.content.decode())
+        token_records = tokens_response.json()["data"]
+        token_names = [item["name"] for item in token_records]
+        self.assertIn("Integration Token", token_names)
+        token_id = next(item["id"] for item in token_records if item["name"] == "Integration Token")
+
+        delete_response = self.client.delete(f"/api/users/tokens/{token_id}", **self.headers_a)
+        self.assertEqual(delete_response.status_code, 200, delete_response.content.decode())
 
     def test_tenant_isolation_list_and_direct_access(self):
         # 1. Create Tenant A Category (mapped to TransactionAccount)

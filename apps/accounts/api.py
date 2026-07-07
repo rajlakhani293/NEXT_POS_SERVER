@@ -6,13 +6,17 @@ from apps.accounts.models import Role, User
 from apps.accounts.schemas import (
     BranchSwitchIn,
     LoginIn,
+    NewPasswordIn,
+    PasswordLostIn,
     PermissionAccessApproveIn,
     PermissionAccessRequestIn,
     RegisterIn,
     RoleAssignIn,
     RoleIn,
     RoleUpdateIn,
+    TokenCreateIn,
     UserIn,
+    UserProfileUpdateIn,
     UserUpdateIn,
 )
 from apps.accounts.services import AccountsService
@@ -22,6 +26,7 @@ from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
 
 
 router = Router(tags=["accounts"])
+authRouter = Router(tags=["auth"])
 sourceRouter = Router(tags=["users"], auth=auth_bearer)
 
 
@@ -32,16 +37,28 @@ def defaultRoles(request):
     return successResponse("Default role blueprint fetched successfully.", data=data)
 
 
-@router.post("/register", response=ApiResponse)
-def register(request, payload: RegisterIn):
+@authRouter.post("/sign-in", response=ApiResponse)
+def sourceSignIn(request, payload: LoginIn):
+    data = AccountsService.login(request, payload)
+    return successResponse("You have been successfully connected.", data=data)
+
+
+@authRouter.post("/sign-up", response=ApiResponse)
+def sourceSignUp(request, payload: RegisterIn):
     data = AccountsService.register(request, payload)
     return successResponse("Account created successfully.", data=data)
 
 
-@router.post("/login", response=ApiResponse)
-def login(request, payload: LoginIn):
-    data = AccountsService.login(request, payload)
-    return successResponse("You have been successfully connected.", data=data)
+@authRouter.post("/password-lost", response=ApiResponse)
+def sourcePasswordLost(request, payload: PasswordLostIn):
+    data = AccountsService.passwordLost(payload)
+    return successResponse("The recovery email has been send to your inbox.", data=data)
+
+
+@authRouter.post("/new-password/{user_id}/{token}", response=ApiResponse)
+def sourceNewPassword(request, user_id: int, token: str, payload: NewPasswordIn):
+    data = AccountsService.newPassword(user_id, token, payload)
+    return successResponse("Your password has been updated.", data=data)
 
 
 @router.get("/session-data", auth=auth_bearer, response=ApiResponse)
@@ -213,6 +230,13 @@ def sourceCurrentUserPermissions(request):
     return successResponse("Permissions fetched successfully.", data=sorted(list(AccountsService.serializeUser(request.user)["permissions"])))
 
 
+@sourceRouter.post("/users/profile", response=ApiResponse)
+@permissionRequired("manage.profile")
+def sourceUpdateProfile(request, payload: UserProfileUpdateIn):
+    data = AccountsService.updateOwnProfile(request.user, payload)
+    return successResponse("The profile has been successfully saved.", data=data)
+
+
 @sourceRouter.post("/user/access/{access_id}", response=ApiResponse)
 def sourceApproveAccess(request, access_id: int, payload: PermissionAccessApproveIn):
     data = AccountsService.approvePermissionAccess(request.user, access_id, payloadData(payload))
@@ -233,8 +257,8 @@ def sourceMarkAccessUsed(request, access_id: int):
 
 
 @sourceRouter.post("/users/create-token", response=ApiResponse)
-def sourceCreateToken(request, payload: dict):
-    data = AccountsService.createAccessToken(request.user, request, payload or {})
+def sourceCreateToken(request, payload: TokenCreateIn):
+    data = AccountsService.createAccessToken(request.user, request, payloadData(payload))
     return successResponse("Token created successfully.", data=data)
 
 
