@@ -89,6 +89,23 @@ def parseInstallmentDate(value):
     return value
 
 
+def parseListDate(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    parsed_date = parse_date(str(value))
+    if parsed_date:
+        return parsed_date
+    parsed_datetime = parse_datetime(str(value))
+    if parsed_datetime:
+        return parsed_datetime.date()
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).date()
+    except Exception:
+        return None
+
+
 def yesNo(value):
     return "yes" if bool(value) else "no"
 
@@ -2199,10 +2216,12 @@ class SaleService:
 
         start_date = data.get("startDate")
         end_date = data.get("endDate")
-        if start_date:
-            queryset = queryset.filter(created_at__date__gte=parse_date(start_date) or start_date)
-        if end_date:
-            queryset = queryset.filter(created_at__date__lte=parse_date(end_date) or end_date)
+        start_value = parseListDate(start_date)
+        end_value = parseListDate(end_date)
+        if start_value:
+            queryset = queryset.filter(created_at__date__gte=start_value)
+        if end_value:
+            queryset = queryset.filter(created_at__date__lte=end_value)
 
         total = queryset.count()
         queryset = queryset.order_by("-id")[offset: offset + limit]

@@ -198,7 +198,7 @@ class ModuleService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, f'The module "{module.get("name")}" is autoloaded and cannot be disabled.')
         enabled = [item for item in ModuleService.enabledModules(user) if item != namespace]
         ModuleService.saveEnabledModules(user, enabled)
-        return successResponse("The module has correctly been disabled.", data={"module": namespace})
+        return successResponse("The Module has been disabled.", data={"module": namespace})
 
     @staticmethod
     def delete(user, namespace):
@@ -209,7 +209,7 @@ class ModuleService:
         directory = ModuleService.modulesDir() / namespace
         if directory.exists() and directory.is_dir():
             shutil.rmtree(directory)
-        return successResponse("The module has correctly been deleted.", data={"module": namespace})
+        return successResponse(f'The modules "{module.get("name")}" was deleted successfully.', data={"module": namespace})
 
     @staticmethod
     def archive(user, namespace):
@@ -247,7 +247,7 @@ class ModuleService:
                 module = ModuleService.moduleFromDirectory(extracted_dir, user)
                 if not module:
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to load the uploaded module.")
-                return successResponse("The module has been uploaded successfully.", data={"module": module})
+                return successResponse("The module has been successfully installed.", data={"module": module})
         finally:
             if temp_path.exists():
                 temp_path.unlink()

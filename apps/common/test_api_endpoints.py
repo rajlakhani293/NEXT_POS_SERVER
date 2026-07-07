@@ -599,6 +599,23 @@ class PosApiIntegrationTest(TestCase):
         self.assertNotIn("DELIVERY-OTHER", codes)
         self.assertNotIn("TAKEAWAY-ASSIGNED", codes)
 
+        response = self.client.post(
+            "/api/sales/assigned/get-transactions",
+            data=json.dumps(
+                {
+                    "page": 1,
+                    "limit": 10,
+                    "startDate": "2026-03-31T18:30:00.000Z",
+                    "endDate": "2026-03-31T18:30:00.000Z",
+                }
+            ),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertTrue(response.json()["success"])
+
     def test_source_medias_endpoint_returns_gallery_sizes_and_user_like_source(self):
         Media.objects.create(
             user=self.user_a,
