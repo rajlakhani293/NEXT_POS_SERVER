@@ -300,6 +300,8 @@ class PosApiIntegrationTest(TestCase):
                     "full_name": "Updated Profile",
                     "email": "updated-profile@example.com",
                     "phone": "9191919191",
+                    "theme": "dark",
+                    "language": "fr",
                     "avatar_link": "https://example.com/avatar.png",
                     "billing": {
                         "first_name": "Bill",
@@ -328,6 +330,9 @@ class PosApiIntegrationTest(TestCase):
         profile = profile_response.json()["data"]
         self.assertEqual(profile["full_name"], "Updated Profile")
         self.assertEqual(profile["avatar_link"], "https://example.com/avatar.png")
+        self.assertEqual(profile["theme"], "dark")
+        self.assertEqual(profile["language"], "fr")
+        self.assertEqual(profile["attribute"]["avatar_link"], "https://example.com/avatar.png")
         self.assertEqual(profile["addresses"]["billing"]["first_name"], "Bill")
         self.assertEqual(profile["addresses"]["billing"]["company"], "Billing Company")
         self.assertEqual(profile["addresses"]["shipping"]["first_name"], "Ship")

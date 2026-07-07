@@ -151,6 +151,33 @@ class User(AbstractUser):
         ).exists()
 
 
+class UserAttribute(BaseModel):
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="attribute",
+    )
+    company = models.ForeignKey(
+        "organizations.Company",
+        on_delete=models.CASCADE,
+        related_name="user_attributes",
+    )
+    branch = models.ForeignKey(
+        "organizations.Branch",
+        on_delete=models.CASCADE,
+        related_name="user_attributes",
+    )
+    avatar_link = models.CharField(max_length=255, blank=True)
+    theme = models.CharField(max_length=255, blank=True)
+    language = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        db_table = "users_attributes"
+
+    def __str__(self):
+        return f"Attributes for {self.user}"
+
+
 class UserRoleRelation(BaseModel):
     user = models.ForeignKey(
         User,

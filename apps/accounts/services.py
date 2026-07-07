@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models.deletion import ProtectedError, RestrictedError
 from django.utils import timezone
 from django.utils.text import slugify
-from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserRoleRelation
+from apps.accounts.models import AccessToken, PermissionAccess, Role, User, UserAttribute, UserRoleRelation
 from apps.accounts.permission_catalog import (
     SOURCE_PERMISSION_CATALOG,
     PERMISSION_ALIASES,
@@ -205,14 +205,49 @@ class AccountsService:
             user_data.pop(key, None)
 
         roles = AccountsService.getUserRoles(user)
+        attribute = AccountsService.serializeUserAttribute(user)
         return {
             **user_data,
-            "avatar_link": user_data.get("profile_image") or "",
+            "avatar_link": attribute.get("avatar_link") or user_data.get("profile_image") or "",
+            "theme": attribute.get("theme") or "",
+            "language": attribute.get("language") or "",
+            "attribute": attribute,
             "addresses": AccountsService.serializeProfileAddresses(user),
             "permissions": sorted(list(getUserPermissionCodenames(user))),
             "role": AccountsService.serializeRole(user.role) if getattr(user, "role", None) else None,
             "roles": [AccountsService.serializeRole(role) for role in roles],
         }
+
+    @staticmethod
+    def serializeUserAttribute(user: User):
+        attribute = UserAttribute.objects.filter(user_id=user.id, status__in=[0, 1]).first()
+        if attribute is None:
+            return {"avatar_link": "", "theme": "", "language": ""}
+        return {
+            "avatar_link": attribute.avatar_link or "",
+            "theme": attribute.theme or "",
+            "language": attribute.language or "",
+        }
+
+    @staticmethod
+    def upsertUserAttribute(user: User, data):
+        fields = {key: data[key] or "" for key in ["avatar_link", "theme", "language"] if key in data}
+        if not fields:
+            return None
+        attribute, _created = UserAttribute.objects.get_or_create(
+            user_id=user.id,
+            defaults={
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+            },
+        )
+        for field, value in fields.items():
+            setattr(attribute, field, value)
+        attribute.company_id = user.company_id
+        attribute.branch_id = user.branch_id
+        attribute.status = 0
+        attribute.save()
+        return attribute
 
     @staticmethod
     def serializeProfileAddresses(user: User):
@@ -1128,6 +1163,7 @@ class AccountsService:
 
         if "avatar_link" in data:
             user.profile_image = data["avatar_link"] or ""
+        AccountsService.upsertUserAttribute(user, data)
 
         for address_type in ["billing", "shipping"]:
             AccountsService.upsertProfileAddress(user, address_type, getattr(payload, address_type, None))
