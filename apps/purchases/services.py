@@ -44,7 +44,7 @@ class SupplierService:
         data["uuid"] = data.get("uuid") or uuid4().hex
         provider = commonQuery.createRecord(Provider, data, request=request, tenant_config=True)
         provider["name"] = SupplierService.displayName(provider)
-        return successResponse("Provider created successfully.", data=provider)
+        return successResponse("The provider has been created.", data=provider)
 
     @staticmethod
     def getAll(data, request):
@@ -146,14 +146,14 @@ class SupplierService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
         updated["name"] = SupplierService.displayName(updated)
         updated["payable_amount"] = updated.get("amount_due")
-        return successResponse("Provider updated successfully.", data=updated)
+        return successResponse("The provider has been updated.", data=updated)
 
     @staticmethod
     def delete(data, request):
         count = commonQuery.softDeleteById(Provider, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Provider not found.")
-        return successResponse("Suppliers deleted successfully.")
+        return successResponse("The provider has been deleted.")
 
     @staticmethod
     def updateStatus(data, request):

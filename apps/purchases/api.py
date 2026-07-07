@@ -68,61 +68,61 @@ def updateSupplier(request, supplier_id: int, payload: SupplierUpdateIn):
 
 
 @providersRouter.get("/", response=ApiResponse)
-@permissionRequired("purchases_view")
+@permissionRequired("providers_view")
 def listProviders(request):
     return SupplierService.getAll({}, request)
 
 
 @providersRouter.post("/", response=ApiResponse)
-@permissionRequired("purchases_create")
+@permissionRequired("providers_create")
 def createProvider(request, payload: SupplierIn):
     return SupplierService.create(payloadData(payload), request)
 
 
 @providersRouter.post("/get-transactions", response=ApiResponse)
-@permissionRequired("purchases_view")
+@permissionRequired("providers_view")
 def getProvidersTransactions(request, payload: Optional[dict] = None):
     return SupplierService.getAll(payload, request)
 
 
 @providersRouter.get("/{provider_id}", response=ApiResponse)
-@permissionRequired("purchases_view")
+@permissionRequired("providers_view")
 def getProviderById(request, provider_id: int):
     return SupplierService.getById(provider_id, request)
 
 
 @providersRouter.put("/{provider_id}", response=ApiResponse)
-@permissionRequired("purchases_update")
+@permissionRequired("providers_update")
 def updateProvider(request, provider_id: int, payload: SupplierUpdateIn):
     return SupplierService.update(provider_id, payloadData(payload, exclude_none=True), request)
 
 
 @providersRouter.patch("/status", response=ApiResponse)
-@permissionRequired("purchases_update")
+@permissionRequired("providers_update")
 def updateProviderStatus(request, payload: StatusUpdateSchema):
     return SupplierService.updateStatus(payloadData(payload), request)
 
 
 @providersRouter.get("/{provider_id}/procurements", response=ApiResponse)
-@permissionRequired("purchases_view")
+@permissionRequired("providers_view")
 def getProviderProcurements(request, provider_id: int):
     return PurchaseOrderService.getAll({"provider_id": provider_id}, request)
 
 
 @providersRouter.post("/{provider_id}/procurements/get-transactions", response=ApiResponse)
-@permissionRequired("purchases_view")
+@permissionRequired("providers_view")
 def getProviderProcurementsTransactions(request, provider_id: int, payload: Optional[dict] = None):
     return PurchaseOrderService.getAll({**(payload or {}), "provider_id": provider_id}, request)
 
 
 @providersRouter.post("/{provider_id}/products/get-transactions", response=ApiResponse)
-@permissionRequired("purchases_view")
+@permissionRequired("providers_view")
 def getProviderProducts(request, provider_id: int, payload: Optional[dict] = None):
     return SupplierService.products(provider_id, payload, request)
 
 
 @providersRouter.delete("/{provider_id}", response=ApiResponse)
-@permissionRequired("purchases_delete")
+@permissionRequired("providers_delete")
 def deleteProvider(request, provider_id: int):
     return SupplierService.delete({"ids": [provider_id]}, request)
 

@@ -864,12 +864,12 @@ class PosApiIntegrationTest(TestCase):
         from django.contrib.contenttypes.models import ContentType
 
         content_type = ContentType.objects.get_for_model(Role)
-        purchases_view, _ = Permission.objects.get_or_create(
-            codename="purchases_view",
+        providers_view, _ = Permission.objects.get_or_create(
+            codename="providers_view",
             content_type=content_type,
-            defaults={"name": "Can view purchases"},
+            defaults={"name": "Can view providers"},
         )
-        self.role_a.permissions.add(purchases_view)
+        self.role_a.permissions.add(providers_view)
         provider = Provider.objects.create(
             user=self.user_a,
             company=self.company_a,
@@ -957,6 +957,60 @@ class PosApiIntegrationTest(TestCase):
         product_item = products_response.json()["data"]["items"][0]
         self.assertEqual(product_item["procurement_name"], "PROC-1")
         self.assertEqual(product_item["received_quantity"], "6.0")
+
+    def test_provider_source_create_update_delete_messages_and_permissions(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        providers_create, _ = Permission.objects.get_or_create(
+            codename="providers_create",
+            content_type=content_type,
+            defaults={"name": "Can create providers"},
+        )
+        providers_update, _ = Permission.objects.get_or_create(
+            codename="providers_update",
+            content_type=content_type,
+            defaults={"name": "Can update providers"},
+        )
+        providers_delete, _ = Permission.objects.get_or_create(
+            codename="providers_delete",
+            content_type=content_type,
+            defaults={"name": "Can delete providers"},
+        )
+        self.role_a.permissions.add(providers_create, providers_update, providers_delete)
+
+        create_response = self.client.post(
+            "/api/providers/",
+            data=json.dumps(
+                {
+                    "first_name": "Source",
+                    "last_name": "Provider",
+                    "email": "source-provider@example.com",
+                    "phone": "555000",
+                }
+            ),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(create_response.status_code, 200, create_response.content.decode())
+        self.assertEqual(create_response.json()["message"], "The provider has been created.")
+        provider_id = create_response.json()["data"]["id"]
+
+        update_response = self.client.put(
+            f"/api/providers/{provider_id}",
+            data=json.dumps({"first_name": "Updated"}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(update_response.status_code, 200, update_response.content.decode())
+        self.assertEqual(update_response.json()["message"], "The provider has been updated.")
+
+        delete_response = self.client.delete(f"/api/providers/{provider_id}", **self.headers_a)
+
+        self.assertEqual(delete_response.status_code, 200, delete_response.content.decode())
+        self.assertEqual(delete_response.json()["message"], "The provider has been deleted.")
 
     def test_accounting_settings_source_options_save_and_load(self):
         from django.contrib.contenttypes.models import ContentType
