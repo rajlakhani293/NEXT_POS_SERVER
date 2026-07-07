@@ -50,32 +50,30 @@ class AccountsService:
     @staticmethod
     def buildPermissionDefinitions():
         definitions = []
+        seen = set()
+
+        def addDefinition(codename, name):
+            if not codename or codename in seen:
+                return
+            seen.add(codename)
+            definitions.append(
+                {
+                    "codename": codename,
+                    "name": name,
+                }
+            )
+
         for module, actions in PERMISSION_CATALOG.items():
             for action in actions:
                 codename = action if module == "special" else f"{module}_{action}"
                 label = action.replace("_", " ").title() if module == "special" else f"{module.replace('_', ' ').title()} {action.replace('_', ' ').title()}"
-                definitions.append(
-                    {
-                        "codename": codename,
-                        "name": label,
-                    }
-                )
+                addDefinition(codename, label)
         for namespace in SOURCE_PERMISSION_CATALOG:
             label = namespace.replace("pos.", "").replace(".", " ").replace("-", " ").replace("_", " ").title()
-            definitions.append(
-                {
-                    "codename": namespace,
-                    "name": label,
-                }
-            )
+            addDefinition(namespace, label)
         for alias, namespace in PERMISSION_ALIASES.items():
             label = alias.replace("_", " ").title()
-            definitions.append(
-                {
-                    "codename": alias,
-                    "name": label,
-                }
-            )
+            addDefinition(alias, label)
         return definitions
 
     @staticmethod
@@ -1372,6 +1370,35 @@ class AccountsService:
             role.permissions.set([permission_map[code] for code in permission_codenames])
 
         return AccountsService.serializeRole(role)
+
+    @staticmethod
+    def updateRolesPermissions(user: User, payload: dict):
+        permission_map = AccountsService.ensurePermissions()
+        roles = commonQuery.scopedQueryset(
+            Role,
+            {"company_id": user.company_id, "branch_id": user.branch_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).prefetch_related("permissions")
+        roles_by_namespace = {role.namespace: role for role in roles}
+
+        for role_namespace, permissions in (payload or {}).items():
+            role = roles_by_namespace.get(role_namespace)
+            if role is None:
+                continue
+            if isinstance(permissions, dict):
+                granted = [codename for codename, enabled in permissions.items() if enabled]
+            else:
+                granted = list(permissions or [])
+            invalid_permissions = [code for code in granted if code not in permission_map]
+            if invalid_permissions:
+                raise api_error(
+                    400,
+                    ErrorCodes.INVALID_PERMISSIONS,
+                    f"Invalid permissions: {', '.join(invalid_permissions)}",
+                )
+            role.permissions.set([permission_map[code] for code in granted])
+
+        return {"updated": True}
 
     @staticmethod
     def deleteRole(user: User, role_id: int):

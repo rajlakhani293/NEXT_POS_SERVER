@@ -81,6 +81,11 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can update settings"},
         )
+        p_manage_options, _ = Permission.objects.get_or_create(
+            codename="manage.options",
+            content_type=content_type,
+            defaults={"name": "Can manage options"},
+        )
         p_media_view, _ = Permission.objects.get_or_create(
             codename="media_view",
             content_type=content_type,
@@ -164,6 +169,7 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_pos_order_instalments)
         self.role_a.permissions.add(p_settings_view)
         self.role_a.permissions.add(p_settings_update)
+        self.role_a.permissions.add(p_manage_options)
         self.role_a.permissions.add(p_media_view)
         self.role_a.permissions.add(p_media_upload)
         self.role_a.permissions.add(p_media_update)
@@ -1536,11 +1542,26 @@ class PosApiIntegrationTest(TestCase):
 
         clone_response = self.client.get(f"/api/users/roles/{created['id']}/clone", **self.headers_a)
         source_list_response = self.client.get("/api/users/roles", **self.headers_a)
+        permissions_response = self.client.get("/api/users/permissions", **self.headers_a)
+        bulk_update_response = self.client.put(
+            "/api/users/roles",
+            data=json.dumps({"floor-manager": {"users_view": True, "users_create": True}}),
+            content_type="application/json",
+            **self.headers_a,
+        )
 
         self.assertEqual(clone_response.status_code, 200, clone_response.content.decode())
+        self.assertEqual(clone_response.json()["message"], "The role has been cloned.")
         clone = clone_response.json()["data"]
         self.assertEqual(clone["name"], "Floor Manager Copy")
         self.assertEqual(clone["namespace"], "floor-manager-copy")
         self.assertIn("users_view", clone["permissions"])
         self.assertEqual(source_list_response.status_code, 200, source_list_response.content.decode())
         self.assertIsInstance(source_list_response.json()["data"], list)
+        self.assertEqual(permissions_response.status_code, 200, permissions_response.content.decode())
+        permission_codes = [permission["codename"] for permission in permissions_response.json()["data"]]
+        self.assertEqual(len(permission_codes), len(set(permission_codes)))
+        self.assertEqual(bulk_update_response.status_code, 200, bulk_update_response.content.decode())
+        self.assertEqual(bulk_update_response.json()["message"], "The permissions has been updated.")
+        created_role = Role.objects.get(id=created["id"])
+        self.assertIn("users_create", list(created_role.permissions.values_list("codename", flat=True)))

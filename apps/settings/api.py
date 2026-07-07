@@ -28,58 +28,58 @@ sourceNotificationsRouter = Router(tags=["notifications"], auth=auth_bearer)
 
 
 @router.get("/business", response=ApiResponse)
-@permissionRequired("settings_view")
+@permissionRequired("manage.options")
 def getOptionSettings(request):
     return OptionSettingService.get(request.user)
 
 
 @router.put("/business", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("manage.options")
 def updateOptionSettings(request, payload: OptionSettingIn):
     return OptionSettingService.update(request.user, payloadData(payload))
 
 
 @router.get("/{identifier}", response=ApiResponse)
-@permissionRequired("settings_view")
+@permissionRequired("manage.options")
 def getSettingsForm(request, identifier: str):
     return OptionSettingService.getForm(identifier, request.user)
 
 
 @router.post("/{identifier}", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("manage.options")
 def saveSettingsForm(request, identifier: str, payload: dict = Body(...)):
     return OptionSettingService.saveForm(identifier, request.user, payload or {})
 
 
 @router.post("/jobs/run-next", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("manage.options")
 def runNextJob(request):
     result = JobQueueService.runNext(JobQueueService.handlers())
     return successResponse("Job processed successfully." if result else "No pending job found.", data=result)
 
 
 @router.post("/jobs/pending/get-transactions", response=ApiResponse)
-@permissionRequired("settings_view")
+@permissionRequired("manage.options")
 def listPendingJobs(request, payload: JobListIn):
     data = JobQueueService.listPendingJobs(payloadData(payload), request)
     return successResponse("Pending jobs retrieved successfully.", data=data)
 
 
 @router.post("/jobs/failed/get-transactions", response=ApiResponse)
-@permissionRequired("settings_view")
+@permissionRequired("manage.options")
 def listFailedJobs(request, payload: FailedJobListIn):
     data = JobQueueService.listFailedJobs(payloadData(payload), request)
     return successResponse("Failed jobs retrieved successfully.", data=data)
 
 
 @router.post("/jobs/failed/{failed_job_id}/retry", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("manage.options")
 def retryFailedJob(request, failed_job_id: int):
     return JobQueueService.retryFailedJob(failed_job_id, request)
 
 
 @router.delete("/jobs/failed/{failed_job_id}", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("manage.options")
 def deleteFailedJob(request, failed_job_id: int):
     return JobQueueService.deleteFailedJob(failed_job_id, request)
 

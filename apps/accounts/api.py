@@ -1,5 +1,5 @@
 from typing import Optional
-from ninja import Router
+from ninja import Body, Router
 
 from apps.accounts.auth import auth_bearer
 from apps.accounts.models import Role, User
@@ -313,10 +313,9 @@ def sourceGetRoles(request):
 
 @sourceRouter.put("/users/roles", response=ApiResponse)
 @permissionRequired("roles_update")
-def sourceUpdateRole(request, payload: dict):
-    role_id = (payload or {}).get("id") or (payload or {}).get("role_id")
-    data = AccountsService.updateRole(request.user, role_id, RoleUpdateIn(**{key: value for key, value in (payload or {}).items() if key != "id"}))
-    return successResponse("Role updated successfully.", data=data)
+def sourceUpdateRole(request, payload: dict = Body(...)):
+    data = AccountsService.updateRolesPermissions(request.user, payload or {})
+    return successResponse("The permissions has been updated.", data=data)
 
 
 @sourceRouter.get("/users/roles/{role_id}/clone", response=ApiResponse)
@@ -338,7 +337,7 @@ def sourceCloneRole(request, role_id: int):
         permission_codenames=list(role.permissions.values_list("codename", flat=True)),
     )
     data = AccountsService.createRole(request.user, payload)
-    return successResponse("Role cloned successfully.", data=data)
+    return successResponse("The role has been cloned.", data=data)
 
 
 @sourceRouter.get("/permissions/granted", response=ApiResponse)
