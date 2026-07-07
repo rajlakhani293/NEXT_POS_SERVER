@@ -1295,6 +1295,67 @@ class PosApiIntegrationTest(TestCase):
         self.assertIn("created_at", users_payload["items"][0])
         self.assertIn("roles_names", users_payload["items"][0])
 
+    def test_customer_group_transfer_route_uses_source_request_and_message(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        update_groups, _ = Permission.objects.get_or_create(
+            codename="pos.update.customers-groups",
+            content_type=content_type,
+            defaults={"name": "Can update customer groups"},
+        )
+        update_customers, _ = Permission.objects.get_or_create(
+            codename="pos.update.customers",
+            content_type=content_type,
+            defaults={"name": "Can update customers"},
+        )
+        self.role_a.permissions.add(update_groups, update_customers)
+
+        customer_role = Role.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Store Customer",
+            namespace=CUSTOMER_ROLE_CODE,
+            status=0,
+        )
+        source_group = CustomerGroup.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Retail",
+        )
+        target_group = CustomerGroup.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Wholesale",
+        )
+        customer = User.objects.create_user(
+            username="transfer-customer-api",
+            email="transfer-customer-api@example.com",
+            password="password123",
+            company=self.company_a,
+            branch=self.branch_a,
+            role=customer_role,
+            group=source_group,
+            first_name="Transfer",
+            last_name="Customer",
+            status=0,
+        )
+
+        response = self.client.post(
+            "/api/customers/groups/transfer-customers",
+            data=json.dumps({"from": source_group.id, "to": target_group.id, "ids": "*"}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        self.assertEqual(response.json()["message"], "All the customers has been transferred to the new group Wholesale.")
+        customer.refresh_from_db()
+        self.assertEqual(customer.group_id, target_group.id)
+
     def test_roles_source_clone_and_locked_namespace_match_source(self):
         create_response = self.client.post(
             "/api/accounts/roles",

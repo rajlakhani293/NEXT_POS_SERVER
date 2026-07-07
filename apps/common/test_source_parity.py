@@ -165,10 +165,37 @@ class PosParityFlowTest(TestCase):
         transfer = CustomerGroupService.transferCustomers(
             {"from": source_group.id, "to": target_group.id, "ids": "*"},
             self.request,
-        ).data
+        )
         customer.refresh_from_db()
-        self.assertEqual(transfer["updated_count"], 1)
+        self.assertEqual(
+            transfer.message,
+            "All the customers has been transferred to the new group Wholesale.",
+        )
+        self.assertEqual(transfer.data["updated_count"], 1)
         self.assertEqual(customer.group_id, target_group.id)
+
+        with self.assertRaises(Exception) as same_group_error:
+            CustomerGroupService.transferCustomers(
+                {"from": target_group.id, "to": target_group.id, "ids": "*"},
+                self.request,
+            )
+        self.assertEqual(
+            same_group_error.exception.message["message"],
+            "Unable to transfer customers to the same account.",
+        )
+
+        selected_customer = self.create_customer(group=target_group, username="bob-customer")
+        selected_transfer = CustomerGroupService.transferCustomers(
+            {"from": target_group.id, "to": source_group.id, "ids": [selected_customer.id]},
+            self.request,
+        )
+        selected_customer.refresh_from_db()
+        self.assertEqual(
+            selected_transfer.message,
+            "The categories has been transferred to the group Retail.",
+        )
+        self.assertEqual(selected_transfer.data["updated_count"], 1)
+        self.assertEqual(selected_customer.group_id, source_group.id)
 
         transaction = CustomerService.accountTransaction(
             customer.id,

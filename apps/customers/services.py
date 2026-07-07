@@ -894,23 +894,35 @@ class CustomerGroupService:
         to_group_id = data.get("to") or data.get("to_group_id")
         ids = data.get("ids")
         if from_group_id == to_group_id:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to proceed as the source and destination are the same.")
-        if not ids:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "No customer was selected.")
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to transfer customers to the same account.")
+        if ids is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No customer identifier has been provided to proceed to the transfer.")
         validateTenantRelationId(CustomerGroup, from_group_id, request=request, label="Source customer group", tenant_config=True)
         validateTenantRelationId(CustomerGroup, to_group_id, request=request, label="Destination customer group", tenant_config=True)
+        target_group = commonQuery.branchScopedQueryset(
+            CustomerGroup,
+            {"id": to_group_id, "status__in": [0, 1]},
+            request,
+        ).first()
 
         queryset = commonQuery.branchScopedQueryset(
             Customer,
             {"group_id": from_group_id, "status": 0},
             request,
         )
+        if ids == "*":
+            message = f"All the customers has been transferred to the new group {target_group.name}."
+        elif isinstance(ids, list):
+            message = f"The categories has been transferred to the group {target_group.name}."
+        else:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No customer identifier has been provided to proceed to the transfer.")
+
         if ids != "*":
             if not isinstance(ids, list):
                 ids = [ids]
             queryset = queryset.filter(id__in=ids)
         updated_count = queryset.update(group_id=to_group_id)
         return successResponse(
-            "The selected customers have been transferred.",
+            message,
             data={"updated_count": updated_count},
         )
