@@ -1212,7 +1212,7 @@ class MediaService:
         if updated is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Media not found.")
         media = commonQuery.findOneInstance(Media, media_id, request=request, tenant_config=True)
-        return successResponse("Media updated successfully.", data=MediaService.mediaData(media))
+        return successResponse("The media name was successfully updated.", data=MediaService.mediaData(media))
 
     @staticmethod
     def delete(data, request):
@@ -1226,7 +1226,7 @@ class MediaService:
         count = commonQuery.softDeleteById(Media, ids, request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Media not found.")
-        return successResponse("Media deleted successfully.")
+        return successResponse("The media has been deleted.")
 
 
 class NotificationService:

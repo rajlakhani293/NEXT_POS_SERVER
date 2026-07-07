@@ -623,6 +623,39 @@ class PosApiIntegrationTest(TestCase):
         self.assertIn("thumb", item["sizes"])
         self.assertEqual(item["user"]["username"], "user_a")
 
+    def test_source_media_update_and_bulk_delete_messages_follow_source(self):
+        media = Media.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="receipt-logo",
+            extension="png",
+            slug="2026/06/receipt-logo",
+            status=0,
+        )
+
+        update_response = self.client.put(
+            f"/api/medias/{media.id}",
+            data=json.dumps({"name": "receipt-logo-updated"}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(update_response.status_code, 200, update_response.content.decode())
+        self.assertEqual(update_response.json()["message"], "The media name was successfully updated.")
+
+        delete_response = self.client.post(
+            "/api/medias/bulk-delete",
+            data=json.dumps({"ids": [media.id]}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+
+        self.assertEqual(delete_response.status_code, 200, delete_response.content.decode())
+        self.assertEqual(delete_response.json()["message"], "The operation was successful.")
+        media.refresh_from_db()
+        self.assertEqual(media.status, 2)
+
     def test_customer_account_history_source_routes_create_and_list_transactions(self):
         from django.contrib.contenttypes.models import ContentType
 

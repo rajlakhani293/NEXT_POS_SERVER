@@ -220,7 +220,8 @@ def sourceUploadMedia(
 @sourceMediaRouter.post("/bulk-delete", response=ApiResponse)
 @permissionRequired("media_delete")
 def sourceBulkDeleteMedias(request, payload: BulkIdsSchema):
-    return MediaService.delete(payloadData(payload), request)
+    result = MediaService.delete(payloadData(payload), request)
+    return successResponse("The operation was successful.", data={"result": result.data})
 
 
 @sourceMediaRouter.put("/{media_id}", response=ApiResponse)
