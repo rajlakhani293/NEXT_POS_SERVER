@@ -20,43 +20,43 @@ transactionAccountsRouter = Router(tags=["transaction-accounts"], auth=auth_bear
 
 
 @router.post("/accounts/", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("pos.create.transactions-account")
 def createAccount(request, payload: TransactionAccountIn):
     return TransactionAccountService.create(payloadData(payload), request)
 
 
 @router.post("/accounts/get-transactions", response=ApiResponse)
-@permissionRequired("reports_view")
+@permissionRequired("pos.read.transactions-account")
 def getAllAccounts(request, payload: Optional[dict] = None):
     return TransactionAccountService.getAll(payload, request)
 
 
 @router.get("/accounts/dropdown-list", response=ApiResponse)
-@permissionRequired("reports_view")
+@permissionRequired("pos.read.transactions-account")
 def getAccountsDropdown(request):
     return TransactionAccountService.dropdownList(request)
 
 
 @router.delete("/accounts/delete", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("pos.delete.transactions-account")
 def deleteAccounts(request, payload: BulkIdsSchema):
     return TransactionAccountService.delete(payloadData(payload), request)
 
 
 @router.patch("/accounts/status", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("pos.update.transactions-account")
 def updateAccountStatus(request, payload: StatusUpdateSchema):
     return TransactionAccountService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/accounts/{account_id}", response=ApiResponse)
-@permissionRequired("reports_view")
+@permissionRequired("pos.read.transactions-account")
 def getAccountById(request, account_id: int):
     return TransactionAccountService.getById(account_id, request)
 
 
 @router.put("/accounts/{account_id}", response=ApiResponse)
-@permissionRequired("settings_update")
+@permissionRequired("pos.update.transactions-account")
 def updateAccount(request, account_id: int, payload: TransactionAccountUpdateIn):
     return TransactionAccountService.update(account_id, payloadData(payload, exclude_none=True), request)
 
@@ -109,13 +109,13 @@ def getAllTransactions(request, payload: Optional[dict] = None):
 
 
 @router.post("/history/get-transactions", response=ApiResponse)
-@permissionRequired("reports_view")
+@permissionRequired("pos.read.transactions-history")
 def getTransactionHistory(request, payload: Optional[dict] = None):
     return TransactionService.history(payload, request)
 
 
 @router.delete("/history/{history_id}", response=ApiResponse)
-@permissionRequired("expenses_delete")
+@permissionRequired("pos.delete.transactions-history")
 def deleteAccountingHistory(request, history_id: int):
     return TransactionService.deleteHistory(history_id, request)
 
@@ -210,13 +210,13 @@ def triggerTransaction(request, transaction_id: int):
 
 
 @transactionsRouter.get("/history/{history_id}/create-reflection", response=ApiResponse)
-@permissionRequired("expenses_create")
+@permissionRequired("pos.create.transactions-history")
 def createTransactionReflection(request, history_id: int):
     return AccountingService.reflectTransactionFromRule(history_id, request)
 
 
 @transactionsRouter.delete("/history/{history_id}", response=ApiResponse)
-@permissionRequired("expenses_delete")
+@permissionRequired("pos.delete.transactions-history")
 def deleteTransactionHistory(request, history_id: int):
     return TransactionService.deleteHistory(history_id, request)
 
@@ -228,61 +228,61 @@ def getTransaction(request, transaction_id: int):
 
 
 @transactionAccountsRouter.get("/", response=ApiResponse)
-@permissionRequired("expenses_view")
+@permissionRequired("pos.read.transactions-account")
 def getTransactionAccounts(request):
     return TransactionAccountService.getAll({}, request)
 
 
 @transactionAccountsRouter.get("/sub-accounts", response=ApiResponse)
-@permissionRequired("expenses_view")
+@permissionRequired("pos.read.transactions-account")
 def getTransactionSubAccounts(request):
     return TransactionAccountService.getSubAccounts(request)
 
 
 @transactionAccountsRouter.get("/actions", response=ApiResponse)
-@permissionRequired("expenses_view")
+@permissionRequired("pos.read.transactions-account")
 def getTransactionActions(request):
     return TransactionRuleService.eventOptions()
 
 
 @transactionAccountsRouter.post("/category-identifier", response=ApiResponse)
-@permissionRequired("expenses_view")
+@permissionRequired("pos.read.transactions-account")
 def getTransactionAccountsFromCategory(request, payload: dict):
     data = payloadData(payload)
     return TransactionAccountService.getFromCategory(data.get("identifier"), data.get("exclude"), request)
 
 
 @transactionAccountsRouter.get("/reset-defaults", response=ApiResponse)
-@permissionRequired("expenses_update")
+@permissionRequired("pos.update.transactions-account")
 def resetDefaultTransactionAccounts(request):
     return TransactionAccountService.resetDefaults(request)
 
 
 @transactionAccountsRouter.get("/{account_id}", response=ApiResponse)
-@permissionRequired("expenses_view")
+@permissionRequired("pos.read.transactions-account")
 def getTransactionAccount(request, account_id: int):
     return TransactionAccountService.getById(account_id, request)
 
 
 @transactionAccountsRouter.get("/{account_id}/history", response=ApiResponse)
-@permissionRequired("expenses_view")
+@permissionRequired("pos.read.transactions-account")
 def getTransactionAccountHistory(request, account_id: int):
     return TransactionAccountService.getHistory(account_id, request)
 
 
 @transactionAccountsRouter.post("/", response=ApiResponse)
-@permissionRequired("expenses_create")
+@permissionRequired("pos.create.transactions-account")
 def createTransactionAccount(request, payload: dict):
     return TransactionAccountService.create(payloadData(payload), request)
 
 
 @transactionAccountsRouter.put("/{account_id}", response=ApiResponse)
-@permissionRequired("expenses_update")
+@permissionRequired("pos.update.transactions-account")
 def updateTransactionAccount(request, account_id: int, payload: dict):
     return TransactionAccountService.update(account_id, payloadData(payload, exclude_none=True), request)
 
 
 @transactionAccountsRouter.delete("/{account_id}", response=ApiResponse)
-@permissionRequired("expenses_delete")
+@permissionRequired("pos.delete.transactions-account")
 def deleteTransactionAccount(request, account_id: int):
     return TransactionAccountService.delete({"ids": [account_id]}, request)

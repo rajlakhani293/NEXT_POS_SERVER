@@ -6,7 +6,7 @@ from django.contrib.auth.models import Permission
 
 from apps.accounts.models import User, Role, AccessToken
 from apps.organizations.models import Company, Branch
-from apps.accounting.models import TransactionAccount
+from apps.accounting.models import TransactionAccount, TransactionHistory
 from apps.catalog.models import Category, Product, ProductUnitQuantity, Tax, TaxGroup, Unit, UnitGroup
 from apps.customers.models import CUSTOMER_ROLE_CODE, CustomerGroup
 from apps.customers.models import CustomerCoupon, CustomerReward
@@ -1071,6 +1071,71 @@ class PosApiIntegrationTest(TestCase):
         data = get_response.json()["data"]
         self.assertEqual(data["expense_account_ids"], [expense_account.id])
         self.assertEqual(data["paid_expense_offset_account_id"], asset_account.id)
+
+    def test_accounting_accounts_and_history_use_source_specific_permissions(self):
+        from django.contrib.contenttypes.models import ContentType
+
+        content_type = ContentType.objects.get_for_model(Role)
+        account_read, _ = Permission.objects.get_or_create(
+            codename="pos.read.transactions-account",
+            content_type=content_type,
+            defaults={"name": "Can read transaction accounts"},
+        )
+        history_read, _ = Permission.objects.get_or_create(
+            codename="pos.read.transactions-history",
+            content_type=content_type,
+            defaults={"name": "Can read transaction history"},
+        )
+        history_delete, _ = Permission.objects.get_or_create(
+            codename="pos.delete.transactions-history",
+            content_type=content_type,
+            defaults={"name": "Can delete transaction history"},
+        )
+        self.role_a.permissions.add(account_read, history_read, history_delete)
+
+        account = TransactionAccount.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            name="Expense Account",
+            account="5000-expense",
+            category_identifier="expenses",
+            status=0,
+        )
+        history = TransactionHistory.objects.create(
+            user=self.user_a,
+            company=self.company_a,
+            branch=self.branch_a,
+            transaction_account=account,
+            name="Expense History",
+            operation=TransactionHistory.OPERATION_DEBIT,
+            type="direct-transaction",
+            value=25,
+            status=0,
+        )
+
+        accounts_response = self.client.post(
+            "/api/accounting/accounts/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        dropdown_response = self.client.get("/api/accounting/accounts/dropdown-list", **self.headers_a)
+        history_response = self.client.post(
+            "/api/accounting/history/get-transactions",
+            data=json.dumps({"page": 1, "limit": 10}),
+            content_type="application/json",
+            **self.headers_a,
+        )
+        delete_response = self.client.delete(f"/api/accounting/history/{history.id}", **self.headers_a)
+
+        self.assertEqual(accounts_response.status_code, 200, accounts_response.content.decode())
+        self.assertEqual(dropdown_response.status_code, 200, dropdown_response.content.decode())
+        self.assertEqual(history_response.status_code, 200, history_response.content.decode())
+        self.assertEqual(delete_response.status_code, 200, delete_response.content.decode())
+        self.assertEqual(accounts_response.json()["data"]["total"], 1)
+        self.assertEqual(history_response.json()["data"]["total"], 1)
+        self.assertEqual(delete_response.json()["message"], "Transaction history deleted successfully.")
 
     def test_transaction_special_routes_do_not_parse_static_segments_as_ids(self):
         from django.contrib.contenttypes.models import ContentType
