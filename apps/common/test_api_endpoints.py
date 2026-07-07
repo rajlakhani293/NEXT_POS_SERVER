@@ -291,6 +291,39 @@ class PosApiIntegrationTest(TestCase):
         self.assertTrue(self.user_a.check_password("password456"))
         self.assertIsNone(self.user_a.activation_token)
 
+    def test_source_account_activation_flow(self):
+        self.user_a.status = 1
+        self.user_a.is_active = False
+        self.user_a.activation_token = "activate-token"
+        self.user_a.activation_expiration = timezone.now() + timezone.timedelta(minutes=30)
+        self.user_a.save(update_fields=["status", "is_active", "activation_token", "activation_expiration"])
+
+        invalid_response = self.client.get(f"/api/auth/activate/{self.user_a.id}/wrong-token")
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertEqual(invalid_response.json()["message"], "Invalid activation token.")
+
+        activate_response = self.client.get(f"/api/auth/activate/{self.user_a.id}/activate-token")
+        self.assertEqual(activate_response.status_code, 200, activate_response.content.decode())
+        self.assertEqual(activate_response.json()["message"], "Your account is now activated.")
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.status, 0)
+        self.assertTrue(self.user_a.is_active)
+        self.assertIsNone(self.user_a.activation_token)
+        self.assertIsNone(self.user_a.activation_expiration)
+
+        already_active_response = self.client.get(f"/api/auth/activate/{self.user_a.id}/activate-token")
+        self.assertEqual(already_active_response.status_code, 400)
+        self.assertEqual(already_active_response.json()["message"], "No activation is needed for this account.")
+
+        self.user_b.status = 1
+        self.user_b.is_active = False
+        self.user_b.activation_token = "expired-token"
+        self.user_b.activation_expiration = timezone.now() - timezone.timedelta(minutes=1)
+        self.user_b.save(update_fields=["status", "is_active", "activation_token", "activation_expiration"])
+        expired_response = self.client.get(f"/api/auth/activate/{self.user_b.id}/expired-token")
+        self.assertEqual(expired_response.status_code, 400)
+        self.assertEqual(expired_response.json()["message"], "The expiration token has expired.")
+
     def test_source_profile_and_token_flow(self):
         profile_response = self.client.post(
             "/api/users/profile",

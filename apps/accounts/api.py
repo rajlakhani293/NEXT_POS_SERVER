@@ -61,6 +61,12 @@ def sourceNewPassword(request, user_id: int, token: str, payload: NewPasswordIn)
     return successResponse("Your password has been updated.", data=data)
 
 
+@authRouter.get("/activate/{user_id}/{token}", response=ApiResponse)
+def sourceActivateAccount(request, user_id: int, token: str):
+    data = AccountsService.activateAccount(user_id, token)
+    return successResponse("Your account is now activated.", data=data)
+
+
 @router.get("/session-data", auth=auth_bearer, response=ApiResponse)
 def sessionData(request):
     """Return the authenticated user with role and effective permissions."""

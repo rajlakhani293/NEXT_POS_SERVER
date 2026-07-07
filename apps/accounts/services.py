@@ -663,6 +663,29 @@ class AccountsService:
         return {"redirectTo": "/sign-in"}
 
     @staticmethod
+    def activateAccount(user_id: int, token: str):
+        user = commonQuery.scopedQueryset(
+            User,
+            {"id": user_id, "status__in": [0, 1]},
+            tenant_config={},
+        ).first()
+        if user is None:
+            raise api_error(404, ErrorCodes.USER_NOT_FOUND, "Unable to find the requested user.")
+        if user.status == 0 and user.is_active:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "No activation is needed for this account.")
+        if user.activation_token != token or user.activation_token is None:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid activation token.")
+        if not user.activation_expiration or user.activation_expiration < timezone.now():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The expiration token has expired.")
+
+        user.activation_expiration = None
+        user.activation_token = None
+        user.status = 0
+        user.is_active = True
+        user.save(update_fields=["activation_expiration", "activation_token", "status", "is_active"])
+        return {"redirectTo": "/sign-in"}
+
+    @staticmethod
     def currentUser(user: User):
         return AccountsService.buildSessionData(user)
 
