@@ -125,6 +125,19 @@ class UserUpdateIn(Schema):
     status: Optional[ActiveStatus] = None
 
 
+class ProfileAddressIn(Schema):
+    email: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone: Optional[str] = None
+    address_1: Optional[str] = None
+    address_2: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    pobox: Optional[str] = None
+    company: Optional[str] = None
+
+
 class UserProfileUpdateIn(Schema):
     username: Optional[str] = Field(None, min_length=3)
     email: Optional[str] = None
@@ -136,6 +149,8 @@ class UserProfileUpdateIn(Schema):
     old_password: Optional[str] = None
     password: Optional[str] = Field(None, min_length=6)
     password_confirm: Optional[str] = Field(None, min_length=6)
+    billing: Optional[ProfileAddressIn] = None
+    shipping: Optional[ProfileAddressIn] = None
 
 
 class LoginOut(Schema):

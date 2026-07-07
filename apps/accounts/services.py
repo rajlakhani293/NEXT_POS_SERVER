@@ -34,6 +34,19 @@ def normalizeRoleNamespace(value):
 
 
 class AccountsService:
+    PROFILE_ADDRESS_FIELDS = [
+        "email",
+        "first_name",
+        "last_name",
+        "phone",
+        "address_1",
+        "address_2",
+        "country",
+        "city",
+        "pobox",
+        "company",
+    ]
+
     @staticmethod
     def buildPermissionDefinitions():
         definitions = []
@@ -195,10 +208,59 @@ class AccountsService:
         return {
             **user_data,
             "avatar_link": user_data.get("profile_image") or "",
+            "addresses": AccountsService.serializeProfileAddresses(user),
             "permissions": sorted(list(getUserPermissionCodenames(user))),
             "role": AccountsService.serializeRole(user.role) if getattr(user, "role", None) else None,
             "roles": [AccountsService.serializeRole(role) for role in roles],
         }
+
+    @staticmethod
+    def serializeProfileAddresses(user: User):
+        from apps.customers.models import CustomerAddress
+
+        addresses = {"billing": None, "shipping": None}
+        for address in CustomerAddress.objects.filter(customer_id=user.id, status__in=[0, 1]):
+            record = serializeModelInstance(address)
+            record["company"] = record.get("company_name") or ""
+            record.pop("company_name", None)
+            addresses[address.type] = record
+        return addresses
+
+    @staticmethod
+    def upsertProfileAddress(user: User, address_type: str, data):
+        if not data:
+            return None
+
+        from apps.customers.models import CustomerAddress
+
+        payload = data.dict(exclude_unset=True)
+        address_payload = {}
+        for field in AccountsService.PROFILE_ADDRESS_FIELDS:
+            if field in payload:
+                target_field = "company_name" if field == "company" else field
+                address_payload[target_field] = payload[field] or ""
+
+        if not address_payload:
+            return None
+
+        address, _created = CustomerAddress.objects.get_or_create(
+            customer_id=user.id,
+            type=address_type,
+            defaults={
+                "user_id": user.id,
+                "company_id": user.company_id,
+                "branch_id": user.branch_id,
+            },
+        )
+        for field, value in address_payload.items():
+            setattr(address, field, value)
+        address.user_id = user.id
+        address.company_id = user.company_id
+        address.branch_id = user.branch_id
+        address.status = 0
+        address.save()
+        return address
+
 
     @staticmethod
     def serializeRole(role: Role):
@@ -1066,6 +1128,9 @@ class AccountsService:
 
         if "avatar_link" in data:
             user.profile_image = data["avatar_link"] or ""
+
+        for address_type in ["billing", "shipping"]:
+            AccountsService.upsertProfileAddress(user, address_type, getattr(payload, address_type, None))
 
         password = data.get("password") or ""
         if password:

@@ -301,6 +301,24 @@ class PosApiIntegrationTest(TestCase):
                     "email": "updated-profile@example.com",
                     "phone": "9191919191",
                     "avatar_link": "https://example.com/avatar.png",
+                    "billing": {
+                        "first_name": "Bill",
+                        "last_name": "Profile",
+                        "phone": "1112223333",
+                        "address_1": "Billing Street",
+                        "city": "Billing City",
+                        "company": "Billing Company",
+                        "email": "billing@example.com",
+                    },
+                    "shipping": {
+                        "first_name": "Ship",
+                        "last_name": "Profile",
+                        "phone": "4445556666",
+                        "address_1": "Shipping Street",
+                        "city": "Shipping City",
+                        "company": "Shipping Company",
+                        "email": "shipping@example.com",
+                    },
                 }
             ),
             content_type="application/json",
@@ -310,6 +328,10 @@ class PosApiIntegrationTest(TestCase):
         profile = profile_response.json()["data"]
         self.assertEqual(profile["full_name"], "Updated Profile")
         self.assertEqual(profile["avatar_link"], "https://example.com/avatar.png")
+        self.assertEqual(profile["addresses"]["billing"]["first_name"], "Bill")
+        self.assertEqual(profile["addresses"]["billing"]["company"], "Billing Company")
+        self.assertEqual(profile["addresses"]["shipping"]["first_name"], "Ship")
+        self.assertEqual(profile["addresses"]["shipping"]["company"], "Shipping Company")
 
         token_response = self.client.post(
             "/api/users/create-token",
