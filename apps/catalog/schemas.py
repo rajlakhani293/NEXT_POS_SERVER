@@ -68,7 +68,7 @@ class UnitGroupUpdateIn(Schema):
 class UnitIn(Schema):
     group_id: int
     name: str
-    identifier: str
+    identifier: Optional[str] = None
     description: str = ""
     value: float = 1
     preview_url: Optional[str] = None
