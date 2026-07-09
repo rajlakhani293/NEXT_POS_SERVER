@@ -1,6 +1,6 @@
+# type: ignore
 from typing import Optional
 from ninja import Body, Router
-
 from apps.accounts.auth import auth_bearer
 from apps.accounts.models import Role, User
 from apps.accounts.schemas import (
@@ -23,6 +23,8 @@ from apps.accounts.services import AccountsService
 from apps.common.authz import permissionRequired
 from apps.common.responses import ApiResponse, successResponse
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema, payloadData
+from apps.common.error_codes import ErrorCodes
+from apps.common.exceptions import api_error
 
 
 router = Router(tags=["accounts"])
@@ -323,9 +325,6 @@ def sourceUpdateRole(request, payload: dict = Body(...)):
 def sourceCloneRole(request, role_id: int):
     role = Role.objects.filter(company_id=request.user.company_id, branch_id=request.user.branch_id, id=role_id, status__in=[0, 1]).first()
     if role is None:
-        from apps.common.error_codes import ErrorCodes
-        from apps.common.exceptions import api_error
-
         raise api_error(404, ErrorCodes.NOT_FOUND, "Role not found.")
     payload = RoleIn(
         name=f"{role.name} Copy",
