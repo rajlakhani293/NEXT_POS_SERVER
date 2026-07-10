@@ -3534,14 +3534,7 @@ class PosParityFlowTest(TestCase):
         identification_fields = {
             field["name"]: field for field in general_form.data["tabs"]["identification"]["fields"]
         }
-        self.assertEqual(
-            identification_fields["store_square_logo"]["type"],
-            "media",
-        )
-        self.assertEqual(
-            identification_fields["store_square_logo"]["description"],
-            "Choose what is the square logo of the store.",
-        )
+        self.assertEqual(set(identification_fields), {"store_language", "default_theme"})
         self.assertIn(
             str(seeded_role.id),
             {option["value"] for option in registration_role_field["options"]},
@@ -3551,6 +3544,8 @@ class PosParityFlowTest(TestCase):
         customer_fields = {
             field["name"]: field for field in customers_form.data["tabs"]["general"]["fields"]
         }
+        self.assertNotIn("customers_force_valid_email", customer_fields)
+        self.assertNotIn("customers_force_unique_phone", customer_fields)
         self.assertIn(
             str(customer.id),
             {option["value"] for option in customer_fields["customers_default"]["options"]},
@@ -3564,9 +3559,7 @@ class PosParityFlowTest(TestCase):
         accounting_general_fields = {
             field["name"]: field for field in accounting_form.data["tabs"]["general"]["fields"]
         }
-        accounting_order_fields = {
-            field["name"]: field for field in accounting_form.data["tabs"]["orders"]["fields"]
-        }
+        self.assertNotIn("orders", accounting_form.data["tabs"])
         self.assertIn(
             str(expenses_child.id),
             {option["value"] for option in accounting_general_fields["accounting_expenses_accounts"]["options"]},
@@ -3577,15 +3570,15 @@ class PosParityFlowTest(TestCase):
         )
         self.assertIn(
             str(revenues_child.id),
-            {option["value"] for option in accounting_order_fields["accounting_orders_revenues_account"]["options"]},
+            {option["value"] for option in accounting_general_fields["accounting_orders_revenues_account"]["options"]},
         )
         self.assertIn(
             str(assets_child.id),
-            {option["value"] for option in accounting_order_fields["accounting_orders_cash_account"]["options"]},
+            {option["value"] for option in accounting_general_fields["accounting_orders_cash_account"]["options"]},
         )
         self.assertIn(
             str(expenses_child.id),
-            {option["value"] for option in accounting_order_fields["accounting_orders_cogs_account"]["options"]},
+            {option["value"] for option in accounting_general_fields["accounting_orders_cogs_account"]["options"]},
         )
 
         form = OptionSettingService.getForm("pos", self.user)
@@ -3599,6 +3592,12 @@ class PosParityFlowTest(TestCase):
         self.assertIn("pos_quick_product", feature_fields)
         vat_fields = {field["name"]: field for field in form.data["tabs"]["vat"]["fields"]}
         self.assertEqual(set(vat_fields), {"pos_vat"})
+        layout_fields = {field["name"]: field for field in form.data["tabs"]["layout"]["fields"]}
+        self.assertEqual(layout_fields["pos_complete_sale_audio"]["type"], "select")
+        self.assertIn(
+            "/audio/cash-sound.mp3",
+            {option["value"] for option in layout_fields["pos_complete_sale_audio"]["options"]},
+        )
 
         OptionSettingService.ensureOptionValue(self.company, self.branch, "pos_vat", "flat_vat", user=self.user)
         OptionSettingService.ensureOptionValue(self.company, self.branch, "registers_enabled", "yes", user=self.user)

@@ -56,7 +56,6 @@ BUSINESS_SETTING_FIELDS = [
     "pos_vat",
     "store_language",
     "registration_enabled",
-    "store_name",
     "scale_barcode_enabled",
     "scale_barcode_prefix",
     "scale_barcode_product_length",
@@ -123,7 +122,6 @@ OPTION_KEY_MAP = {
     "pos_vat": "pos_vat",
     "store_language": "store_language",
     "registration_enabled": "registration_enabled",
-    "store_name": "store_name",
     "scale_barcode_enabled": "scale_barcode_enabled",
     "scale_barcode_prefix": "scale_barcode_prefix",
     "scale_barcode_product_length": "scale_barcode_product_length",
@@ -145,7 +143,6 @@ OPTION_KEY_MAP = {
 
 STATIC_OPTION_DEFAULTS = {
     "registration_enabled": "no",
-    "store_name": "POS",
     "store_language": "en",
     "allow_decimal_quantities": "yes",
     "quick_product": "yes",
@@ -366,7 +363,6 @@ def defaultBusinessSettings():
         "pos_preferred_price": "net_prices",
         "pos_vat": "disabled",
         "registration_enabled": "no",
-        "store_name": "POS",
         "scale_barcode_enabled": False,
         "scale_barcode_prefix": "2",
         "scale_barcode_product_length": 5,

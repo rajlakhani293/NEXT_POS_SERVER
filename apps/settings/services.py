@@ -51,7 +51,6 @@ class OptionSettingService:
         "pos_vat",
         "store_language",
         "registration_enabled",
-        "store_name",
         "scale_barcode_prefix",
         "scale_barcode_type",
         "orders_code_type",
@@ -102,16 +101,6 @@ class OptionSettingService:
             "description": "Configure the general settings of the application.",
             "tabs": {
                 "identification": [
-                    ("store_name", "text", "Store Name", "required"),
-                    ("store_address", "text", "Store Address", ""),
-                    ("store_city", "text", "Store City", ""),
-                    ("store_phone", "text", "Store Phone", ""),
-                    ("store_email", "text", "Store Email", ""),
-                    ("store_pobox", "text", "Store PO.Box", ""),
-                    ("store_fax", "text", "Store Fax", ""),
-                    ("store_additional", "textarea", "Store Additional Information", ""),
-                    ("store_square_logo", "media", "Store Square Logo", "", "Choose what is the square logo of the store."),
-                    ("store_rectangle_logo", "media", "Store Rectangle Logo", "", "Choose what is the rectangle logo of the store."),
                     ("store_language", "select", "Language", ""),
                     ("default_theme", "select", "Theme", ""),
                 ],
@@ -156,8 +145,6 @@ class OptionSettingService:
             "tabs": {
                 "general": [
                     ("customers_rewards_enabled", "select", "Enable Reward", ""),
-                    ("customers_force_valid_email", "select", "Require Valid Email", ""),
-                    ("customers_force_unique_phone", "select", "Require Unique Phone", ""),
                     ("customers_default", "search-select", "Default Customer Account", ""),
                     ("customers_default_group", "select", "Default Customer Group", ""),
                     ("customers_credit_enabled", "select", "Enable Credit & Account", ""),
@@ -170,8 +157,8 @@ class OptionSettingService:
             "tabs": {
                 "layout": [
                     ("pos_layout", "select", "Layout", ""),
-                    ("pos_complete_sale_audio", "switch", "Complete Sale Audio", ""),
-                    ("pos_new_item_audio", "switch", "New Item Audio", ""),
+                    ("pos_complete_sale_audio", "select", "Sale Complete Sound", ""),
+                    ("pos_new_item_audio", "select", "New Item Audio", ""),
                 ],
                 "printing": [
                     ("pos_printing_document", "select", "Printed Document", ""),
@@ -262,8 +249,6 @@ class OptionSettingService:
                 "general": [
                     ("accounting_expenses_accounts", "multiselect", "Expense Accounts", ""),
                     ("accounting_default_paid_expense_offset_account", "search-select", "Paid Expense Offset Account", ""),
-                ],
-                "orders": [
                     ("accounting_orders_revenues_account", "search-select", "Orders Revenue Account", ""),
                     ("accounting_orders_cash_account", "search-select", "Orders Cash Account", ""),
                     ("accounting_orders_unpaid_account", "search-select", "Orders Unpaid Account", ""),

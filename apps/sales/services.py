@@ -2551,7 +2551,7 @@ class SaleService:
         return successResponse(
             "POS session retrieved successfully.",
             data={
-                "title": getattr(settings, "store_name", None) or "POS",
+                "title": getattr(getattr(request.user, "company", None), "name", None) or "POS",
                 "orderTypes": SaleService.getOrderTypeOptions(settings),
                 "options": options,
                 "urls": {
