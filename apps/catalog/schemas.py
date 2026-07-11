@@ -136,8 +136,11 @@ class ProductIn(Schema):
     position: int = 0
     pinned: bool = False
     units: Optional[Any] = None
+    units_json: Optional[str] = None
     images: Optional[List[Any]] = None
+    images_json: Optional[str] = None
     groups: Optional[Any] = None
+    groups_json: Optional[str] = None
     variations: Optional[List[Any]] = None
 
 
@@ -165,8 +168,11 @@ class ProductUpdateIn(Schema):
     position: Optional[int] = None
     pinned: Optional[bool] = None
     units: Optional[Any] = None
+    units_json: Optional[str] = None
     images: Optional[List[Any]] = None
+    images_json: Optional[str] = None
     groups: Optional[Any] = None
+    groups_json: Optional[str] = None
     variations: Optional[List[Any]] = None
     status: Optional[ActiveStatus] = None
 

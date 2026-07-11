@@ -1,4 +1,6 @@
 # type: ignore
+import json
+
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
@@ -22,7 +24,7 @@ from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.domainActions import DomainActionService
-from apps.common.helpers import buildSku, buildUniqueValue, decimalValue, saveProductImage, serializeModelInstance, validateTenantRelationId, validateUniqueFields
+from apps.common.helpers import buildSku, buildUniqueValue, decimalValue, saveProductImage, serializeModelInstance, slugify, validateTenantRelationId, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.common.tenantDefaults import DEFAULT_SCALE_RANGES
 
@@ -544,7 +546,12 @@ class UnitService:
     @staticmethod
     def create(data, request):
         with transaction.atomic():
+            data["name"] = (data.get("name") or "").strip()
+            if data.get("identifier") is not None:
+                data["identifier"] = str(data.get("identifier") or "").strip()
             data["group_id"] = validateTenantRelationId(UnitGroup, data["group_id"], request=request, label="Unit group", tenant_config=True)
+            if not data.get("identifier"):
+                data["identifier"] = slugify(data.get("name") or "")
             validateUniqueFields(
                 Unit,
                 {"identifier": data.get("identifier")},
@@ -570,8 +577,14 @@ class UnitService:
             unit = commonQuery.findOneRecord(Unit, unit_id, request=request, tenant_config=True)
             if unit is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
+            if "name" in data and data.get("name") is not None:
+                data["name"] = str(data.get("name") or "").strip()
+            if "identifier" in data and data.get("identifier") is not None:
+                data["identifier"] = str(data.get("identifier") or "").strip()
             if data.get("group_id"):
                 data["group_id"] = validateTenantRelationId(UnitGroup, data["group_id"], request=request, label="Unit group", tenant_config=True)
+            if "identifier" in data and not data.get("identifier"):
+                data["identifier"] = slugify(data.get("name") or unit["name"])
             if "identifier" in data:
                 validateUniqueFields(
                     Unit,
@@ -875,6 +888,21 @@ class TaxService:
 
 class ProductService:
     @staticmethod
+    def normalizeSourceJsonPayload(data):
+        for source_key, target_key in [
+            ("units_json", "units"),
+            ("images_json", "images"),
+            ("groups_json", "groups"),
+        ]:
+            raw = data.pop(source_key, None)
+            if raw and data.get(target_key) in (None, "", [], {}):
+                try:
+                    data[target_key] = json.loads(raw)
+                except (TypeError, ValueError):
+                    raise api_error(400, ErrorCodes.INVALID_DATA, f"Invalid {target_key} payload.")
+        return data
+
+    @staticmethod
     def serializeProduct(product, request, include_relations=True):
         data = serializeModelInstance(product)
         data = ProductService.attachDisplayData(dict(data), request)
@@ -1070,7 +1098,7 @@ class ProductService:
     @staticmethod
     def create(data, request, image=None):
         with transaction.atomic():
-            original_data = dict(data or {})
+            original_data = ProductService.normalizeSourceJsonPayload(dict(data or {}))
             ProductService.validateSourceProductPayload(original_data, request)
             data = _sourceProductCorePayload(original_data)
             emptyToNone(data, ["sku", "barcode", "barcode_type", "tax_type"])
@@ -1126,7 +1154,7 @@ class ProductService:
     @staticmethod
     def update(data, request, product_id, image=None):
         with transaction.atomic():
-            original_data = dict(data or {})
+            original_data = ProductService.normalizeSourceJsonPayload(dict(data or {}))
             ProductService.validateSourceProductPayload(original_data, request, product_id=product_id)
             data = _sourceProductCorePayload(original_data)
             product = commonQuery.findOneRecord(Product, product_id, request=request, tenant_config=True)
