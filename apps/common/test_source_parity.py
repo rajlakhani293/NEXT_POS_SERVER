@@ -3560,6 +3560,13 @@ class PosParityFlowTest(TestCase):
             field["name"]: field for field in accounting_form.data["tabs"]["general"]["fields"]
         }
         self.assertNotIn("orders", accounting_form.data["tabs"])
+        self.assertEqual(
+            set(accounting_general_fields),
+            {
+                "accounting_expenses_accounts",
+                "accounting_default_paid_expense_offset_account",
+            },
+        )
         self.assertIn(
             str(expenses_child.id),
             {option["value"] for option in accounting_general_fields["accounting_expenses_accounts"]["options"]},
@@ -3567,18 +3574,6 @@ class PosParityFlowTest(TestCase):
         self.assertIn(
             str(assets_child.id),
             {option["value"] for option in accounting_general_fields["accounting_default_paid_expense_offset_account"]["options"]},
-        )
-        self.assertIn(
-            str(revenues_child.id),
-            {option["value"] for option in accounting_general_fields["accounting_orders_revenues_account"]["options"]},
-        )
-        self.assertIn(
-            str(assets_child.id),
-            {option["value"] for option in accounting_general_fields["accounting_orders_cash_account"]["options"]},
-        )
-        self.assertIn(
-            str(expenses_child.id),
-            {option["value"] for option in accounting_general_fields["accounting_orders_cogs_account"]["options"]},
         )
 
         form = OptionSettingService.getForm("pos", self.user)

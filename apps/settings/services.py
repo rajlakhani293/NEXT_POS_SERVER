@@ -248,11 +248,7 @@ class OptionSettingService:
             "tabs": {
                 "general": [
                     ("accounting_expenses_accounts", "multiselect", "Expense Accounts", ""),
-                    ("accounting_default_paid_expense_offset_account", "search-select", "Paid Expense Offset Account", ""),
-                    ("accounting_orders_revenues_account", "search-select", "Orders Revenue Account", ""),
-                    ("accounting_orders_cash_account", "search-select", "Orders Cash Account", ""),
-                    ("accounting_orders_unpaid_account", "search-select", "Orders Unpaid Account", ""),
-                    ("accounting_orders_cogs_account", "search-select", "Orders COGS Account", ""),
+                    ("accounting_default_paid_expense_offset_account", "search-select", "Paid Expense Offset", ""),
                 ],
             },
         },
