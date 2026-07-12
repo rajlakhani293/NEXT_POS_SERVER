@@ -59,6 +59,31 @@ def buildUniqueCustomerUsername(data):
 
 
 def getOrCreateCustomerRole(request):
+    role = Role.findByNamespace(
+        CUSTOMER_ROLE_CODE,
+        getattr(request.user, "company_id", None),
+        getattr(request.user, "branch_id", None),
+    )
+    if role is not None:
+        return role
+
+    role = commonQuery.branchScopedQueryset(
+        Role,
+        {"name": "Store Customer", "status__in": [0, 1]},
+        request,
+    ).first()
+    if role is not None:
+        updates = []
+        if role.namespace != CUSTOMER_ROLE_CODE:
+            role.namespace = CUSTOMER_ROLE_CODE
+            updates.append("namespace")
+        if not role.locked:
+            role.locked = True
+            updates.append("locked")
+        if updates:
+            role.save(update_fields=updates)
+        return role
+
     role, _created = commonQuery.getOrCreateRecord(
         Role,
         {"namespace": CUSTOMER_ROLE_CODE},
@@ -104,8 +129,9 @@ def splitCustomerData(data):
             source_key = f"{address_type}_{field}"
             if source_key in customer_data:
                 target_field = "company_name" if field == "company" else field
-                value = customer_data.pop(source_key) or None
-                if value is not None or target_field not in address_data[address_type]:
+                value = customer_data.pop(source_key)
+                value = "" if value is None else value
+                if value != "" or target_field not in address_data[address_type]:
                     address_data[address_type][target_field] = value
     birth_date = customer_data.get("birth_date")
     if birth_date == "":
