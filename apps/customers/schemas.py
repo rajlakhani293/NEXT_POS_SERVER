@@ -40,6 +40,7 @@ class CustomerIn(Schema):
     billing_last_name: str = ""
     billing_country: str = ""
     billing_company_name: str = ""
+    billing_company: str = ""
     billing_pobox: str = ""
     billing_city: str = ""
     shipping_address_1: str = ""
@@ -50,6 +51,7 @@ class CustomerIn(Schema):
     shipping_last_name: str = ""
     shipping_country: str = ""
     shipping_company_name: str = ""
+    shipping_company: str = ""
     shipping_pobox: str = ""
     shipping_city: str = ""
 
@@ -75,6 +77,7 @@ class CustomerUpdateIn(Schema):
     billing_last_name: Optional[str] = None
     billing_country: Optional[str] = None
     billing_company_name: Optional[str] = None
+    billing_company: Optional[str] = None
     billing_pobox: Optional[str] = None
     billing_city: Optional[str] = None
     shipping_address_1: Optional[str] = None
@@ -85,6 +88,7 @@ class CustomerUpdateIn(Schema):
     shipping_last_name: Optional[str] = None
     shipping_country: Optional[str] = None
     shipping_company_name: Optional[str] = None
+    shipping_company: Optional[str] = None
     shipping_pobox: Optional[str] = None
     shipping_city: Optional[str] = None
     status: Optional[ActiveStatus] = None

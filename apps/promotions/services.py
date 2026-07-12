@@ -351,17 +351,20 @@ class CouponService:
                     "customer_id": customer_id,
                 },
             },
-            [["code", True, True], ["coupon__name", True, True]],
+            [["name", True, True], ["code", True, True], ["coupon__name", True, True], ["coupon__type", True, True]],
             {
                 "attributes": [
                     "id",
                     "coupon_id",
                     "coupon__name",
+                    "coupon__type",
+                    "coupon__discount_value",
                     "customer_id",
                     "name",
                     "code",
                     "usage",
                     "limit_usage",
+                    "user__username",
                     "created_at",
                     "status",
                 ],
@@ -369,6 +372,12 @@ class CouponService:
             request=request,
             tenant_config=True,
         )
+        for item in result.get("items", []):
+            coupon_type = item.get("coupon__type") or ""
+            coupon_value = item.get("coupon__discount_value")
+            item["coupon_type"] = "Percentage" if coupon_type == "percentage_discount" else "Flat"
+            item["coupon_discount_value"] = f"{coupon_value}%" if coupon_type == "percentage_discount" else coupon_value
+            item["user_username"] = item.pop("user__username", None) or "N/A"
         return successResponse("Customer coupons retrieved successfully.", data=result)
 
     @staticmethod

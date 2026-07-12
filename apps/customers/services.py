@@ -34,6 +34,7 @@ ADDRESS_FIELDS = [
     "pobox",
     "city",
     "company_name",
+    "company",
 ]
 ADDRESS_TYPES = ["billing", "shipping"]
 
@@ -102,7 +103,10 @@ def splitCustomerData(data):
         for field in ADDRESS_FIELDS:
             source_key = f"{address_type}_{field}"
             if source_key in customer_data:
-                address_data[address_type][field] = customer_data.pop(source_key) or None
+                target_field = "company_name" if field == "company" else field
+                value = customer_data.pop(source_key) or None
+                if value is not None or target_field not in address_data[address_type]:
+                    address_data[address_type][target_field] = value
     birth_date = customer_data.get("birth_date")
     if birth_date == "":
         customer_data["birth_date"] = None
@@ -134,6 +138,9 @@ def hydrateCustomer(customer, request):
         addresses[address["type"]] = address
     customer_data["addresses"] = addresses
     customer_data["address"] = addresses.get("billing")
+    for address in addresses.values():
+        if address and "company" not in address:
+            address["company"] = address.get("company_name") or ""
     return customer_data
 
 
