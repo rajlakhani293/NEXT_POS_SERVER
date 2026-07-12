@@ -2210,8 +2210,8 @@ class ProductUnitQuantityService:
             {"product_id": product_id},
             {
                 "include": [
-                    {"path": "unit", "fields": ["id", "name", "identifier"]},
-                    {"path": "convert_unit", "fields": ["id", "name", "identifier"]},
+                    {"path": "unit", "fields": ["id", "name", "identifier", "value", "base_unit", "group_id"]},
+                    {"path": "convert_unit", "fields": ["id", "name", "identifier", "value", "base_unit", "group_id"]},
                 ],
                 "order": ["id"],
             },
