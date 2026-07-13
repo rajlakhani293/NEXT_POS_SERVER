@@ -100,6 +100,37 @@ def humanize_db_field(field_name):
     return field_name.replace("_", " ").title() or "Related record"
 
 
+def normalize_unique_field_name(raw_field):
+    field_name = str(raw_field or "").strip("` '\"()[]{}")
+    field_name = field_name.split(".")[-1]
+    for suffix in ["_uniq", "_unique", "_key"]:
+        field_name = field_name.removesuffix(suffix)
+    if field_name.endswith("_id"):
+        field_name = field_name[:-3]
+    return field_name or "value"
+
+
+def parse_unique_constraint_fields(message):
+    lower_message = message.lower()
+    tenant_fields = {"branch", "branch_id", "company", "company_id", "user", "user_id"}
+
+    if "unique constraint failed:" in lower_message:
+        raw_fields = message.split(":", 1)[-1].split(",")
+        fields = [normalize_unique_field_name(field) for field in raw_fields]
+        fields = [field for field in fields if field not in tenant_fields]
+        if fields:
+            return fields[-1]
+
+    if "key (" in lower_message:
+        raw_fields = lower_message.split("key (", 1)[1].split(")", 1)[0].split(",")
+        fields = [normalize_unique_field_name(field) for field in raw_fields]
+        fields = [field for field in fields if field not in tenant_fields]
+        if fields:
+            return fields[-1]
+
+    return "value"
+
+
 def parse_integrity_error(exc: IntegrityError):
     message = str(exc)
     lower_message = message.lower()
@@ -110,17 +141,14 @@ def parse_integrity_error(exc: IntegrityError):
             field_name = message.split("FOREIGN KEY (`", 1)[1].split("`", 1)[0]
         elif "foreign key (" in lower_message:
             field_name = message.split("FOREIGN KEY (", 1)[1].split(")", 1)[0]
+        field_name = normalize_unique_field_name(field_name)
         label = humanize_db_field(field_name)
         return f"Invalid {label} selected.", {"field": field_name}
 
     if "duplicate entry" in lower_message or "unique constraint" in lower_message:
-        field_name = "value"
-        if " for key " in lower_message:
-            field_name = message.rsplit(" for key ", 1)[-1].strip("'\"() ")
-            field_name = field_name.split(".")[-1]
-            for suffix in ["_uniq", "_unique", "_key"]:
-                field_name = field_name.removesuffix(suffix)
-        return "This record already exists.", {"field": field_name}
+        field_name = parse_unique_constraint_fields(message)
+        label = humanize_db_field(field_name).lower()
+        return f"This {label} already exists.", {"field": field_name}
 
     return "Database validation failed.", None
 

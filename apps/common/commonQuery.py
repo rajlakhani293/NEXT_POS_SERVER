@@ -9,7 +9,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import getAuthContext, jsonsafe, serializeModelInstance
+from apps.common.helpers import fieldLabel, getAuthContext, jsonsafe, requestValidationError, serializeModelInstance
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,89 @@ def modelFieldNames(model):
         if attname:
             field_names.add(attname)
     return frozenset(field_names)
+
+
+TENANT_UNIQUE_FIELD_NAMES = {"branch", "branch_id", "company", "company_id", "user", "user_id"}
+
+
+def uniqueFieldValue(model, data, field_name, instance=None):
+    try:
+        field = model._meta.get_field(field_name)
+    except Exception:
+        return data.get(field_name)
+
+    keys = [getattr(field, "attname", field_name), field.name]
+    for key in keys:
+        if key in data:
+            return data.get(key)
+    if instance is not None:
+        return getattr(instance, getattr(field, "attname", field.name), None)
+    return None
+
+
+def uniqueDisplayField(fields):
+    meaningful_fields = [field for field in fields if field not in TENANT_UNIQUE_FIELD_NAMES]
+    return meaningful_fields[-1] if meaningful_fields else fields[-1]
+
+
+def addUniqueValidationError(errors, field_name):
+    message = f"This {fieldLabel(field_name).lower()} already exists."
+    errors.setdefault(field_name, [])
+    if message not in errors[field_name]:
+        errors[field_name].append(message)
+
+
+def validateModelUniqueConstraints(model, data, request=None, instance=None):
+    model_fields = modelFieldNames(model)
+    if not data or not model_fields:
+        return
+
+    errors = {}
+    constraints = []
+
+    for field in model._meta.fields:
+        if getattr(field, "unique", False) and not getattr(field, "primary_key", False):
+            constraints.append((field.name,))
+
+    for fields in model._meta.unique_together or []:
+        constraints.append(tuple(fields))
+
+    for constraint in model._meta.constraints or []:
+        fields = tuple(getattr(constraint, "fields", ()) or ())
+        if fields:
+            constraints.append(fields)
+
+    for fields in constraints:
+        values = {}
+        skip = False
+        for field_name in fields:
+            if field_name not in model_fields:
+                skip = True
+                break
+            value = uniqueFieldValue(model, data, field_name, instance=instance)
+            if value in (None, ""):
+                skip = True
+                break
+            try:
+                field = model._meta.get_field(field_name)
+                lookup_name = getattr(field, "attname", field_name)
+            except Exception:
+                lookup_name = field_name
+            values[lookup_name] = value
+
+        if skip or not values:
+            continue
+
+        query = model.objects.filter(**values)
+        if "status" in model_fields:
+            query = query.filter(status__in=[0, 1])
+        if instance is not None and getattr(instance, "pk", None):
+            query = query.exclude(pk=instance.pk)
+        if query.exists():
+            addUniqueValidationError(errors, uniqueDisplayField(fields))
+
+    if errors:
+        requestValidationError(errors)
 
 
 def hasStatusFilter(filter_kwargs):
@@ -124,17 +207,22 @@ class commonQuery:
     @staticmethod
     def createRecord(model, data, request=None, tenant_config=True):
         enriched = commonQuery.enrichTenantData(model, data, request, tenant_config)
+        validateModelUniqueConstraints(model, enriched, request=request)
         instance = model.objects.create(**enriched)
         return serializeModelInstance(instance)
 
     @staticmethod
     def createInstance(model, data, request=None, tenant_config=True):
         enriched = commonQuery.enrichTenantData(model, data, request, tenant_config)
+        validateModelUniqueConstraints(model, enriched, request=request)
         return model.objects.create(**enriched)
 
     @staticmethod
     def updateOrCreateInstance(model, lookup, defaults=None, request=None, tenant_config=True):
         enriched_lookup = commonQuery.enrichTenantData(model, lookup, request, tenant_config)
+        payload = {**enriched_lookup, **(defaults or {})}
+        existing = model.objects.filter(**enriched_lookup).first()
+        validateModelUniqueConstraints(model, payload, request=request, instance=existing)
         return model.objects.update_or_create(**enriched_lookup, defaults=defaults or {})
 
     @staticmethod
@@ -267,7 +355,9 @@ class commonQuery:
         enriched = []
         for item in data_array:
             new_item = {**item, **extra_fields}
-            enriched.append(_inject(new_item))
+            enriched_item = _inject(new_item)
+            validateModelUniqueConstraints(model, enriched_item, request=request)
+            enriched.append(enriched_item)
 
         objs = model.objects.bulk_create([model(**item) for item in enriched])
         return [serializeModelInstance(obj) for obj in objs]
@@ -286,6 +376,8 @@ class commonQuery:
             if hasattr(obj, key):
                 setattr(obj, key, value)
 
+        unique_data = serializeModelInstance(obj)
+        validateModelUniqueConstraints(model, unique_data, request=request, instance=obj)
         obj.save()
         if force_reload:
             obj.refresh_from_db()

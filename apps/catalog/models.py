@@ -112,6 +112,7 @@ class TaxGroup(TenantAwareModel):
     class Meta:
         db_table = "taxes_groups"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
     def __str__(self):
         return self.name
@@ -126,6 +127,7 @@ class Tax(TenantAwareModel):
     class Meta:
         db_table = "taxes"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
     def __str__(self):
         return self.name

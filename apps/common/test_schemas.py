@@ -1,9 +1,11 @@
+from django.db import IntegrityError
 from django.test import SimpleTestCase
 from pydantic import ValidationError
 
 from apps.common.schemas import BulkIdsSchema, StatusUpdateSchema
 from apps.settings.schemas import NotificationIn
 from apps.sales.schemas import SaleCreateIn
+from config.api import parse_integrity_error
 
 
 class SharedSchemaTests(SimpleTestCase):
@@ -16,6 +18,30 @@ class SharedSchemaTests(SimpleTestCase):
         self.assertEqual(StatusUpdateSchema(ids=1, status=1).status, 1)
         with self.assertRaises(ValidationError):
             StatusUpdateSchema(ids=1, status=2)
+
+    def test_integrity_duplicate_errors_return_field_specific_message(self):
+        examples = [
+            (
+                "UNIQUE constraint failed: taxes.branch_id, taxes.name",
+                "This name already exists.",
+                "name",
+            ),
+            (
+                "duplicate key value violates unique constraint products_branch_barcode_key DETAIL: Key (branch_id, barcode)=(1, 123) already exists.",
+                "This barcode already exists.",
+                "barcode",
+            ),
+            (
+                "(1062, \"Duplicate entry '1-piece' for key 'units_branch_id_identifier_c616fbc4'\")",
+                "This value already exists.",
+                "value",
+            ),
+        ]
+
+        for raw_error, expected_message, expected_field in examples:
+            message, data = parse_integrity_error(IntegrityError(raw_error))
+            self.assertEqual(message, expected_message)
+            self.assertEqual(data, {"field": expected_field})
 
     def test_mutable_defaults_are_isolated(self):
         first_sale = SaleCreateIn(items=[])

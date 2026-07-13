@@ -147,6 +147,89 @@ def validateUniqueFields(
             )
 
 
+def requestValidationError(errors):
+    from apps.common.error_codes import ErrorCodes
+    from apps.common.exceptions import api_error
+
+    raise api_error(
+        400,
+        ErrorCodes.BAD_REQUEST,
+        "Validation failed.",
+        data={"errors": errors},
+    )
+
+
+def fieldLabel(field_name):
+    return str(field_name or "value").replace("_", " ").title()
+
+
+def validateRequest(data, required_fields=None, options=None, request=None, transaction=None):
+    from apps.common.commonQuery import commonQuery
+
+    payload = data or {}
+    errors = {}
+    required_fields = required_fields or []
+    options = options or {}
+
+    for field in required_fields:
+        field_name = field[0] if isinstance(field, (list, tuple)) else field
+        label = field[1] if isinstance(field, (list, tuple)) and len(field) > 1 else fieldLabel(field_name)
+        value = payload.get(field_name)
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            errors.setdefault(field_name, []).append(f"{label} is required.")
+
+    unique_check = options.get("uniqueCheck") or options.get("unique_check")
+    if unique_check:
+        model = unique_check.get("model")
+        fields = unique_check.get("fields") or []
+        exclude_id = unique_check.get("excludeId") or unique_check.get("exclude_id")
+        scope = unique_check.get("scope", "branch")
+        case_insensitive = set(unique_check.get("caseInsensitive") or unique_check.get("case_insensitive") or fields)
+        status_in = unique_check.get("statusIn", unique_check.get("status_in", (0, 1)))
+        extra_filters = unique_check.get("extraFilters") or unique_check.get("extra_filters") or {}
+        messages = unique_check.get("messages") or {}
+
+        if model and fields:
+            auth_context = getAuthContext(request)
+            if scope == "branch":
+                query = commonQuery.scopedQueryset(
+                    model,
+                    {
+                        "company_id": auth_context.get("company_id"),
+                        "branch_id": auth_context.get("branch_id"),
+                    },
+                    tenant_config={},
+                )
+            elif scope == "company":
+                query = commonQuery.scopedQueryset(
+                    model,
+                    {"company_id": auth_context.get("company_id")},
+                    tenant_config={},
+                )
+            elif scope in (None, "global"):
+                query = commonQuery.scopedQueryset(model, {}, tenant_config={})
+            else:
+                raise ImproperlyConfigured("validateRequest uniqueCheck scope must be branch, company, global, or None.")
+
+            if status_in is not None:
+                query = query.filter(status__in=status_in)
+            if extra_filters:
+                query = query.filter(**extra_filters)
+            if exclude_id:
+                query = query.exclude(id=exclude_id)
+
+            for field_name in fields:
+                value = payload.get(field_name)
+                if value is None or value == "":
+                    continue
+                lookup = f"{field_name}__iexact" if field_name in case_insensitive else field_name
+                if query.filter(**{lookup: value}).exists():
+                    message = messages.get(field_name) or f"This {fieldLabel(field_name).lower()} already exists."
+                    errors.setdefault(field_name, []).append(message)
+
+    return errors
+
+
 def validateTenantRelationIds(
     model,
     ids,
