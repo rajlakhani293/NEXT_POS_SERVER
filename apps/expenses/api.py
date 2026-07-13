@@ -35,6 +35,12 @@ def createExpenseCategory(request, payload: ExpenseCategoryIn):
     return ExpenseCategoryService.create(payloadData(payload), request)
 
 
+@router.patch("/categories/status", response=ApiResponse)
+@permissionRequired("expenses_update")
+def updateExpenseCategoryStatus(request, payload: StatusUpdateSchema):
+    return ExpenseCategoryService.updateStatus(payloadData(payload), request)
+
+
 @router.put("/categories/{id}", response=ApiResponse)
 @permissionRequired("expenses_update")
 def editExpenseCategory(request, id: int, payload: ExpenseCategoryUpdateIn):
@@ -45,12 +51,6 @@ def editExpenseCategory(request, id: int, payload: ExpenseCategoryUpdateIn):
 @permissionRequired("expenses_delete")
 def deleteExpenseCategory(request, payload: BulkIdsSchema):
     return ExpenseCategoryService.delete(payloadData(payload), request)
-
-
-@router.patch("/categories/status", response=ApiResponse)
-@permissionRequired("expenses_update")
-def updateExpenseCategoryStatus(request, payload: StatusUpdateSchema):
-    return ExpenseCategoryService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/categories/{id}", response=ApiResponse)
@@ -73,6 +73,12 @@ def createExpense(request, payload: ExpenseIn):
     return ExpenseService.create(payloadData(payload), request)
 
 
+@router.patch("/status", response=ApiResponse)
+@permissionRequired("expenses_update")
+def updateExpenseStatus(request, payload: StatusUpdateSchema):
+    return ExpenseService.updateStatus(payloadData(payload), request)
+
+
 @router.put("/{id}", response=ApiResponse)
 @permissionRequired("expenses_update")
 def editExpense(request, id: int, payload: ExpenseUpdateIn):
@@ -83,12 +89,6 @@ def editExpense(request, id: int, payload: ExpenseUpdateIn):
 @permissionRequired("expenses_delete")
 def deleteExpense(request, payload: BulkIdsSchema):
     return ExpenseService.delete(payloadData(payload), request)
-
-
-@router.patch("/status", response=ApiResponse)
-@permissionRequired("expenses_update")
-def updateExpenseStatus(request, payload: StatusUpdateSchema):
-    return ExpenseService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/{id}", response=ApiResponse)

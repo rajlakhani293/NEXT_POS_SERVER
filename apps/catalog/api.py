@@ -168,6 +168,12 @@ def deleteUnitGroups(request, payload: BulkIdsSchema):
     return UnitGroupService.delete(payloadData(payload), request)
 
 
+@router.patch("/unit-groups/status", response=ApiResponse)
+@permissionRequired("pos.update.products-units")
+def updateUnitGroupStatus(request, payload: StatusUpdateSchema):
+    return UnitGroupService.updateStatus(payloadData(payload), request)
+
+
 @router.delete("/unit-groups/{unit_group_id}", response=ApiResponse)
 @permissionRequired("pos.delete.products-units")
 def deleteUnitGroupSource(request, unit_group_id: int):
@@ -178,12 +184,6 @@ def deleteUnitGroupSource(request, unit_group_id: int):
 @permissionRequired("pos.delete.products-units")
 def deleteUnitsGroupSourceAlias(request, unit_group_id: int):
     return UnitGroupService.delete({"ids": [unit_group_id]}, request)
-
-
-@router.patch("/unit-groups/status", response=ApiResponse)
-@permissionRequired("pos.update.products-units")
-def updateUnitGroupStatus(request, payload: StatusUpdateSchema):
-    return UnitGroupService.updateStatus(payloadData(payload), request)
 
 
 @router.get("/unit-groups/{unit_group_id}/units", response=ApiResponse)
@@ -245,16 +245,16 @@ def deleteUnits(request, payload: BulkIdsSchema):
     return UnitService.delete(payloadData(payload), request)
 
 
-@router.delete("/units/{unit_id}", response=ApiResponse)
-@permissionRequired("pos.delete.products-units")
-def deleteUnitSource(request, unit_id: int):
-    return UnitService.delete({"ids": [unit_id]}, request)
-
-
 @router.patch("/units/status", response=ApiResponse)
 @permissionRequired("pos.update.products-units")
 def updateUnitStatus(request, payload: StatusUpdateSchema):
     return UnitService.updateStatus(payloadData(payload), request)
+
+
+@router.delete("/units/{unit_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products-units")
+def deleteUnitSource(request, unit_id: int):
+    return UnitService.delete({"ids": [unit_id]}, request)
 
 
 @router.get("/units/{unit_id}/group", response=ApiResponse)
@@ -477,16 +477,16 @@ def deleteProducts(request, payload: BulkIdsSchema):
     return ProductService.delete(payloadData(payload), request)
 
 
-@router.delete("/products/{product_id}", response=ApiResponse)
-@permissionRequired("pos.delete.products")
-def deleteProductSource(request, product_id: int):
-    return ProductService.delete({"ids": [product_id]}, request)
-
-
 @router.patch("/products/status", response=ApiResponse)
 @permissionRequired("pos.update.products")
 def updateProductStatus(request, payload: StatusUpdateSchema):
     return ProductService.updateStatus(payloadData(payload), request)
+
+
+@router.delete("/products/{product_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products")
+def deleteProductSource(request, product_id: int):
+    return ProductService.delete({"ids": [product_id]}, request)
 
 
 @router.get("/products/search/using-barcode/{reference}", response=ApiResponse)
