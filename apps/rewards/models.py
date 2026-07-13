@@ -18,6 +18,7 @@ class RewardSystem(TenantAwareModel):
     class Meta:
         db_table = "rewards_system"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
 
 class RewardSystemRule(TenantAwareModel):

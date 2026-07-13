@@ -9,7 +9,7 @@ from django.utils import timezone
 from ninja.errors import HttpError
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import fieldLabel, getAuthContext, jsonsafe, requestValidationError, serializeModelInstance
+from apps.common.helpers import getAuthContext, jsonsafe, serializeModelInstance
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,19 @@ def modelFieldNames(model):
 TENANT_UNIQUE_FIELD_NAMES = {"branch", "branch_id", "company", "company_id", "user", "user_id"}
 
 
+def uniqueFieldLabel(field_name):
+    return str(field_name or "value").replace("_", " ").title()
+
+
+def raiseUniqueValidationError(errors):
+    raise api_error(
+        400,
+        ErrorCodes.BAD_REQUEST,
+        "Validation failed.",
+        data={"errors": errors},
+    )
+
+
 def uniqueFieldValue(model, data, field_name, instance=None):
     try:
         field = model._meta.get_field(field_name)
@@ -60,7 +73,7 @@ def uniqueDisplayField(fields):
 
 
 def addUniqueValidationError(errors, field_name):
-    message = f"This {fieldLabel(field_name).lower()} already exists."
+    message = f"This {uniqueFieldLabel(field_name).lower()} already exists."
     errors.setdefault(field_name, [])
     if message not in errors[field_name]:
         errors[field_name].append(message)
@@ -116,7 +129,7 @@ def validateModelUniqueConstraints(model, data, request=None, instance=None):
             addUniqueValidationError(errors, uniqueDisplayField(fields))
 
     if errors:
-        requestValidationError(errors)
+        raiseUniqueValidationError(errors)
 
 
 def hasStatusFilter(filter_kwargs):

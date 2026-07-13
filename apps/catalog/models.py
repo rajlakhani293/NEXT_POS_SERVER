@@ -13,6 +13,7 @@ class ScaleRange(TenantAwareModel):
     class Meta:
         db_table = "scale_ranges"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
     def __str__(self):
         return self.name
@@ -70,6 +71,7 @@ class Category(TenantAwareModel):
     class Meta:
         db_table = "products_categories"
         ordering = ["position", "name"]
+        unique_together = [("branch", "name")]
 
     def __str__(self):
         return self.name
@@ -82,6 +84,7 @@ class UnitGroup(TenantAwareModel):
     class Meta:
         db_table = "units_groups"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
     def __str__(self):
         return self.name
@@ -99,7 +102,7 @@ class Unit(TenantAwareModel):
     class Meta:
         db_table = "units"
         ordering = ["name"]
-        unique_together = [("branch", "identifier")]
+        unique_together = [("branch", "identifier"), ("branch", "name")]
 
     def __str__(self):
         return self.name
@@ -179,7 +182,7 @@ class Product(TenantAwareModel):
     class Meta:
         db_table = "products"
         ordering = ["position", "name"]
-        unique_together = [("branch", "sku"), ("branch", "barcode")]
+        unique_together = [("branch", "sku"), ("branch", "barcode"), ("branch", "name")]
 
     def __str__(self):
         return self.name

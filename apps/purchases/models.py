@@ -39,6 +39,7 @@ class Procurement(TenantAwareModel):
     class Meta:
         db_table = "procurements"
         ordering = ["-id"]
+        unique_together = [("branch", "name")]
 
 
 class ProcurementsProduct(TenantAwareModel):

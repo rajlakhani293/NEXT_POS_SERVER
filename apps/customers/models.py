@@ -25,6 +25,7 @@ class CustomerGroup(TenantAwareModel):
     class Meta:
         db_table = "customers_groups"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
     def __str__(self):
         return self.name

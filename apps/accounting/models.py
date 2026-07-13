@@ -18,7 +18,7 @@ class TransactionAccount(TenantAwareModel):
 
     class Meta:
         db_table = "transactions_accounts"
-        unique_together = [("branch", "account")]
+        unique_together = [("branch", "account"), ("branch", "name")]
         ordering = ["category_identifier", "name"]
 
     def __str__(self):

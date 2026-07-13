@@ -23,7 +23,7 @@ class Coupon(TenantAwareModel):
 
     class Meta:
         db_table = "coupons"
-        unique_together = [("branch", "code")]
+        unique_together = [("branch", "code"), ("branch", "name")]
         ordering = ["name"]
 
 

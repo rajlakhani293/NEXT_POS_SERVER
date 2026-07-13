@@ -18,6 +18,7 @@ class Register(TenantAwareModel):
     class Meta:
         db_table = "registers"
         ordering = ["name"]
+        unique_together = [("branch", "name")]
 
 
 class RegistersHistory(TenantAwareModel):

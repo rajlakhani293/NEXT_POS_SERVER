@@ -3,7 +3,7 @@ from django.db import models
 from apps.common.models import BaseModel
 
 class Company(BaseModel):
-    name = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, unique=True)
     legal_name = models.CharField(max_length=255, blank=True)
     code = models.SlugField(max_length=100, unique=True)
     email = models.EmailField(blank=True)
@@ -38,7 +38,7 @@ class Branch(BaseModel):
 
     class Meta:
         ordering = ["name"]
-        unique_together = [("company", "code")]
+        unique_together = [("company", "code"), ("company", "name")]
 
     def __str__(self):
         return f"{self.company.name} - {self.name}"

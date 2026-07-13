@@ -67,6 +67,25 @@ class OrganizationsService:
             )
 
         with transaction.atomic():
+            validateUniqueFields(
+                Company,
+                {"name": company_payload.name},
+                request=request,
+                scope="global",
+                exclude_id=company.id,
+                case_insensitive=["name"],
+                status_in=(0, 1),
+            )
+            if branch_payload is not None:
+                validateUniqueFields(
+                    Branch,
+                    {"name": branch_payload.name},
+                    request=request,
+                    scope="company",
+                    exclude_id=branch.id,
+                    case_insensitive=["name"],
+                    status_in=(0, 1),
+                )
             company.name = company_payload.name
             company.legal_name = company_payload.legal_name or company_payload.name
             company.email = company_payload.email or ""
