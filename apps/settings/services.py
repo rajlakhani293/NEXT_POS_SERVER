@@ -51,6 +51,11 @@ class OptionSettingService:
         "pos_vat",
         "store_language",
         "registration_enabled",
+        "registration_role",
+        "registration_validated",
+        "date_format",
+        "datetime_format",
+        "datetime_timezone",
         "scale_barcode_prefix",
         "scale_barcode_type",
         "orders_code_type",
@@ -67,7 +72,6 @@ class OptionSettingService:
         "pos_printing_enabled_for",
         "pos_printing_gateway",
         "reports_email",
-        "workers_enabled",
     }
     INTEGER_SETTING_FIELDS = {
         "currency_precision",
@@ -252,11 +256,6 @@ class OptionSettingService:
                 ],
             },
         },
-        "workers": {
-            "title": "Workers Settings",
-            "description": "Configure workers settings.",
-            "tabs": {"general": [("workers_enabled", "select", "Workers", "")]},
-        },
         "reset": {
             "title": "Reset",
             "description": "Reset application data.",
@@ -435,11 +434,6 @@ class OptionSettingService:
         "invoice_merge_similar_products": YES_NO_OPTIONS,
         "invoice_display_tax_breakdown": YES_NO_OPTIONS,
         "reports_email": YES_NO_OPTIONS,
-        "workers_enabled": [
-            ("no", "No"),
-            ("await_confirm", "Test"),
-            ("yes", "Yes"),
-        ],
         "mode": [
             ("wipe_all", "Wipe All"),
             ("wipe_plus_grocery", "Wipe Plus Grocery"),

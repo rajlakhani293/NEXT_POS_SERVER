@@ -56,6 +56,12 @@ BUSINESS_SETTING_FIELDS = [
     "pos_vat",
     "store_language",
     "registration_enabled",
+    "registration_role",
+    "registration_validated",
+    "recovery_enabled",
+    "date_format",
+    "datetime_format",
+    "datetime_timezone",
     "scale_barcode_enabled",
     "scale_barcode_prefix",
     "scale_barcode_product_length",
@@ -71,7 +77,6 @@ BUSINESS_SETTING_FIELDS = [
     "printing_enabled_for",
     "printing_gateway",
     "reports_email",
-    "workers_enabled",
 ]
 
 
@@ -122,6 +127,12 @@ OPTION_KEY_MAP = {
     "pos_vat": "pos_vat",
     "store_language": "store_language",
     "registration_enabled": "registration_enabled",
+    "registration_role": "registration_role",
+    "registration_validated": "registration_validated",
+    "recovery_enabled": "recovery_enabled",
+    "date_format": "date_format",
+    "datetime_format": "datetime_format",
+    "datetime_timezone": "datetime_timezone",
     "scale_barcode_enabled": "scale_barcode_enabled",
     "scale_barcode_prefix": "scale_barcode_prefix",
     "scale_barcode_product_length": "scale_barcode_product_length",
@@ -137,12 +148,17 @@ OPTION_KEY_MAP = {
     "printing_enabled_for": "pos_printing_enabled_for",
     "printing_gateway": "pos_printing_gateway",
     "reports_email": "reports_email",
-    "workers_enabled": "workers_enabled",
 }
 
 
 STATIC_OPTION_DEFAULTS = {
     "registration_enabled": "no",
+    "registration_role": "",
+    "registration_validated": "no",
+    "recovery_enabled": "yes",
+    "date_format": "Y-m-d",
+    "datetime_format": "Y-m-d H:i",
+    "datetime_timezone": "UTC",
     "store_language": "en",
     "allow_decimal_quantities": "yes",
     "quick_product": "yes",
@@ -202,7 +218,6 @@ STATIC_OPTION_DEFAULTS = {
     "pos_printing_enabled_for": "only_paid_orders",
     "pos_printing_gateway": "default",
     "reports_email": "no",
-    "workers_enabled": "no",
 }
 
 
@@ -363,6 +378,12 @@ def defaultBusinessSettings():
         "pos_preferred_price": "net_prices",
         "pos_vat": "disabled",
         "registration_enabled": "no",
+        "registration_role": "",
+        "registration_validated": "no",
+        "recovery_enabled": "yes",
+        "date_format": "Y-m-d",
+        "datetime_format": "Y-m-d H:i",
+        "datetime_timezone": "UTC",
         "scale_barcode_enabled": False,
         "scale_barcode_prefix": "2",
         "scale_barcode_product_length": 5,
@@ -378,7 +399,6 @@ def defaultBusinessSettings():
         "printing_enabled_for": "only_paid_orders",
         "printing_gateway": "default",
         "reports_email": "no",
-        "workers_enabled": "no",
     }
 
 
