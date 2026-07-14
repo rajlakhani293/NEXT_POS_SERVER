@@ -2198,6 +2198,58 @@ class PosParityFlowTest(TestCase):
             ).exists()
         )
 
+    def test_delivered_procurement_is_immediately_stocked_like_source(self):
+        purchase = PurchaseOrderService.create(
+            {
+                "provider_id": self.provider.id,
+                "payment_status": "paid",
+                "delivery_status": "delivered",
+                "products": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "purchase_price": Decimal("60"),
+                        "quantity": Decimal("3"),
+                    }
+                ],
+            },
+            self.request,
+        ).data
+
+        procurement = Procurement.objects.get(id=purchase["id"])
+        procurement_item = ProcurementsProduct.objects.get(procurement=procurement)
+        self.unit_quantity.refresh_from_db()
+
+        self.assertEqual(procurement.delivery_status, "stocked")
+        self.assertEqual(Decimal(str(procurement_item.available_quantity)), Decimal("0.00000"))
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("3.0"))
+        self.assertTrue(
+            ProductHistory.objects.filter(
+                company=self.company,
+                branch=self.branch,
+                product=self.product,
+                procurement_id=procurement.id,
+                operation_type=ProductHistory.ACTION_STOCKED,
+            ).exists()
+        )
+
+        PurchaseOrderService.delete({"ids": [procurement.id]}, self.request)
+        self.unit_quantity.refresh_from_db()
+        procurement.refresh_from_db()
+
+        self.assertEqual(procurement.status, 2)
+        self.assertFalse(ProcurementsProduct.objects.filter(procurement=procurement).exists())
+        self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("0.0"))
+        self.assertTrue(
+            ProductHistory.objects.filter(
+                company=self.company,
+                branch=self.branch,
+                product=self.product,
+                procurement_id=procurement.id,
+                operation_type=ProductHistory.ACTION_DELETED,
+            ).exists()
+        )
+
     def test_procurement_source_payload_search_preload_and_stock_guards_follow_source(self):
         purchase = PurchaseOrderService.create(
             {

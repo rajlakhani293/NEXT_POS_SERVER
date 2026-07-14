@@ -524,6 +524,23 @@ class PurchaseOrderService:
                 PurchaseOrderService.createOrUpdateProductRow(procurement["id"], item, request)
                 for item in products
             ]
+            if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_DELIVERED:
+                receive_items = [
+                    {
+                        "purchase_item_id": item["id"],
+                        "received_quantity": item.get("available_quantity") or item.get("quantity") or 0,
+                    }
+                    for item in created_products
+                    if qty(item.get("available_quantity") or item.get("quantity")) > 0
+                ]
+                if receive_items:
+                    procurement = PurchaseOrderService.receive(
+                        procurement["id"],
+                        {"items": receive_items, "note": f"Procurement receive {procurement['name']}"},
+                        request,
+                    ).data
+                    procurement["products"] = created_products
+                    procurement["items"] = created_products
             commonQuery.branchScopedQueryset(Provider, {"id": provider["id"]}, request).update(
                 amount_due=F("amount_due") + float(value)
             )
@@ -1110,22 +1127,23 @@ class PurchaseOrderService:
 
     @staticmethod
     def deleteProduct(order_id, purchase_item_id, request):
-        procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
-        if procurement is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
-        item = commonQuery.findOneRecord(ProcurementsProduct, {"id": purchase_item_id, "procurement_id": order_id}, request=request, tenant_config=True)
-        if item is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
-        if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
-            PurchaseOrderService.recordProcurementStockDeletion(procurement, item, request)
-        elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement product cannot be deleted. Please use stock adjustment.")
-        commonQuery.branchScopedQueryset(
-            ProcurementsProduct,
-            {"id": purchase_item_id, "procurement_id": order_id},
-            request,
-        ).delete()
-        PurchaseOrderService.recalculateOrder(order_id, request)
+        with transaction.atomic():
+            procurement = commonQuery.findOneRecord(Procurement, order_id, request=request, tenant_config=True)
+            if procurement is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+            item = commonQuery.findOneRecord(ProcurementsProduct, {"id": purchase_item_id, "procurement_id": order_id}, request=request, tenant_config=True)
+            if item is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement product not found.")
+            if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
+                PurchaseOrderService.recordProcurementStockDeletion(procurement, item, request)
+            elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement product cannot be deleted. Please use stock adjustment.")
+            commonQuery.branchScopedQueryset(
+                ProcurementsProduct,
+                {"id": purchase_item_id, "procurement_id": order_id},
+                request,
+            ).delete()
+            PurchaseOrderService.recalculateOrder(order_id, request)
         return successResponse("Procurement product deleted successfully.")
 
     @staticmethod
@@ -1145,7 +1163,7 @@ class PurchaseOrderService:
                 ProductUnitQuantity,
                 {"product_id": row["id"], "status__in": [0, 1]},
                 request,
-            ).values("id", "quantity", "cogs", "unit_id", "unit__name").order_by("id"))
+            ).values("id", "quantity", "cogs", "unit_id", "unit__name", "convert_unit_id").order_by("id"))
             unit_quantity = unit_quantities[0] if unit_quantities else None
             row["unit_quantity_id"] = unit_quantity.get("id") if unit_quantity else None
             row["current_stock"] = unit_quantity.get("quantity") if unit_quantity else 0
@@ -1199,46 +1217,48 @@ class PurchaseOrderService:
         ids = data.get("ids")
         if not isinstance(ids, list):
             ids = [ids]
-        procurements = list(
-            commonQuery.branchScopedQueryset(Procurement, {"id__in": ids}, request)
-            .exclude(status=2)
-            .values("id", "name", "provider_id", "delivery_status")
-        )
-        for procurement in procurements:
-            products = commonQuery.findAllRecords(
-                ProcurementsProduct,
-                {"procurement_id": procurement["id"]},
-                {
-                    "attributes": [
-                        "id",
-                        "product_id",
-                        "quantity",
-                        "available_quantity",
-                        "unit_id",
-                        "purchase_price",
-                        "total_purchase_price",
-                    ]
-                },
-                request=request,
-                tenant_config=True,
+        with transaction.atomic():
+            procurements = list(
+                commonQuery.branchScopedQueryset(Procurement, {"id__in": ids}, request)
+                .exclude(status=2)
+                .values("id", "name", "provider_id", "delivery_status")
             )
-            for item in products:
-                if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
-                    PurchaseOrderService.recordProcurementStockDeletion(procurement, item, request)
-                elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
-                    raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement cannot be deleted. Please use stock adjustment.")
-            commonQuery.branchScopedQueryset(
-                ProcurementsProduct,
-                {"procurement_id": procurement["id"]},
-                request,
-            ).delete()
-            AccountingService.deleteProcurementTransactions(procurement["id"], request)
+            for procurement in procurements:
+                products = commonQuery.findAllRecords(
+                    ProcurementsProduct,
+                    {"procurement_id": procurement["id"]},
+                    {
+                        "attributes": [
+                            "id",
+                            "product_id",
+                            "quantity",
+                            "available_quantity",
+                            "unit_id",
+                            "convert_unit_id",
+                            "purchase_price",
+                            "total_purchase_price",
+                        ]
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+                for item in products:
+                    if procurement.get("delivery_status") == PurchaseOrderService.DELIVERY_STOCKED:
+                        PurchaseOrderService.recordProcurementStockDeletion(procurement, item, request)
+                    elif qty(item.get("available_quantity")) < qty(item.get("quantity")):
+                        raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially received procurement cannot be deleted. Please use stock adjustment.")
+                commonQuery.branchScopedQueryset(
+                    ProcurementsProduct,
+                    {"procurement_id": procurement["id"]},
+                    request,
+                ).delete()
+                AccountingService.deleteProcurementTransactions(procurement["id"], request)
 
-        count = commonQuery.softDeleteById(Procurement, ids, request=request, tenant_config=True)
-        if count == 0:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
-        for provider_id in {procurement["provider_id"] for procurement in procurements if procurement.get("provider_id")}:
-            SupplierService.computeSummary(provider_id, request)
+            count = commonQuery.softDeleteById(Procurement, ids, request=request, tenant_config=True)
+            if count == 0:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
+            for provider_id in {procurement["provider_id"] for procurement in procurements if procurement.get("provider_id")}:
+                SupplierService.computeSummary(provider_id, request)
         return successResponse("Procurements deleted successfully.")
 
     @staticmethod
