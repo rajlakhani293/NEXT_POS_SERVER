@@ -7,6 +7,8 @@ CurrencyPosition = Literal["before", "after"]
 CurrencyPreferred = Literal["iso", "symbol"]
 PosPreferredPrice = Literal["gross_prices", "net_prices"]
 PosVat = Literal["disabled", "flat_vat", "variable_vat", "products_vat"]
+OrdersCodeType = Literal["date_sequential", "random_code", "number_sequential"]
+QuotationExpiration = Literal["never", "3", "5", "10", "15", "30"]
 
 
 class OptionSettingIn(Schema):
@@ -31,6 +33,23 @@ class OptionSettingIn(Schema):
     pos_preferred_price: PosPreferredPrice = "net_prices"
     pos_vat: PosVat = "disabled"
     store_language: str = "en"
+    registration_enabled: bool = False
+    registration_role: str = ""
+    registration_validated: bool = False
+    recovery_enabled: bool = True
+    date_format: str = "Y-m-d"
+    datetime_format: str = "Y-m-d H:i"
+    datetime_timezone: str = "UTC"
+    orders_code_type: OrdersCodeType = "date_sequential"
+    orders_allow_unpaid: bool = False
+    orders_strict_instalments: bool = False
+    orders_quotation_expiration: QuotationExpiration = "never"
+    pos_tax_group: str = ""
+    pos_tax_type: str = ""
+    printing_document: str = "receipt"
+    printing_enabled_for: str = "only_paid_orders"
+    printing_gateway: str = "default"
+    reports_email: bool = False
 
 
 class PaymentTypeOut(Schema):

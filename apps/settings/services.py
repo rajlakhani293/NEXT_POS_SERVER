@@ -135,11 +135,11 @@ class OptionSettingService:
             "description": "configure settings that applies to orders.",
             "tabs": {
                 "general": [
-                    ("orders_code_type", "select", "Order Code Type", ""),
-                    ("orders_allow_unpaid", "switch", "Allow Unpaid Orders", ""),
-                    ("orders_allow_partial", "switch", "Allow Partial Orders", ""),
-                    ("orders_strict_instalments", "switch", "Strict Instalments", ""),
-                    ("orders_quotation_expiration", "select", "Quotation Expiration", ""),
+                    ("orders_code_type", "select", "Order Code Type", "", "Determine how the system will generate code for each orders."),
+                    ("orders_allow_unpaid", "switch", "Allow Unpaid Orders", "", 'Will prevent incomplete orders to be placed. If credit is allowed, this option should be set to "yes".'),
+                    ("orders_allow_partial", "switch", "Allow Partial Orders", "", "Will prevent partially paid orders to be placed."),
+                    ("orders_strict_instalments", "switch", "Strict Instalments", "", "Will enforce instalment to be paid on specific date."),
+                    ("orders_quotation_expiration", "select", "Quotation Expiration", "", "Quotations will get deleted after they defined they has reached."),
                 ],
             },
         },
