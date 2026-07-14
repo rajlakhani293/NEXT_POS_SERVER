@@ -115,6 +115,46 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(login_payload.password, "x")
         self.assertEqual(register_payload.password_confirm, "x")
 
+    def test_master_delete_blocks_records_referenced_by_business_data(self):
+        with self.assertRaises(Exception):
+            UnitService.delete({"ids": [self.unit.id]}, self.request)
+        with self.assertRaises(Exception):
+            UnitGroupService.delete({"ids": [self.product.unit_group_id]}, self.request)
+        with self.assertRaises(Exception):
+            CategoryService.delete({"ids": [self.category.id]}, self.request)
+
+        tax_group = TaxGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="VAT Group",
+        )
+        Tax.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            tax_group=tax_group,
+            name="VAT",
+            rate=5,
+        )
+        with self.assertRaises(Exception):
+            TaxGroupService.delete({"ids": [tax_group.id]}, self.request)
+
+        unused_unit = Unit.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            group=self.unit.group,
+            name="Unused Unit",
+            identifier="unused-unit",
+            value=1,
+        )
+        deleted = UnitService.delete({"ids": [unused_unit.id]}, self.request)
+        unused_unit.refresh_from_db()
+
+        self.assertTrue(deleted.success)
+        self.assertEqual(unused_unit.status, 2)
+
     def create_customer(self, *, group=None, username="customer"):
         customer_role = Role.objects.get(
             company=self.company,

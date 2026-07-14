@@ -4,6 +4,7 @@ from functools import lru_cache
 import json
 import logging
 
+from django.db.models.deletion import CASCADE, DO_NOTHING, PROTECT, SET_NULL
 from django.db.models import Q, Sum, Min, Max, F
 from django.utils import timezone
 from ninja.errors import HttpError
@@ -37,6 +38,8 @@ def modelFieldNames(model):
 
 
 TENANT_UNIQUE_FIELD_NAMES = {"branch", "branch_id", "company", "company_id", "user", "user_id"}
+OWNERSHIP_RELATION_FIELD_NAMES = {"user", "company", "branch"}
+REFERENCE_ON_DELETE_HANDLERS = {CASCADE, PROTECT, SET_NULL, DO_NOTHING}
 
 
 def uniqueFieldLabel(field_name):
@@ -50,6 +53,57 @@ def raiseUniqueValidationError(errors):
         "Validation failed.",
         data={"errors": errors},
     )
+
+
+def modelDisplayName(model):
+    return str(model._meta.verbose_name or model.__name__).replace("_", " ").title()
+
+
+def isActiveRelationQueryset(queryset):
+    if "status" in modelFieldNames(queryset.model):
+        queryset = queryset.exclude(status=2)
+    return queryset
+
+
+def shouldCheckDeleteRelation(relation):
+    field = getattr(relation, "field", None)
+    if field is None:
+        return False
+
+    if field.name in OWNERSHIP_RELATION_FIELD_NAMES:
+        return False
+
+    related_name = getattr(relation, "related_name", "") or ""
+    if related_name.startswith("owned_"):
+        return False
+
+    return getattr(field.remote_field, "on_delete", None) in REFERENCE_ON_DELETE_HANDLERS
+
+
+def assertRecordsNotInUse(model, ids):
+    ids = [item for item in (ids or []) if item is not None]
+    if not ids:
+        return
+
+    for relation in model._meta.related_objects:
+        if not shouldCheckDeleteRelation(relation):
+            continue
+
+        related_model = relation.related_model
+        field = relation.field
+        queryset = related_model.objects.filter(**{f"{field.name}_id__in": ids})
+        queryset = isActiveRelationQueryset(queryset)
+
+        if queryset.exists():
+            raise api_error(
+                400,
+                ErrorCodes.BAD_REQUEST,
+                f"This {modelDisplayName(model).lower()} is currently in use and cannot be deleted.",
+                data={
+                    "field": field.name,
+                    "related_model": related_model._meta.label_lower,
+                },
+            )
 
 
 def uniqueFieldValue(model, data, field_name, instance=None):
@@ -401,6 +455,8 @@ class commonQuery:
         q = buildWhere(model, where_input, tenant_config, request)
         model_fields = modelFieldNames(model)
         ctx = safeAuthContext(request)
+        ids = list(model.objects.filter(q).values_list("id", flat=True))
+        assertRecordsNotInUse(model, ids)
 
         update_kwargs = {"status": 2}
         if "deleted_at" in model_fields:
@@ -408,7 +464,7 @@ class commonQuery:
         if "user" in model_fields and ctx.get("user_id") is not None:
             update_kwargs["user_id"] = ctx["user_id"]
 
-        return model.objects.filter(q).update(**update_kwargs)
+        return model.objects.filter(id__in=ids).update(**update_kwargs)
 
     @staticmethod
     def updateStatusById(model, where_input, status, request=None, tenant_config=True):
