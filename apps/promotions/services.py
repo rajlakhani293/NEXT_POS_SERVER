@@ -257,6 +257,67 @@ class CouponService:
         return successResponse("Coupon retrieved successfully.", data=attachCouponTargets(coupon, request))
 
     @staticmethod
+    def getCouponOrderHistory(coupon_id, data, request):
+        coupon = commonQuery.findOneRecord(
+            Coupon,
+            coupon_id,
+            request=request,
+            tenant_config=True,
+        )
+        if coupon is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Coupon not found.")
+
+        result = commonQuery.fetchPaginatedData(
+            OrdersCoupon,
+            {
+                **(data or {}),
+                "filter": {
+                    **((data or {}).get("filter") or {}),
+                    "coupon_id": coupon_id,
+                },
+            },
+            [
+                ["name", True, True],
+                ["code", True, True],
+                ["sale_order__code", True, True],
+                ["sale_order__customer__first_name", True, True],
+                ["sale_order__customer__last_name", True, True],
+                ["type", True, True],
+            ],
+            {
+                "attributes": [
+                    "id",
+                    "name",
+                    "code",
+                    "sale_order_id",
+                    "sale_order__code",
+                    "sale_order__customer__first_name",
+                    "sale_order__customer__last_name",
+                    "type",
+                    "discount_value",
+                    "discount_amount",
+                    "user__username",
+                    "created_at",
+                    "status",
+                ],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        for item in result.get("items", []):
+            customer_name = " ".join(
+                part for part in [
+                    item.pop("sale_order__customer__first_name", None),
+                    item.pop("sale_order__customer__last_name", None),
+                ] if part
+            )
+            item["customer_name"] = customer_name or "N/A"
+            item["order_code"] = item.pop("sale_order__code", None) or "N/A"
+            item["user_username"] = item.pop("user__username", None) or "N/A"
+        result["coupon"] = coupon
+        return successResponse("Coupon order histories retrieved successfully.", data=result)
+
+    @staticmethod
     def update(data, request, coupon_id):
         with transaction.atomic():
             coupon = commonQuery.findOneRecord(

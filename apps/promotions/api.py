@@ -49,6 +49,12 @@ def getCouponById(request, coupon_id: int):
     return CouponService.getById(coupon_id, request)
 
 
+@router.post("/coupons/{coupon_id}/history/get-transactions", response=ApiResponse)
+@permissionRequired("promotions_view")
+def getCouponOrderHistory(request, coupon_id: int, payload: Optional[dict] = None):
+    return CouponService.getCouponOrderHistory(coupon_id, payload, request)
+
+
 @router.put("/coupons/{coupon_id}", response=ApiResponse)
 @permissionRequired("promotions_update")
 def updateCoupon(request, coupon_id: int, payload: CouponUpdateIn):

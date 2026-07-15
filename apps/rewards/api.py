@@ -1,7 +1,6 @@
+# type: ignore
 from typing import Optional
-
 from ninja import Router
-
 from apps.accounts.auth import auth_bearer
 from apps.common.authz import permissionRequired
 from apps.common.commonQuery import commonQuery
