@@ -18,18 +18,6 @@ def dashboardSummary(request, payload: Optional[dict] = Body(None)):
     return ReportService.dashboardSummary(payload or {}, request)
 
 
-@router.post("/dashboard-snapshot/refresh", response=ApiResponse)
-@permissionRequired("pos.reports.sales")
-def refreshDashboardSnapshot(request, payload: Optional[dict] = Body(None)):
-    return ReportService.refreshDashboardSnapshot(payload or {}, request)
-
-
-@router.post("/dashboard/recompute", response=ApiResponse)
-@permissionRequired("settings_update")
-def recomputeDashboardReports(request, payload: Optional[dict] = Body(None)):
-    return ReportService.enqueueDashboardRecompute(payload or {}, request)
-
-
 @dashboardRouter.get("/day", response=ApiResponse)
 @permissionRequired("pos.reports.sales")
 def dashboardDay(request):
