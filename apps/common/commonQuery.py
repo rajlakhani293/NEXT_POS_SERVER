@@ -237,6 +237,106 @@ def buildWhere(model, where_input=None, tenant_config=True, request=None):
 
     return q
 
+@staticmethod
+def normalizeInclude(include):
+    if not include:
+        return []
+    if not isinstance(include, list):
+        include = [include]
+    normalized = []
+    for inc in include:
+        if isinstance(inc, str):
+            normalized.append({"path": inc, "fields": None, "include": []})
+            continue
+        if isinstance(inc, dict):
+            path = inc.get("path") or inc.get("as") or inc.get("relation")
+            if not path:
+                continue
+            normalized.append(
+                {
+                    "path": path,
+                    "fields": inc.get("fields") or inc.get("attributes"),
+                    "include": normalizeInclude(inc.get("include")),
+                }
+            )
+    return normalized
+
+@staticmethod
+def resolveRelatedField(model, name):
+    try:
+        return model._meta.get_field(name)
+    except Exception:
+        for f in model._meta.get_fields():
+            if f.is_relation and f.auto_created and not f.concrete:
+                if hasattr(f, "get_accessor_name") and f.get_accessor_name() == name:
+                    return f
+        return None
+
+@staticmethod
+def collectRelatedPaths(model, include_specs, prefix=""):
+    select_related = []
+    prefetch_related = []
+    for inc in include_specs:
+        path = inc.get("path")
+        if not path:
+            continue
+        full_path = f"{prefix}__{path}" if prefix else path
+        field = resolveRelatedField(model, path)
+        related_model = None
+        if field is not None:
+            related_model = getattr(field, "related_model", None)
+            if field.many_to_many or field.one_to_many or (field.auto_created and not field.concrete):
+                prefetch_related.append(full_path)
+            else:
+                select_related.append(full_path)
+        # Recurse for nested includes
+        if related_model and inc.get("include"):
+            sr, pr = collectRelatedPaths(related_model, inc.get("include"), full_path)
+            select_related.extend(sr)
+            prefetch_related.extend(pr)
+    return select_related, prefetch_related
+
+@staticmethod
+def applyFieldFilter(data, fields):
+    if not fields:
+        return data
+    return {k: data.get(k) for k in fields if k in data}
+
+@staticmethod
+def serializeWithInclude(obj, include_specs, base_fields=None):
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        base = applyFieldFilter(obj, base_fields)
+        return base
+
+    data = serializeModelInstance(obj)
+    data = applyFieldFilter(data, base_fields)
+
+    for inc in include_specs:
+        path = inc.get("path")
+        if not path:
+            continue
+        try:
+            rel_val = getattr(obj, path)
+        except Exception:
+            data[path] = None
+            continue
+
+        if hasattr(rel_val, "all"):
+            data[path] = [
+                serializeWithInclude(
+                    child, inc.get("include") or [], inc.get("fields")
+                )
+                for child in rel_val.all()
+            ]
+        else:
+            data[path] = serializeWithInclude(
+                rel_val, inc.get("include") or [], inc.get("fields")
+            )
+
+    return data
+
 
 class commonQuery:
 
@@ -291,106 +391,6 @@ class commonQuery:
         existing = model.objects.filter(**enriched_lookup).first()
         validateModelUniqueConstraints(model, payload, request=request, instance=existing)
         return model.objects.update_or_create(**enriched_lookup, defaults=defaults or {})
-
-    @staticmethod
-    def normalizeInclude(include):
-        if not include:
-            return []
-        if not isinstance(include, list):
-            include = [include]
-        normalized = []
-        for inc in include:
-            if isinstance(inc, str):
-                normalized.append({"path": inc, "fields": None, "include": []})
-                continue
-            if isinstance(inc, dict):
-                path = inc.get("path") or inc.get("as") or inc.get("relation")
-                if not path:
-                    continue
-                normalized.append(
-                    {
-                        "path": path,
-                        "fields": inc.get("fields") or inc.get("attributes"),
-                        "include": commonQuery.normalizeInclude(inc.get("include")),
-                    }
-                )
-        return normalized
-
-    @staticmethod
-    def resolveRelatedField(model, name):
-        try:
-            return model._meta.get_field(name)
-        except Exception:
-            for f in model._meta.get_fields():
-                if f.is_relation and f.auto_created and not f.concrete:
-                    if hasattr(f, "get_accessor_name") and f.get_accessor_name() == name:
-                        return f
-            return None
-
-    @staticmethod
-    def collectRelatedPaths(model, include_specs, prefix=""):
-        select_related = []
-        prefetch_related = []
-        for inc in include_specs:
-            path = inc.get("path")
-            if not path:
-                continue
-            full_path = f"{prefix}__{path}" if prefix else path
-            field = commonQuery.resolveRelatedField(model, path)
-            related_model = None
-            if field is not None:
-                related_model = getattr(field, "related_model", None)
-                if field.many_to_many or field.one_to_many or (field.auto_created and not field.concrete):
-                    prefetch_related.append(full_path)
-                else:
-                    select_related.append(full_path)
-            # Recurse for nested includes
-            if related_model and inc.get("include"):
-                sr, pr = commonQuery.collectRelatedPaths(related_model, inc.get("include"), full_path)
-                select_related.extend(sr)
-                prefetch_related.extend(pr)
-        return select_related, prefetch_related
-
-    @staticmethod
-    def applyFieldFilter(data, fields):
-        if not fields:
-            return data
-        return {k: data.get(k) for k in fields if k in data}
-
-    @staticmethod
-    def serializeWithInclude(obj, include_specs, base_fields=None):
-        if obj is None:
-            return None
-        if isinstance(obj, dict):
-            base = commonQuery.applyFieldFilter(obj, base_fields)
-            return base
-
-        data = serializeModelInstance(obj)
-        data = commonQuery.applyFieldFilter(data, base_fields)
-
-        for inc in include_specs:
-            path = inc.get("path")
-            if not path:
-                continue
-            try:
-                rel_val = getattr(obj, path)
-            except Exception:
-                data[path] = None
-                continue
-
-            if hasattr(rel_val, "all"):
-                data[path] = [
-                    commonQuery.serializeWithInclude(
-                        child, inc.get("include") or [], inc.get("fields")
-                    )
-                    for child in rel_val.all()
-                ]
-            else:
-                data[path] = commonQuery.serializeWithInclude(
-                    rel_val, inc.get("include") or [], inc.get("fields")
-                )
-
-        return data
 
     @staticmethod
     def bulkCreate(model, data_array, extra_fields=None, request=None, tenant_config=True):
@@ -508,9 +508,9 @@ class commonQuery:
             else:
                 queryset = queryset.order_by(order)
 
-        include_specs = commonQuery.normalizeInclude(options.get("include"))
+        include_specs = normalizeInclude(options.get("include"))
 
-        select_related, prefetch_related = commonQuery.collectRelatedPaths(model, include_specs)
+        select_related, prefetch_related = collectRelatedPaths(model, include_specs)
         if options.get("select_related"):
             select_related.extend(options["select_related"])
         if options.get("prefetch_related"):
@@ -534,7 +534,7 @@ class commonQuery:
             return list(queryset.values(*base_fields))
 
         return [
-            commonQuery.serializeWithInclude(obj, include_specs, base_fields)
+            serializeWithInclude(obj, include_specs, base_fields)
             for obj in queryset
         ]
 
@@ -544,9 +544,9 @@ class commonQuery:
         q = buildWhere(model, where_input, tenant_config, request)
         queryset = model.objects.filter(q)
 
-        include_specs = commonQuery.normalizeInclude(options.get("include"))
+        include_specs = normalizeInclude(options.get("include"))
 
-        select_related, prefetch_related = commonQuery.collectRelatedPaths(model, include_specs)
+        select_related, prefetch_related = collectRelatedPaths(model, include_specs)
         if options.get("select_related"):
             select_related.extend(options["select_related"])
         if options.get("prefetch_related"):
@@ -566,7 +566,7 @@ class commonQuery:
         if obj and force_reload:
             obj.refresh_from_db()
 
-        return jsonsafe(commonQuery.serializeWithInclude(obj, include_specs, base_fields)) if obj else None
+        return jsonsafe(serializeWithInclude(obj, include_specs, base_fields)) if obj else None
 
     @staticmethod
     def findOneInstance(model, where_input=None, options=None, request=None, tenant_config=True, for_update=False):

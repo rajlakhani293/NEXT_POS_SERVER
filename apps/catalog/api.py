@@ -483,18 +483,6 @@ def updateProductStatus(request, payload: StatusUpdateSchema):
     return ProductService.updateStatus(payloadData(payload), request)
 
 
-@router.delete("/products/{product_id}", response=ApiResponse)
-@permissionRequired("pos.delete.products")
-def deleteProductSource(request, product_id: int):
-    return ProductService.delete({"ids": [product_id]}, request)
-
-
-@router.get("/products/search/using-barcode/{reference}", response=ApiResponse)
-@permissionRequired("pos.read.products")
-def searchProductUsingBarcode(request, reference: str):
-    return ProductService.searchUsingBarcode(reference, request)
-
-
 @router.post("/products/adjustments", response=ApiResponse)
 @permissionRequired("pos.make.products-adjustments")
 def adjustProductStock(request, payload: ProductAdjustmentIn):
@@ -505,6 +493,18 @@ def adjustProductStock(request, payload: ProductAdjustmentIn):
 @permissionRequired("pos.update.products")
 def reorderProducts(request, payload: dict):
     return ProductService.reorderProducts(payload, request)
+
+
+@router.delete("/products/{product_id}", response=ApiResponse)
+@permissionRequired("pos.delete.products")
+def deleteProductSource(request, product_id: int):
+    return ProductService.delete({"ids": [product_id]}, request)
+
+
+@router.get("/products/search/using-barcode/{reference}", response=ApiResponse)
+@permissionRequired("pos.read.products")
+def searchProductUsingBarcode(request, reference: str):
+    return ProductService.searchUsingBarcode(reference, request)
 
 
 @router.get("/products/{product_id}/units/quantities", response=ApiResponse)
