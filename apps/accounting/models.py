@@ -26,19 +26,16 @@ class TransactionAccount(TenantAwareModel):
 
 
 class Transaction(TenantAwareModel):
-    TYPE_SCHEDULED = "scheduled-transaction"
-    TYPE_RECURRING = "recurring-transaction"
-    TYPE_ENTITY = "entity-transaction"
-    TYPE_DIRECT = "direct-transaction"
-    TYPE_INDIRECT = "indirect-transaction"
+    TYPE_INCOME = "income"
+    TYPE_EXPENSE = "expense"
 
     name = models.CharField(max_length=180)
     account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, related_name="transactions")
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, null=True)
     media_id = models.PositiveBigIntegerField(default=0)
     value = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     recurring = models.BooleanField(default=False)
-    type = models.CharField(max_length=80, default=TYPE_DIRECT)
+    type = models.CharField(max_length=80, blank=True, null=True, default=TYPE_EXPENSE)
     active = models.BooleanField(default=False)
     group_id = models.PositiveBigIntegerField(blank=True, null=True)
     occurrence = models.CharField(max_length=80, blank=True, null=True)

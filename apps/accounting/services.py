@@ -399,7 +399,7 @@ class AccountingService:
                     "value": amount,
                     "description": description,
                     "recurring": is_recurring,
-                    "type": Transaction.TYPE_RECURRING if is_recurring else Transaction.TYPE_DIRECT,
+                    "type": transaction_type or Transaction.TYPE_EXPENSE,
                     "group_id": source_id,
                     "occurrence": recurring_rule,
                     "scheduled_date": normalizeTransactionDate(next_run_at) if next_run_at else tx_date,
@@ -1205,21 +1205,16 @@ class TransactionService:
             data["account_id"] = data.get("category_id")
         if data.get("value") is None and data.get("amount") is not None:
             data["value"] = data.get("amount")
-        tx_type = data.get("type") or Transaction.TYPE_DIRECT
+        tx_type = data.get("type") or Transaction.TYPE_EXPENSE
         type_aliases = {
-            "direct": Transaction.TYPE_DIRECT,
-            "scheduled": Transaction.TYPE_SCHEDULED,
-            "recurring": Transaction.TYPE_RECURRING,
-            "entity": Transaction.TYPE_ENTITY,
-            "indirect": Transaction.TYPE_INDIRECT,
-            "direct-transaction": Transaction.TYPE_DIRECT,
-            "scheduled-transaction": Transaction.TYPE_SCHEDULED,
-            "recurring-transaction": Transaction.TYPE_RECURRING,
-            "entity-transaction": Transaction.TYPE_ENTITY,
-            "indirect-transaction": Transaction.TYPE_INDIRECT,
+            "direct": Transaction.TYPE_EXPENSE,
+            "scheduled": Transaction.TYPE_EXPENSE,
+            "recurring": Transaction.TYPE_EXPENSE,
+            "entity": Transaction.TYPE_EXPENSE,
+            "indirect": Transaction.TYPE_EXPENSE,
         }
         data["type"] = type_aliases.get(tx_type, tx_type)
-        if data["type"] == Transaction.TYPE_RECURRING:
+        if tx_type == "recurring":
             data["recurring"] = True
         if data.get("active") is None:
             data["active"] = False
@@ -1417,7 +1412,7 @@ class TransactionService:
                 "operation": operation,
                 "transaction_account_id": transaction_record["account_id"],
                 "name": transaction_record["name"],
-                "type": transaction_record.get("type") or Transaction.TYPE_DIRECT,
+                "type": transaction_record.get("type") or Transaction.TYPE_EXPENSE,
                 "value": transaction_record.get("value") or 0,
                 "trigger_date": tx_date,
                 "transaction_status": status or TransactionHistory.STATUS_ACTIVE_TEXT,
@@ -1431,9 +1426,9 @@ class TransactionService:
         transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
         if transaction_record is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
-        if transaction_record.get("type") in [Transaction.TYPE_SCHEDULED, Transaction.TYPE_ENTITY]:
+        if transaction_record.get("recurring") or transaction_record.get("scheduled_date") or transaction_record.get("group_id"):
             return TransactionService.prepareTransactionHistory(transaction_id, request)
-        if transaction_record.get("type") == Transaction.TYPE_DIRECT:
+        if transaction_record.get("type") in [Transaction.TYPE_EXPENSE, Transaction.TYPE_INCOME, None, ""]:
             return TransactionService.triggerTransaction(transaction_id, request)
         return successResponse("Transaction processing skipped.", data={"transaction": transaction_record})
 
@@ -1442,12 +1437,7 @@ class TransactionService:
         transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
         if transaction_record is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
-        if transaction_record.get("type") not in [
-            Transaction.TYPE_DIRECT,
-            Transaction.TYPE_ENTITY,
-            Transaction.TYPE_SCHEDULED,
-            Transaction.TYPE_INDIRECT,
-        ]:
+        if transaction_record.get("type") not in [Transaction.TYPE_EXPENSE, Transaction.TYPE_INCOME, None, ""]:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "This transaction type cannot be triggered.")
         history = TransactionService._buildHistory(
             transaction_record,
@@ -1510,10 +1500,10 @@ class TransactionService:
             ("every_x_days", "Every Days"),
         ]
         configurations = [
-            {"identifier": Transaction.TYPE_DIRECT, "label": "Direct Expense", "fields": ["name", "account_id", "description", "media_id", "value", "type"]},
-            {"identifier": Transaction.TYPE_RECURRING, "label": "Recurring Expense", "fields": ["name", "account_id", "description", "media_id", "value", "occurrence", "occurrence_value", "type"]},
-            {"identifier": Transaction.TYPE_ENTITY, "label": "Entity Expense", "fields": ["name", "account_id", "description", "media_id", "value", "group_id", "scheduled_date", "type"]},
-            {"identifier": Transaction.TYPE_SCHEDULED, "label": "Scheduled Expense", "fields": ["name", "account_id", "description", "media_id", "value", "scheduled_date", "type"]},
+            {"identifier": "direct", "label": "Direct Expense", "fields": ["name", "account_id", "description", "media_id", "value", "type"]},
+            {"identifier": "recurring", "label": "Recurring Expense", "fields": ["name", "account_id", "description", "media_id", "value", "occurrence", "occurrence_value", "type"]},
+            {"identifier": "entity", "label": "Entity Expense", "fields": ["name", "account_id", "description", "media_id", "value", "group_id", "scheduled_date", "type"]},
+            {"identifier": "scheduled", "label": "Scheduled Expense", "fields": ["name", "account_id", "description", "media_id", "value", "scheduled_date", "type"]},
         ]
         return successResponse(
             "Transaction configurations retrieved successfully.",
@@ -1581,7 +1571,7 @@ class TransactionService:
         commonQuery.createRecord(
             Notification,
             {
-                "identifier": f"scheduled-transaction-{history_id}",
+                "identifier": f"scheduled-{history_id}",
                 "title": "Scheduled Transaction",
                 "description": f'Transaction "{history.get("name")}" was executed as scheduled.',
                 "url": "/reports/accounting",
