@@ -35,7 +35,7 @@ from apps.customers.services import CustomerAccountService
 from apps.settings.models import PaymentType
 from apps.settings.models import Notification, Option
 from apps.settings.services import OptionSettingService, PaymentTypeService
-from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomer, CouponCustomerGroup, CouponProduct
+from apps.promotions.models import OrdersCoupon, Coupon, CouponCategory, CouponCustomerGroup, CouponProduct
 from apps.registers.models import Register, RegistersHistory
 from apps.registers.services import RegisterService
 from apps.reports.services import ReportService
@@ -731,20 +731,6 @@ class SaleCouponService:
     @staticmethod
     def validateCouponCustomer(coupon, customer, request):
         coupon_id = coupon["id"]
-
-        customer_links = commonQuery.findAllRecords(
-            CouponCustomer,
-            {"coupon_id": coupon_id},
-            {"attributes": ["customer_id"]},
-            request=request,
-            tenant_config=True,
-        )
-        if customer_links:
-            if not customer:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Coupon {coupon.get('code')} requires a customer.")
-            allowed_customer_ids = [item["customer_id"] for item in customer_links]
-            if customer["id"] not in allowed_customer_ids:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Coupon {coupon.get('code')} is not valid for this customer.")
 
         group_links = commonQuery.findAllRecords(
             CouponCustomerGroup,

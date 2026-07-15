@@ -5,7 +5,6 @@ from apps.promotions.models import (
     OrdersCoupon,
     Coupon,
     CouponCategory,
-    CouponCustomer,
     CouponCustomerGroup,
     CouponProduct,
 )
@@ -14,6 +13,5 @@ from apps.promotions.models import (
 admin.site.register(Coupon, TenantModelAdmin)
 admin.site.register(CouponProduct, TenantModelAdmin)
 admin.site.register(CouponCategory, TenantModelAdmin)
-admin.site.register(CouponCustomer, TenantModelAdmin)
 admin.site.register(CouponCustomerGroup, TenantModelAdmin)
 admin.site.register(OrdersCoupon, TenantModelAdmin)

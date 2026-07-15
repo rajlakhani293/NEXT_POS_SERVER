@@ -805,7 +805,6 @@ class AccountsService:
             "rewards.RewardSystem",
             "promotions.CouponProduct",
             "promotions.CouponCategory",
-            "promotions.CouponCustomer",
             "promotions.CouponCustomerGroup",
             "promotions.Coupon",
             "customers.CustomerAccountHistory",

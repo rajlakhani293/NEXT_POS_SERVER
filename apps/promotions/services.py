@@ -8,17 +8,16 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildUniqueValue, decimalValue as money, validateTenantRelationIds, validateUniqueFields
 from apps.common.responses import successResponse
-from apps.customers.models import Customer, CustomerCoupon, CustomerGroup
+from apps.customers.models import CustomerCoupon, CustomerGroup
 from apps.promotions.models import (
     OrdersCoupon,
     Coupon,
     CouponCategory,
-    CouponCustomer,
     CouponCustomerGroup,
     CouponProduct,
 )
 
-LINK_FIELDS = ["product_ids", "category_ids", "customer_ids", "customer_group_ids"]
+LINK_FIELDS = ["product_ids", "category_ids", "customer_group_ids"]
 
 
 def buildCouponCode(code, request, exclude_id=None):
@@ -76,16 +75,6 @@ def getExistingCouponTargetLinks(coupon_id, request):
                 tenant_config=True,
             )
         ],
-        "customer_ids": [
-            item["customer_id"]
-            for item in commonQuery.findAllRecords(
-                CouponCustomer,
-                {"coupon_id": coupon_id},
-                {"attributes": ["customer_id"]},
-                request=request,
-                tenant_config=True,
-            )
-        ],
         "customer_group_ids": [
             item["customer_group_id"]
             for item in commonQuery.findAllRecords(
@@ -105,7 +94,7 @@ def validateCouponTargetScope(links):
         raise api_error(
             400,
             ErrorCodes.BAD_REQUEST,
-            "Select at least one coupon target: product, category, customer, or customer group.",
+            "Select at least one coupon target: product, category, or customer group.",
         )
 
 
@@ -120,7 +109,6 @@ def replaceLinks(coupon_id, links, request):
     link_config = [
         (CouponProduct, Product, "product_ids", "product_id", "Product"),
         (CouponCategory, Category, "category_ids", "category_id", "Category"),
-        (CouponCustomer, Customer, "customer_ids", "customer_id", "Customer"),
         (CouponCustomerGroup, CustomerGroup, "customer_group_ids", "customer_group_id", "Customer group"),
     ]
 
@@ -148,12 +136,8 @@ def attachCouponTargets(coupon, request):
     data = dict(coupon)
     data.update(getExistingCouponTargetLinks(data["id"], request))
     data["target_summary"] = "All Customers"
-    if data["customer_group_ids"] and data["customer_ids"]:
-        data["target_summary"] = "Customer Groups + Particular Customers"
-    elif data["customer_group_ids"]:
+    if data["customer_group_ids"]:
         data["target_summary"] = "Customer Groups"
-    elif data["customer_ids"]:
-        data["target_summary"] = "Particular Customers"
     return data
 
 
@@ -165,7 +149,6 @@ def attachCouponTargetsBatch(coupons, request):
     link_config = [
         (CouponProduct, "product_ids", "product_id"),
         (CouponCategory, "category_ids", "category_id"),
-        (CouponCustomer, "customer_ids", "customer_id"),
         (CouponCustomerGroup, "customer_group_ids", "customer_group_id"),
     ]
     links_by_coupon = {
@@ -190,12 +173,8 @@ def attachCouponTargetsBatch(coupons, request):
         data = dict(coupon)
         data.update(links_by_coupon[data["id"]])
         data["target_summary"] = "All Customers"
-        if data["customer_group_ids"] and data["customer_ids"]:
-            data["target_summary"] = "Customer Groups + Particular Customers"
-        elif data["customer_group_ids"]:
+        if data["customer_group_ids"]:
             data["target_summary"] = "Customer Groups"
-        elif data["customer_ids"]:
-            data["target_summary"] = "Particular Customers"
         enriched.append(data)
     return enriched
 

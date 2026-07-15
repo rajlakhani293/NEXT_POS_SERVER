@@ -19,7 +19,6 @@ class CouponIn(Schema):
     limit_usage: int = Field(0, ge=0)
     product_ids: List[int] = Field(default_factory=list)
     category_ids: List[int] = Field(default_factory=list)
-    customer_ids: List[int] = Field(default_factory=list)
     customer_group_ids: List[int] = Field(default_factory=list)
 
 
@@ -36,7 +35,6 @@ class CouponUpdateIn(Schema):
     limit_usage: Optional[int] = Field(None, ge=0)
     product_ids: Optional[List[int]] = None
     category_ids: Optional[List[int]] = None
-    customer_ids: Optional[List[int]] = None
     customer_group_ids: Optional[List[int]] = None
 
 

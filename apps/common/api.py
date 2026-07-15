@@ -66,7 +66,6 @@ RESET_MODEL_ORDER = [
     "promotions.OrdersCoupon",
     "promotions.CouponProduct",
     "promotions.CouponCategory",
-    "promotions.CouponCustomer",
     "promotions.CouponCustomerGroup",
     "promotions.Coupon",
     "customers.CustomerAccountHistory",

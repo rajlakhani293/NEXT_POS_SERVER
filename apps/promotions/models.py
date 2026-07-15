@@ -19,7 +19,6 @@ class Coupon(TenantAwareModel):
     valid_hours_end = models.TimeField(blank=True, null=True)
     limit_usage = models.PositiveIntegerField(default=0)
     groups_id = models.CharField(max_length=255, blank=True, null=True)
-    customers_id = models.CharField(max_length=255, blank=True, null=True)
 
     class Meta:
         db_table = "coupons"
@@ -43,15 +42,6 @@ class CouponCategory(TenantAwareModel):
     class Meta:
         db_table = "coupons_categories"
         unique_together = [("coupon", "category")]
-
-
-class CouponCustomer(TenantAwareModel):
-    coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE, related_name="coupon_customers")
-    customer = models.ForeignKey("accounts.User", on_delete=models.CASCADE, related_name="coupon_links")
-
-    class Meta:
-        db_table = "coupons_customers"
-        unique_together = [("coupon", "customer")]
 
 
 class CouponCustomerGroup(TenantAwareModel):
