@@ -518,39 +518,93 @@ class AccountingService:
             return successResponse("Accounting reflection already exists.", data=existing)
 
         rule_id = history.get("rule_id")
-        if not rule_id:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Transaction history has no accounting rule.")
-        rule = commonQuery.findOneRecord(
-            TransactionActionRule,
-            rule_id,
-            request=request,
-            tenant_config=BRANCH_TENANT_CONFIG,
-        )
-        if rule is None:
-            raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
+        if rule_id:
+            rule = commonQuery.findOneRecord(
+                TransactionActionRule,
+                rule_id,
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
+            if rule is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
+            offset_account_id = rule["offset_account_id"]
+            action = rule.get("do") or ("decrease" if history.get("operation") == "credit" else "increase")
+            offset_account = commonQuery.findOneRecord(
+                TransactionAccount,
+                offset_account_id,
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
+            if offset_account is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "The offset account is not found.")
+            operation = ACCOUNT_OPERATION_MAP.get(offset_account.get("category_identifier"), {}).get(action)
+            if not operation:
+                operation = TransactionHistory.OPERATION_CREDIT if history.get("operation") == TransactionHistory.OPERATION_DEBIT else TransactionHistory.OPERATION_DEBIT
+        else:
+            if not history.get("transaction_id"):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid transaction history provided for reflection.")
+            source_transaction = commonQuery.findOneRecord(
+                Transaction,
+                history["transaction_id"],
+                request=request,
+                tenant_config=True,
+            )
+            if source_transaction is None:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Invalid transaction history provided for reflection.")
+            offset_account_id = AccountingSettingsService.optionValue(
+                request,
+                "accounting_default_paid_expense_offset_account",
+                "",
+            )
+            if not offset_account_id:
+                AccountingService.ensureForRequest(request)
+                offset_account_id = AccountingSettingsService.optionValue(
+                    request,
+                    "accounting_default_paid_expense_offset_account",
+                    "",
+                )
+            offset_account = commonQuery.findOneRecord(
+                TransactionAccount,
+                int(offset_account_id or 0),
+                request=request,
+                tenant_config=BRANCH_TENANT_CONFIG,
+            )
+            if offset_account is None:
+                raise api_error(404, ErrorCodes.NOT_FOUND, "The offset account is not found.")
+            operation = TransactionHistory.OPERATION_CREDIT if history.get("operation") == TransactionHistory.OPERATION_DEBIT else TransactionHistory.OPERATION_DEBIT
 
-        record = AccountingService.record(
-            account_id=rule["offset_account_id"],
-            action_type=rule.get("do") or ("decrease" if history.get("operation") == "credit" else "increase"),
-            name=history.get("name") or "Accounting reflection",
-            transaction_type=history.get("type") or "reflection",
-            amount=history.get("value"),
-            source_type="reflection",
-            source_id=history["id"],
-            transaction_date=history.get("trigger_date") or timezone.now(),
-            event_key=history.get("type") or "",
-            rule_id=rule["id"],
-            procurement_id=history.get("procurement_id"),
-            order_refund_id=history.get("order_refund_id"),
-            order_refund_product_id=history.get("order_refund_product_id"),
-            order_id=history.get("order_id"),
-            order_product_id=history.get("order_product_id"),
-            order_payment_id=history.get("order_payment_id"),
-            register_history_id=history.get("register_history_id"),
-            customer_account_history_id=history.get("customer_account_history_id"),
-            is_reflection=True,
-            reflection_source_id=history["id"],
+        record = commonQuery.createRecord(
+            TransactionHistory,
+            {
+                "transaction_id": history.get("transaction_id"),
+                "operation": operation,
+                "transaction_account_id": offset_account["id"],
+                "rule_id": rule_id,
+                "procurement_id": history.get("procurement_id"),
+                "order_refund_id": history.get("order_refund_id"),
+                "order_refund_product_id": history.get("order_refund_product_id"),
+                "order_id": history.get("order_id"),
+                "order_product_id": history.get("order_product_id"),
+                "order_payment_id": history.get("order_payment_id"),
+                "register_history_id": history.get("register_history_id"),
+                "customer_account_history_id": history.get("customer_account_history_id"),
+                "name": history.get("name") or "Accounting reflection",
+                "type": history.get("type") or Transaction.TYPE_EXPENSE,
+                "value": history.get("value") or 0,
+                "trigger_date": timezone.now(),
+                "transaction_status": TransactionHistory.STATUS_ACTIVE_TEXT,
+                "is_reflection": True,
+                "reflection_source_id": history["id"],
+            },
             request=request,
+            tenant_config=True,
+        )
+        AccountingService.updateBalances(
+            offset_account["id"],
+            history.get("value") or 0,
+            operation,
+            normalizeTransactionDate(record.get("trigger_date") or timezone.now()),
+            request,
         )
         return successResponse("Accounting reflection created successfully.", data=record)
 
@@ -1205,6 +1259,8 @@ class TransactionService:
             data["account_id"] = data.get("category_id")
         if data.get("value") is None and data.get("amount") is not None:
             data["value"] = data.get("amount")
+        if data.get("description") is None:
+            data["description"] = ""
         tx_type = data.get("type") or Transaction.TYPE_EXPENSE
         type_aliases = {
             "direct": Transaction.TYPE_EXPENSE,
@@ -1356,6 +1412,8 @@ class TransactionService:
                     "type",
                     "value",
                     "trigger_date",
+                    "is_reflection",
+                    "reflection_source_id",
                     "transaction_status",
                     "status",
                     "user__username",
@@ -1369,7 +1427,11 @@ class TransactionService:
             item["category_identifier"] = item.pop("transaction_account__category_identifier", None)
             item["account_name"] = item.pop("transaction_account__name", None)
             item["user_username"] = item.pop("user__username", None)
-            item["has_transaction"] = bool(item.get("transaction_id"))
+            item["has_transaction"] = commonQuery.branchScopedQueryset(
+                Transaction,
+                {"id": item.get("transaction_id"), "status__in": [0, 1]},
+                request,
+            ).exists() if item.get("transaction_id") else False
             item["has_reflection"] = commonQuery.branchScopedQueryset(
                 TransactionHistory,
                 {"reflection_source_id": item["id"], "status__in": [0, 1]},
@@ -1453,6 +1515,7 @@ class TransactionService:
             history_date,
             request,
         )
+        reflection = AccountingService.reflectTransactionFromRule(history["id"], request).data
         updated = commonQuery.updateRecordById(
             Transaction,
             transaction_id,
@@ -1460,7 +1523,7 @@ class TransactionService:
             request=request,
             tenant_config=True,
         )
-        return successResponse("The transaction has been successfully triggered.", data={"transaction": updated, "histories": [history]})
+        return successResponse("The transaction has been successfully triggered.", data={"transaction": updated, "histories": [history, reflection]})
 
     @staticmethod
     def deleteSource(transaction_id, request):
