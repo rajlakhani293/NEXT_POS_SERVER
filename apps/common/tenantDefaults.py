@@ -77,6 +77,8 @@ BUSINESS_SETTING_FIELDS = [
     "printing_enabled_for",
     "printing_gateway",
     "reports_email",
+    "accounting_expenses_accounts",
+    "accounting_default_paid_expense_offset_account",
 ]
 
 
@@ -148,6 +150,8 @@ OPTION_KEY_MAP = {
     "printing_enabled_for": "pos_printing_enabled_for",
     "printing_gateway": "pos_printing_gateway",
     "reports_email": "reports_email",
+    "accounting_expenses_accounts": "accounting_expenses_accounts",
+    "accounting_default_paid_expense_offset_account": "accounting_default_paid_expense_offset_account",
 }
 
 
@@ -218,6 +222,8 @@ STATIC_OPTION_DEFAULTS = {
     "pos_printing_enabled_for": "only_paid_orders",
     "pos_printing_gateway": "default",
     "reports_email": "no",
+    "accounting_expenses_accounts": [],
+    "accounting_default_paid_expense_offset_account": "",
 }
 
 
@@ -399,6 +405,8 @@ def defaultBusinessSettings():
         "printing_enabled_for": "only_paid_orders",
         "printing_gateway": "default",
         "reports_email": "no",
+        "accounting_expenses_accounts": [],
+        "accounting_default_paid_expense_offset_account": "",
     }
 
 

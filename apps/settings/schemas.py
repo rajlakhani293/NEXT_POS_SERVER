@@ -50,6 +50,8 @@ class OptionSettingIn(Schema):
     printing_enabled_for: str = "only_paid_orders"
     printing_gateway: str = "default"
     reports_email: bool = False
+    accounting_expenses_accounts: List[int] = Field(default_factory=list)
+    accounting_default_paid_expense_offset_account: Optional[int] = None
 
 
 class PaymentTypeOut(Schema):

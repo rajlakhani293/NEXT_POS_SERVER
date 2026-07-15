@@ -39,6 +39,20 @@ from apps.settings.models import FailedJob, Job, Media, Notification, PaymentTyp
 
 class OptionSettingService:
     OPTION_KEY_MAP = OPTION_KEY_MAP
+    LIST_SETTING_FIELDS = {
+        "accounting_expenses_accounts",
+        "pos_action_permission_restricted_features",
+        "pos_keyboard_cancel_order",
+        "pos_keyboard_hold_order",
+        "pos_keyboard_create_customer",
+        "pos_keyboard_payment",
+        "pos_keyboard_shipping",
+        "pos_keyboard_note",
+        "pos_keyboard_order_type",
+        "pos_keyboard_fullscreen",
+        "pos_keyboard_quick_search",
+        "pos_keyboard_toggle_merge",
+    }
     STRING_SETTING_FIELDS = {
         "currency_symbol",
         "currency_iso",
@@ -741,6 +755,9 @@ class OptionSettingService:
                 if field == "currency_precision" and (val < 0 or val > 6):
                     raise api_error(400, ErrorCodes.BAD_REQUEST, "Currency precision must be between 0 and 6.")
                 setting_data[field] = val
+            elif field in OptionSettingService.LIST_SETTING_FIELDS:
+                value = data.get(field)
+                setting_data[field] = value if isinstance(value, list) else []
             elif field in OptionSettingService.STRING_SETTING_FIELDS:
                 setting_data[field] = str(data.get(field) or OptionSettingService.defaultValues().get(field) or "")
             else:

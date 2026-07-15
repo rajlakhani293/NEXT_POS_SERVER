@@ -1,5 +1,5 @@
 from typing import Optional
-from ninja import Router
+from ninja import Body, Router
 from apps.accounts.auth import auth_bearer
 from apps.accounting.schemas import AccountingSettingsIn, ManualTransactionIn, TransactionAccountIn, TransactionAccountUpdateIn, TransactionRuleIn, TransactionRuleUpdateIn
 from apps.accounting.services import (
@@ -170,13 +170,13 @@ def triggerPendingTransactions(request):
 
 @transactionsRouter.post("/", response=ApiResponse)
 @permissionRequired("expenses_create")
-def createTransaction(request, payload: dict):
+def createTransaction(request, payload: dict = Body(...)):
     return TransactionService.createSource(payloadData(payload), request)
 
 
 @transactionsRouter.post("/rules", response=ApiResponse)
 @permissionRequired("expenses_update")
-def saveTransactionRule(request, payload: dict):
+def saveTransactionRule(request, payload: dict = Body(...)):
     data = payloadData(payload)
     rule = data.get("rule") or data
     rule_id = rule.get("id")
@@ -187,7 +187,7 @@ def saveTransactionRule(request, payload: dict):
 
 @transactionsRouter.put("/{transaction_id}", response=ApiResponse)
 @permissionRequired("expenses_update")
-def updateTransaction(request, transaction_id: int, payload: dict):
+def updateTransaction(request, transaction_id: int, payload: dict = Body(...)):
     return TransactionService.updateSource(transaction_id, payloadData(payload, exclude_none=True), request)
 
 
@@ -241,7 +241,7 @@ def getTransactionActions(request):
 
 @transactionAccountsRouter.post("/category-identifier", response=ApiResponse)
 @permissionRequired("pos.read.transactions-account")
-def getTransactionAccountsFromCategory(request, payload: dict):
+def getTransactionAccountsFromCategory(request, payload: dict = Body(...)):
     data = payloadData(payload)
     return TransactionAccountService.getFromCategory(data.get("identifier"), data.get("exclude"), request)
 
@@ -266,13 +266,13 @@ def getTransactionAccountHistory(request, account_id: int):
 
 @transactionAccountsRouter.post("/", response=ApiResponse)
 @permissionRequired("pos.create.transactions-account")
-def createTransactionAccount(request, payload: dict):
+def createTransactionAccount(request, payload: dict = Body(...)):
     return TransactionAccountService.create(payloadData(payload), request)
 
 
 @transactionAccountsRouter.put("/{account_id}", response=ApiResponse)
 @permissionRequired("pos.update.transactions-account")
-def updateTransactionAccount(request, account_id: int, payload: dict):
+def updateTransactionAccount(request, account_id: int, payload: dict = Body(...)):
     return TransactionAccountService.update(account_id, payloadData(payload, exclude_none=True), request)
 
 
