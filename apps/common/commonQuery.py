@@ -237,7 +237,6 @@ def buildWhere(model, where_input=None, tenant_config=True, request=None):
 
     return q
 
-@staticmethod
 def normalizeInclude(include):
     if not include:
         return []
@@ -261,7 +260,6 @@ def normalizeInclude(include):
             )
     return normalized
 
-@staticmethod
 def resolveRelatedField(model, name):
     try:
         return model._meta.get_field(name)
@@ -272,7 +270,6 @@ def resolveRelatedField(model, name):
                     return f
         return None
 
-@staticmethod
 def collectRelatedPaths(model, include_specs, prefix=""):
     select_related = []
     prefetch_related = []
@@ -296,13 +293,11 @@ def collectRelatedPaths(model, include_specs, prefix=""):
             prefetch_related.extend(pr)
     return select_related, prefetch_related
 
-@staticmethod
 def applyFieldFilter(data, fields):
     if not fields:
         return data
     return {k: data.get(k) for k in fields if k in data}
 
-@staticmethod
 def serializeWithInclude(obj, include_specs, base_fields=None):
     if obj is None:
         return None
