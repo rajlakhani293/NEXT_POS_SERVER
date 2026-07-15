@@ -78,22 +78,16 @@ def createAccountingRule(request, payload: TransactionRuleIn):
     return TransactionRuleService.create(payloadData(payload), request)
 
 
-@router.put("/rules/{rule_id}", response=ApiResponse)
-@permissionRequired("settings_update")
-def updateAccountingRule(request, rule_id: int, payload: TransactionRuleUpdateIn):
-    return TransactionRuleService.update(rule_id, payloadData(payload, exclude_none=True), request)
-
-
 @router.delete("/rules/delete", response=ApiResponse)
 @permissionRequired("settings_update")
 def deleteAccountingRules(request, payload: BulkIdsSchema):
     return TransactionRuleService.delete(payloadData(payload), request)
 
 
-@router.post("/rules/reset", response=ApiResponse)
+@router.put("/rules/{rule_id}", response=ApiResponse)
 @permissionRequired("settings_update")
-def resetAccountingRules(request):
-    return TransactionRuleService.reset(request)
+def updateAccountingRule(request, rule_id: int, payload: TransactionRuleUpdateIn):
+    return TransactionRuleService.update(rule_id, payloadData(payload, exclude_none=True), request)
 
 
 @router.post("/transactions/", response=ApiResponse)

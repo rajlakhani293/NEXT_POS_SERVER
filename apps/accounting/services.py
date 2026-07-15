@@ -1166,18 +1166,6 @@ class TransactionRuleService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Accounting rule not found.")
         return successResponse("Accounting rule deleted successfully.")
 
-    @staticmethod
-    def reset(request):
-        commonQuery.hardDeleteRecords(
-            TransactionActionRule,
-            {},
-            request=request,
-            tenant_config=BRANCH_TENANT_CONFIG,
-        )
-        AccountingService.ensureForRequest(request)
-        return TransactionRuleService.getAll(request)
-
-
 class TransactionService:
     @staticmethod
     def requestFromJob(job):
