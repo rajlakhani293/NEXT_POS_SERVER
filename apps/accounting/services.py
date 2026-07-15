@@ -731,7 +731,7 @@ class AccountingService:
 
 class AccountingSettingsService:
     FIELD_KEYS = {
-        "expense_account_ids": "accounting_expense_accounts",
+        "expense_account_ids": "accounting_expenses_accounts",
         "paid_expense_offset_account_id": "accounting_default_paid_expense_offset_account",
         "sales_revenue_account_id": "accounting_orders_revenues_account",
         "order_cash_account_id": "accounting_orders_cash_account",
@@ -760,6 +760,12 @@ class AccountingSettingsService:
         for field, key in AccountingSettingsService.FIELD_KEYS.items():
             default = [] if field == "expense_account_ids" else ""
             data[field] = AccountingSettingsService.optionValue(request, key, default)
+        if not data.get("expense_account_ids"):
+            data["expense_account_ids"] = AccountingSettingsService.optionValue(
+                request,
+                "accounting_expense_accounts",
+                [],
+            )
         return successResponse("Accounting settings retrieved successfully.", data=data)
 
     @staticmethod
