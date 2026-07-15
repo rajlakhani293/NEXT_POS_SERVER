@@ -19,7 +19,7 @@ from apps.catalog.models import TaxGroup, Unit
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
-from apps.common.helpers import serializeModelInstance, validateUniqueFields
+from apps.common.helpers import jsonsafe, serializeModelInstance, validateUniqueFields
 from apps.common.responses import successResponse
 from apps.common.tenantDefaults import (
     BUSINESS_SETTING_FIELDS,
@@ -1085,15 +1085,30 @@ class MediaService:
 
     @staticmethod
     def mediaData(media):
-        data = serializeModelInstance(media)
         original_path = f"{media.slug}.{media.extension}"
         original_url = f"{settings.UPLOAD_URL}{original_path}"
-        data["sizes"] = {"original": original_url}
+        data = {
+            "id": media.id,
+            "created_at": media.created_at,
+            "updated_at": media.updated_at,
+            "name": media.name,
+            "extension": media.extension,
+            "slug": media.slug,
+            "sizes": {"original": original_url},
+        }
         if media.extension in MediaService.IMAGE_EXTENSIONS:
             data["sizes"]["thumb"] = original_url
         user = getattr(media, "user", None)
-        data["user"] = serializeModelInstance(user) if user else None
-        return data
+        data["user"] = (
+            {
+                "id": user.id,
+                "username": user.username,
+                "full_name": getattr(user, "full_name", "") or user.get_full_name() or user.username,
+            }
+            if user
+            else None
+        )
+        return jsonsafe(data)
 
     @staticmethod
     def buildStoredName(file, request=None):
