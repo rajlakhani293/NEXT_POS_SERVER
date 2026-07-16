@@ -1,3 +1,4 @@
+# type: ignore
 import json
 from typing import Optional
 from django.http.multipartparser import MultiPartParser, MultiPartParserError

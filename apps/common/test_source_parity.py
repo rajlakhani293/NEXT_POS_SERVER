@@ -107,13 +107,13 @@ class PosParityFlowTest(TestCase):
         register_payload = RegisterIn(
             username="abc",
             email="owner@example.com",
-            password="x",
-            password_confirm="x",
+            password="xxxxxx",
+            password_confirm="xxxxxx",
         )
 
         self.assertEqual(login_payload.username, "a")
         self.assertEqual(login_payload.password, "x")
-        self.assertEqual(register_payload.password_confirm, "x")
+        self.assertEqual(register_payload.password_confirm, "xxxxxx")
 
     def test_master_delete_blocks_records_referenced_by_business_data(self):
         with self.assertRaises(Exception):

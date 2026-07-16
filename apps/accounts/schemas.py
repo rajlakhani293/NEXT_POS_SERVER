@@ -17,8 +17,8 @@ class LoginIn(Schema):
 class RegisterIn(Schema):
     username: str = Field(..., min_length=3, example="storeadmin")
     email: str = Field(..., example="owner@example.com")
-    password: str = Field(..., example="StrongPassword123!")
-    password_confirm: str = Field(..., example="StrongPassword123!")
+    password: str = Field(..., min_length=6, example="StrongPassword123!")
+    password_confirm: str = Field(..., min_length=6, example="StrongPassword123!")
     device_name: Optional[str] = Field("", example="Owner Laptop")
 
 
@@ -88,8 +88,8 @@ class TokenCreateIn(Schema):
 
 class UserIn(Schema):
     username: str = Field(..., min_length=3, example="counterstaff")
-    password: str = Field(..., min_length=8, example="StrongPassword123!")
-    password_confirm: str = Field(..., min_length=8, example="StrongPassword123!")
+    password: str = Field(..., min_length=6, example="StrongPassword123!")
+    password_confirm: str = Field(..., min_length=6, example="StrongPassword123!")
     full_name: str = Field("", example="Counter Staff")
     first_name: str = Field("", example="Counter")
     last_name: str = Field("", example="Staff")
@@ -110,8 +110,8 @@ class UserIn(Schema):
 
 class UserUpdateIn(Schema):
     username: Optional[str] = Field(None, min_length=3)
-    password: Optional[str] = Field(None, min_length=8)
-    password_confirm: Optional[str] = Field(None, min_length=8)
+    password: Optional[str] = Field(None, min_length=6)
+    password_confirm: Optional[str] = Field(None, min_length=6)
     full_name: Optional[str] = None
     first_name: Optional[str] = None
     last_name: Optional[str] = None
