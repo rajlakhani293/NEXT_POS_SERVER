@@ -303,6 +303,12 @@ class AccountsService:
         }
 
     @staticmethod
+    def serializeRoleSummary(role: Role):
+        data = serializeModelInstance(role)
+        data.pop("permissions", None)
+        return data
+
+    @staticmethod
     def buildSessionData(user: User):
         company = commonQuery.findOneRecord(
             Company,
@@ -1040,6 +1046,8 @@ class AccountsService:
 
         username = data.get("username")
         password = data.get("password")
+        if password != (data.get("password_confirm") or ""):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Password confirmation does not match.")
         full_name = data.get("full_name") or username
         phone = data.get("phone") or ""
         email = data.get("email") or ""
@@ -1158,6 +1166,8 @@ class AccountsService:
             ).first()
             target_user.group = group
         if data.get("password"):
+            if data["password"] != (data.get("password_confirm") or ""):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Password confirmation does not match.")
             target_user.set_password(data["password"])
         target_user.save()
         for address_type in ["billing", "shipping"]:
@@ -1168,6 +1178,20 @@ class AccountsService:
     @staticmethod
     def updateOwnProfile(user: User, payload):
         data = payload.dict(exclude_unset=True)
+
+        password = data.get("password") or ""
+        password_confirm = data.get("password_confirm") or ""
+        old_password = data.get("old_password") or ""
+        wants_password_change = bool(password or password_confirm or old_password)
+        if wants_password_change:
+            if not old_password:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Old password is required.")
+            if not password:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Password is required.")
+            if password != password_confirm:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Password confirmation does not match.")
+            if not user.check_password(old_password):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Wrong old password provided")
 
         validateUniqueFields(
             User,
@@ -1198,12 +1222,7 @@ class AccountsService:
         for address_type in ["billing", "shipping"]:
             AccountsService.upsertProfileAddress(user, address_type, getattr(payload, address_type, None))
 
-        password = data.get("password") or ""
         if password:
-            if password != (data.get("password_confirm") or ""):
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Password confirmation does not match.")
-            if not user.check_password(data.get("old_password") or ""):
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Wrong old password provided")
             user.set_password(password)
 
         user.save()
@@ -1251,10 +1270,9 @@ class AccountsService:
                 {"company_id": user.company_id, "branch_id": user.branch_id, "status__in": [0, 1]},
                 tenant_config={},
             )
-            .prefetch_related("permissions")
             .order_by("name")
         )
-        return [AccountsService.serializeRole(role) for role in roles]
+        return [AccountsService.serializeRoleSummary(role) for role in roles]
 
     @staticmethod
     def getRole(user: User, role_id: int):
