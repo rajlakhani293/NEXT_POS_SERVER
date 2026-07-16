@@ -272,13 +272,13 @@ def sourceCreateToken(request, payload: TokenCreateIn):
 
 @sourceRouter.get("/users/tokens", response=ApiResponse)
 def sourceGetTokens(request):
-    data = AccountsService.listAccessTokens(request.user)
+    data = AccountsService.listAccessTokens(request.user, request.auth.get("token_id"))
     return successResponse("Tokens fetched successfully.", data=data)
 
 
 @sourceRouter.delete("/users/tokens/{token_id}", response=ApiResponse)
 def sourceDeleteToken(request, token_id: int):
-    data = AccountsService.deleteAccessToken(request.user, token_id)
+    data = AccountsService.deleteAccessToken(request.user, token_id, request.auth.get("token_id"))
     return successResponse("Token deleted successfully.", data=data)
 
 

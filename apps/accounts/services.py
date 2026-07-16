@@ -725,20 +725,21 @@ class AccountsService:
 
     @staticmethod
     def logout(token_value: str):
-        commonQuery.scopedQueryset(AccessToken, {"token": token_value}, tenant_config={}).update(
+        count = commonQuery.scopedQueryset(AccessToken, {"token": token_value, "status": 0}, tenant_config={}).update(
             status=2,
             deleted_at=timezone.now(),
         )
-        return {"logged_out": True}
+        return {"logged_out": True, "revoked_count": count}
 
     @staticmethod
-    def listAccessTokens(user: User):
+    def listAccessTokens(user: User, current_token_id=None):
         return [
             {
                 **serializeModelInstance(token),
                 "name": token.device_name or "",
                 "token": token.token[-8:].rjust(len(token.token), "*"),
                 "expired": token.is_expired,
+                "current": token.id == current_token_id,
             }
             for token in AccessToken.objects.filter(user=user, status=0).order_by("-created_at")
         ]
@@ -748,7 +749,9 @@ class AccountsService:
         return AccountsService.issueAccessToken(user, data.get("device_name") or data.get("name") or "", request)
 
     @staticmethod
-    def deleteAccessToken(user: User, token_id: int):
+    def deleteAccessToken(user: User, token_id: int, current_token_id=None):
+        if token_id == current_token_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You cannot revoke the current session token here. Please logout instead.")
         count = AccessToken.objects.filter(user=user, id=token_id, status=0).update(
             status=2,
             deleted_at=timezone.now(),
