@@ -1,5 +1,6 @@
 import json
 from typing import Optional
+from django.http.multipartparser import MultiPartParser, MultiPartParserError
 from ninja import Router
 
 from apps.accounts.auth import auth_bearer
@@ -36,11 +37,23 @@ def updateCompany(request):
     logo = None
     try:
         if request.content_type and request.content_type.startswith("multipart/form-data"):
-            raw_payload = request.POST.get("payload")
+            post_data = request.POST
+            files_data = request.FILES
+            if not post_data and request.method.upper() != "POST":
+                try:
+                    post_data, files_data = MultiPartParser(
+                        request.META,
+                        request,
+                        request.upload_handlers,
+                        request.encoding,
+                    ).parse()
+                except MultiPartParserError:
+                    raise ValueError("Invalid multipart payload.")
+            raw_payload = post_data.get("payload")
             if not raw_payload:
                 raise ValueError("Missing payload.")
             payload_data = json.loads(raw_payload)
-            logo = request.FILES.get("logo")
+            logo = files_data.get("logo")
         else:
             payload_data = json.loads(request.body.decode("utf-8") or "{}")
         payload = OrganizationSetupIn(**payload_data)
