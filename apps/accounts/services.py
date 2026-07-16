@@ -1006,7 +1006,11 @@ class AccountsService:
         )
         if target_user is None:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
-        return AccountsService.serializeUser(target_user)
+        return {
+            **AccountsService.serializeUser(target_user),
+            "first_name": target_user.first_name or "",
+            "last_name": target_user.last_name or "",
+        }
 
     @staticmethod
     def createUser(user: User, payload):
@@ -1072,6 +1076,9 @@ class AccountsService:
         )
         if roles:
             AccountsService.setUserRoles(target_user, roles)
+        for address_type in ["billing", "shipping"]:
+            if address_type in data:
+                AccountsService.upsertProfileAddress(target_user, address_type, getattr(payload, address_type, None))
         return AccountsService.serializeUser(target_user)
 
     @staticmethod
@@ -1153,6 +1160,9 @@ class AccountsService:
         if data.get("password"):
             target_user.set_password(data["password"])
         target_user.save()
+        for address_type in ["billing", "shipping"]:
+            if address_type in data:
+                AccountsService.upsertProfileAddress(target_user, address_type, getattr(payload, address_type, None))
         return AccountsService.serializeUser(target_user)
 
     @staticmethod

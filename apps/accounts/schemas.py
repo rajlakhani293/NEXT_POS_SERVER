@@ -103,6 +103,8 @@ class UserIn(Schema):
     credit_limit_amount: Optional[Decimal] = Decimal("0")
     gender: str = Field("", example="male")
     pobox: str = Field("", example="12345")
+    billing: Optional["ProfileAddressIn"] = None
+    shipping: Optional["ProfileAddressIn"] = None
 
 
 class UserUpdateIn(Schema):
@@ -123,6 +125,8 @@ class UserUpdateIn(Schema):
     gender: Optional[str] = None
     pobox: Optional[str] = None
     status: Optional[ActiveStatus] = None
+    billing: Optional["ProfileAddressIn"] = None
+    shipping: Optional["ProfileAddressIn"] = None
 
 
 class ProfileAddressIn(Schema):
