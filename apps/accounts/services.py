@@ -1022,6 +1022,22 @@ class AccountsService:
         }
 
     @staticmethod
+    def validateUserNameUnique(user: User, full_name: str, branch_id: int, exclude_id=None):
+        validateUniqueFields(
+            User,
+            {"full_name": full_name},
+            scope="global",
+            exclude_id=exclude_id,
+            status_in=(0, 1),
+            case_insensitive=["full_name"],
+            messages={"full_name": "This name already exists."},
+            extra_filters={
+                "company_id": user.company_id,
+                "branch_id": branch_id,
+            },
+        )
+
+    @staticmethod
     def createUser(user: User, payload):
         data = payload.dict(exclude_unset=True)
         branch_id = data.get("branch_id") or user.branch_id
@@ -1052,6 +1068,7 @@ class AccountsService:
         if password != (data.get("password_confirm") or ""):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Password confirmation does not match.")
         full_name = data.get("full_name") or username
+        AccountsService.validateUserNameUnique(user, full_name, branch_id)
         phone = data.get("phone") or ""
         email = data.get("email") or ""
         validateUniqueFields(
@@ -1103,6 +1120,9 @@ class AccountsService:
             raise api_error(404, ErrorCodes.USER_NOT_FOUND, "User not found.")
 
         data = payload.dict(exclude_unset=True)
+        target_branch_id = data.get("branch_id") or target_user.branch_id
+        target_full_name = data.get("full_name") if "full_name" in data else target_user.full_name
+        AccountsService.validateUserNameUnique(user, target_full_name or "", target_branch_id, exclude_id=user_id)
         validateUniqueFields(
             User,
             {
@@ -1213,6 +1233,8 @@ class AccountsService:
                 "email": "Email already exists.",
             },
         )
+        if "full_name" in data:
+            AccountsService.validateUserNameUnique(user, data.get("full_name") or "", user.branch_id, exclude_id=user.id)
 
         for field in ["username", "full_name", "phone", "email"]:
             if field in data:

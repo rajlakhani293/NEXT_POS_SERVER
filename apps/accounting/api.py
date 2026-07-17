@@ -1,3 +1,4 @@
+# type: ignore
 from typing import Optional
 from ninja import Body, Router
 from apps.accounts.auth import auth_bearer

@@ -45,6 +45,7 @@ class OrderPaymentActionIn(Schema):
 
 class SaleCreateIn(Schema):
     draft_id: Optional[int] = None
+    title: str = ""
     customer_id: Optional[int] = None
     register_id: Optional[int] = None
     order_type: OrderType = "takeaway"
@@ -83,6 +84,7 @@ class SaleListIn(Schema):
 
 
 class SaleHoldIn(Schema):
+    title: str = ""
     customer_id: Optional[int] = None
     coupon_codes: List[str] = Field(default_factory=list)
     note: str = ""

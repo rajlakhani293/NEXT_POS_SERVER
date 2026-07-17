@@ -107,6 +107,7 @@ class User(AbstractUser):
 
     class Meta:
         db_table = "users"
+        unique_together = [("branch", "full_name")]
 
     def __str__(self):
         return self.full_name or self.phone or self.email or self.username
