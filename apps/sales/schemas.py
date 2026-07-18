@@ -43,6 +43,12 @@ class OrderPaymentActionIn(Schema):
     note: str = ""
 
 
+class OrderInstalmentCreateIn(Schema):
+    due_date: Optional[str] = None
+    date: Optional[str] = None
+    amount: Decimal = Field(..., gt=0)
+
+
 class SaleCreateIn(Schema):
     draft_id: Optional[int] = None
     title: str = ""
@@ -61,6 +67,10 @@ class SaleCreateIn(Schema):
     coupon_codes: List[str] = Field(default_factory=list)
     items: List[SaleItemIn]
     payments: List[OrderPaymentIn] = Field(default_factory=list)
+    support_instalments: bool = True
+    total_instalments: int = Field(0, ge=0)
+    final_payment_date: Optional[str] = None
+    instalments: List[OrderInstalmentCreateIn] = Field(default_factory=list)
 
 
 class OrderProductsActionIn(Schema):
@@ -104,12 +114,6 @@ class SaleCollectDueIn(Schema):
 class SaleStatusUpdateIn(Schema):
     status: SaleStatus
     note: str = ""
-
-
-class OrderInstalmentCreateIn(Schema):
-    due_date: Optional[str] = None
-    date: Optional[str] = None
-    amount: Decimal = Field(..., gt=0)
 
 
 class OrderInstalmentsCreateIn(Schema):

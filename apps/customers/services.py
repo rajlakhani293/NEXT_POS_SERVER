@@ -293,12 +293,47 @@ class CustomerService:
             Customer,
             {},
             {
-                "attributes": ["id", "first_name", "last_name", "phone"],
+                "attributes": [
+                    "id",
+                    "first_name",
+                    "last_name",
+                    "phone",
+                    "email",
+                    "group_id",
+                    "owed_amount",
+                    "account_amount",
+                    "purchases_amount",
+                ],
                 "order": ["first_name", "last_name"],
             },
             request=request,
             tenant_config=True,
         )
+        customer_ids = [customer["id"] for customer in customers]
+        group_ids = [customer.get("group_id") for customer in customers if customer.get("group_id")]
+        group_map = {}
+        if group_ids:
+            groups = commonQuery.findAllRecords(
+                CustomerGroup,
+                {"id__in": group_ids},
+                {"attributes": ["id", "name", "minimal_credit_payment"]},
+                request=request,
+                tenant_config=True,
+            )
+            group_map = {group["id"]: group for group in groups}
+        address_map = {customer_id: {address_type: None for address_type in ADDRESS_TYPES} for customer_id in customer_ids}
+        if customer_ids:
+            address_records = commonQuery.findAllRecords(
+                CustomerAddress,
+                {"customer_id__in": customer_ids},
+                request=request,
+                tenant_config=True,
+            )
+            for address in address_records:
+                address_data = dict(address)
+                address_data["company"] = address_data.get("company") or address_data.get("company_name") or ""
+                address_map.setdefault(address_data["customer_id"], {address_type: None for address_type in ADDRESS_TYPES})
+                address_map[address_data["customer_id"]][address_data["type"]] = address_data
         data = [
             {
                 "id": customer["id"],
@@ -306,6 +341,16 @@ class CustomerService:
                 or customer.get("phone")
                 or f"Customer #{customer['id']}",
                 "phone": customer.get("phone"),
+                "email": customer.get("email"),
+                "group_id": customer.get("group_id"),
+                "group_name": (group_map.get(customer.get("group_id")) or {}).get("name"),
+                "group": group_map.get(customer.get("group_id")),
+                "owed_amount": customer.get("owed_amount"),
+                "account_amount": customer.get("account_amount"),
+                "purchases_amount": customer.get("purchases_amount"),
+                "addresses": address_map.get(customer["id"], {address_type: None for address_type in ADDRESS_TYPES}),
+                "billing": address_map.get(customer["id"], {}).get("billing"),
+                "shipping": address_map.get(customer["id"], {}).get("shipping"),
             }
             for customer in customers
         ]

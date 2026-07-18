@@ -3334,6 +3334,28 @@ class SaleService:
             SaleService.saveOrderSettings(sale_order["id"], request)
             SaleDraftService.trackOrderCoupons(sale_order["id"], request)
             SaleStockService.recordSaleStock(sale_order, request)
+            if data.get("instalments"):
+                SaleService.createInstallments(
+                    sale_order["id"],
+                    {
+                        "lines": data.get("instalments") or [],
+                        "total_installments": data.get("total_instalments") or len(data.get("instalments") or []),
+                        "final_payment_date": data.get("final_payment_date"),
+                    },
+                    request,
+                )
+            elif data.get("support_instalments") is False:
+                commonQuery.updateRecordById(
+                    Order,
+                    sale_order["id"],
+                    {
+                        "support_instalments": False,
+                        "total_instalments": data.get("total_instalments") or 0,
+                        "final_payment_date": data.get("final_payment_date"),
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
             customer = SaleCustomerService.applyCustomerImpact(sale_order, request)
             reward = SaleRewardService.processRewards(sale_order, request) if settings.enable_customer_rewards else None
             AccountingService.reflectEvent(
