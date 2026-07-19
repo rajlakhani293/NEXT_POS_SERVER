@@ -7,14 +7,14 @@ from apps.common.schemas import ActiveStatus
 class CustomerGroupIn(Schema):
     name: str
     description: str = ""
-    minimal_credit_payment: Decimal = Field(Decimal("0"), ge=0)
+    minimal_credit_payment: Decimal = Field(Decimal("0"), ge=0, le=100)
     reward_system_id: Optional[int] = None
 
 
 class CustomerGroupUpdateIn(Schema):
     name: Optional[str] = None
     description: Optional[str] = None
-    minimal_credit_payment: Optional[Decimal] = Field(None, ge=0)
+    minimal_credit_payment: Optional[Decimal] = Field(None, ge=0, le=100)
     reward_system_id: Optional[int] = None
     status: Optional[ActiveStatus] = None
 

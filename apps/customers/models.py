@@ -1,5 +1,6 @@
 # type: ignore
 from django.contrib.auth.models import UserManager
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
@@ -18,6 +19,7 @@ class CustomerGroup(TenantAwareModel):
         max_digits=5,
         decimal_places=2,
         default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
         help_text="Minimum percentage the customer must pay when creating a credit sale.",
     )
     reward_system = models.ForeignKey(RewardSystem, on_delete=models.SET_NULL, null=True, blank=True, related_name="customer_groups")
@@ -26,6 +28,12 @@ class CustomerGroup(TenantAwareModel):
         db_table = "customers_groups"
         ordering = ["name"]
         unique_together = [("branch", "name")]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(minimal_credit_payment__gte=0) & Q(minimal_credit_payment__lte=100),
+                name="customer_group_minimal_credit_payment_percent",
+            )
+        ]
 
     def __str__(self):
         return self.name

@@ -1,5 +1,6 @@
 # type: ignore
 from django.contrib.auth.models import AbstractUser, Permission
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 from apps.common.models import BaseModel, SoftDeleteModel, TenantAwareModel
@@ -17,7 +18,12 @@ class Role(TenantAwareModel):
     namespace = models.CharField(max_length=150)
     description = models.TextField(blank=True, null=True)
     reward_system_id = models.PositiveBigIntegerField(blank=True, null=True)
-    minimal_credit_payment = models.DecimalField(max_digits=18, decimal_places=5, default=0)
+    minimal_credit_payment = models.DecimalField(
+        max_digits=18,
+        decimal_places=5,
+        default=0,
+        validators=[MinValueValidator(0), MaxValueValidator(100)],
+    )
     locked = models.BooleanField(default=True)
     permissions = models.ManyToManyField(Permission, blank=True, related_name="roles", db_table="role_permission")
 
@@ -25,6 +31,12 @@ class Role(TenantAwareModel):
         db_table = "roles"
         unique_together = [("branch", "name"), ("branch", "namespace")]
         ordering = ["name"]
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(minimal_credit_payment__gte=0) & models.Q(minimal_credit_payment__lte=100),
+                name="role_minimal_credit_payment_percent",
+            )
+        ]
 
     def __str__(self):
         return self.name

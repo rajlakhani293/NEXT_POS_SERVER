@@ -49,7 +49,7 @@ class RoleIn(Schema):
     namespace: str = Field(..., example="branch-supervisor")
     description: str = Field("", example="Handles branch sales and approvals.")
     reward_system_id: Optional[int] = None
-    minimal_credit_payment: Decimal = Field(Decimal("0"), ge=0)
+    minimal_credit_payment: Decimal = Field(Decimal("0"), ge=0, le=100)
     locked: bool = True
     permission_codenames: List[str] = Field(default_factory=list, example=["sales_view", "sales_create", "returns_approve"])
 
@@ -59,7 +59,7 @@ class RoleUpdateIn(Schema):
     namespace: Optional[str] = None
     description: Optional[str] = None
     reward_system_id: Optional[int] = None
-    minimal_credit_payment: Optional[Decimal] = Field(None, ge=0)
+    minimal_credit_payment: Optional[Decimal] = Field(None, ge=0, le=100)
     locked: Optional[bool] = None
     permission_codenames: Optional[List[str]] = None
 
