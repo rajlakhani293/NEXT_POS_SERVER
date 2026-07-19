@@ -2788,6 +2788,50 @@ class PosParityFlowTest(TestCase):
             ).exists()
         )
 
+    def test_unpaid_sale_allowed_when_partial_orders_disabled(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_unpaid",
+            "yes",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_partial",
+            "no",
+            user=self.user,
+        )
+        customer = self.create_customer(username="unpaid-without-partial-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "support_instalments": False,
+                "total_instalments": 0,
+                "final_payment_date": None,
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        order = Order.objects.get(id=sale["id"])
+
+        self.assertEqual(order.payment_status, "unpaid")
+        self.assertEqual(order.tendered_amount, Decimal("0.00000"))
+        self.assertFalse(order.support_instalments)
+
     def test_partial_sale_installments_collect_due_and_customer_ledger_follow_source(self):
         self.unit_quantity.quantity = Decimal("10")
         self.unit_quantity.save(update_fields=["quantity"])

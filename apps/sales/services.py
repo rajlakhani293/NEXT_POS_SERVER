@@ -616,12 +616,12 @@ class SaleValidationService:
             return
         if due_amount <= 0:
             return
-        if not settings.allow_partial_orders:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partial or unpaid sales are not allowed.")
+        if paid_amount > 0 and not settings.allow_partial_orders:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid sales are not allowed.")
+        if paid_amount <= 0 and not settings.orders_allow_unpaid:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unpaid sales are not allowed.")
         if not customer:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer is required when sale has due amount.")
-        if not settings.enable_credit_account:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Customer credit account is disabled.")
         if customer.get("group_id"):
             group = commonQuery.findOneRecord(
                 CustomerGroup,
