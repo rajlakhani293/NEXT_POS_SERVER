@@ -47,6 +47,7 @@ class OrderInstalmentCreateIn(Schema):
     due_date: Optional[str] = None
     date: Optional[str] = None
     amount: Decimal = Field(..., gt=0)
+    paid: bool = False
 
 
 class SaleCreateIn(Schema):

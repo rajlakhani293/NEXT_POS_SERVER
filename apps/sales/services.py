@@ -3341,6 +3341,9 @@ class SaleService:
                         "lines": data.get("instalments") or [],
                         "total_installments": data.get("total_instalments") or len(data.get("instalments") or []),
                         "final_payment_date": data.get("final_payment_date"),
+                        "payment_ids": payment_summary.get("payment_ids") or [],
+                        "allow_paid_order": True,
+                        "support_instalments": data.get("support_instalments", True),
                     },
                     request,
                 )
@@ -4138,24 +4141,44 @@ class SaleService:
     def createInstallments(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         lines = data.get("lines") or []
+        payment_ids = data.get("payment_ids") or []
         if data.get("instalment"):
             lines = [data["instalment"]]
         if not lines:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one installment line is required.")
-        if saleDueAmount(sale_order) <= 0:
+        if saleDueAmount(sale_order) <= 0 and not data.get("allow_paid_order"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
 
         with transaction.atomic():
             commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
+            payments_by_amount = {}
+            if payment_ids:
+                payments = commonQuery.branchScopedQueryset(
+                    OrderPayment,
+                    {"id__in": payment_ids, "sale_order_id": sale_order_id},
+                    request,
+                ).order_by("id")
+                for payment in payments:
+                    payments_by_amount.setdefault(money(payment.value), []).append(payment)
+            used_payment_ids = set()
 
             for line in lines:
+                paid = bool(line.get("paid"))
+                payment_id = None
+                if paid:
+                    for payment in payments_by_amount.get(money(line.get("amount") or 0), []):
+                        if payment.id not in used_payment_ids:
+                            payment_id = payment.id
+                            used_payment_ids.add(payment.id)
+                            break
                 commonQuery.createRecord(
                     OrderInstalment,
                     {
                         "sale_order_id": sale_order_id,
                         "date": parseInstallmentDate(line.get("date") or line.get("due_date")),
                         "amount": line.get("amount") or 0,
-                        "paid": False,
+                        "paid": paid,
+                        "payment_id": payment_id,
                     },
                     request=request,
                     tenant_config=True,
@@ -4165,7 +4188,7 @@ class SaleService:
                 Order,
                 sale_order_id,
                 {
-                    "support_instalments": True,
+                    "support_instalments": data.get("support_instalments", True),
                     "total_instalments": data.get("total_installments") or len(lines),
                     "final_payment_date": data.get("final_payment_date") or None,
                 },
