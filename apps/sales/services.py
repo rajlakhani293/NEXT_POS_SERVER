@@ -47,6 +47,7 @@ from apps.sales.models import (
     OrderPayment,
     OrderSetting,
     OrderTax,
+    OrderAddress,
     OrdersProductsRefund,
     OrdersRefund,
     OrdersProduct,
@@ -634,12 +635,46 @@ class SaleValidationService:
                 group.get("minimal_credit_payment") if group else 0
             )
             minimum_payment = total * minimum_percentage / Decimal("100")
-            if minimum_payment > 0 and paid_amount < minimum_payment:
+            if (
+                minimum_payment > 0
+                and paid_amount < minimum_payment
+                and not settings.orders_allow_unpaid
+            ):
                 raise api_error(
                     400,
                     ErrorCodes.BAD_REQUEST,
                     f"A minimum payment of {minimum_payment:.2f} is required for this customer group.",
                 )
+
+    @staticmethod
+    def ensureStrictInstallmentPaymentAllowed(sale_order, settings, request):
+        if not getattr(settings, "orders_strict_instalments", False):
+            return
+        if not sale_order.get("support_instalments"):
+            return
+        has_installments = commonQuery.branchScopedQueryset(
+            OrderInstalment,
+            {"sale_order_id": sale_order.get("id")},
+            request,
+        ).exists()
+        if not has_installments:
+            return
+        today = timezone.localdate()
+        payment_due_today = commonQuery.branchScopedQueryset(
+            OrderInstalment,
+            {
+                "sale_order_id": sale_order.get("id"),
+                "paid": False,
+                "date__date": today,
+            },
+            request,
+        ).exists()
+        if not payment_due_today:
+            raise api_error(
+                404,
+                ErrorCodes.NOT_FOUND,
+                "No payment is expected at the moment. If the customer want to pay early, consider adjusting instalment payments date.",
+            )
 
 
 class SaleRegisterService:
@@ -1948,6 +1983,55 @@ class SaleService:
         return successResponse("Order settings saved successfully.", data=created)
 
     @staticmethod
+    def saveOrderAddresses(sale_order_id, data, request):
+        address_map = {
+            "billing": data.get("billing"),
+            "shipping": data.get("shipping_address"),
+        }
+        created = []
+        for address_type, address in address_map.items():
+            if not address:
+                continue
+            payload = dict(address)
+            has_value = any(str(payload.get(field) or "").strip() for field in [
+                "first_name",
+                "last_name",
+                "phone",
+                "address_1",
+                "email",
+                "address_2",
+                "country",
+                "city",
+                "pobox",
+                "company",
+                "company_name",
+            ])
+            if not has_value:
+                continue
+            created.append(
+                commonQuery.createRecord(
+                    OrderAddress,
+                    {
+                        "sale_order_id": sale_order_id,
+                        "type": address_type,
+                        "first_name": payload.get("first_name") or "",
+                        "last_name": payload.get("last_name") or "",
+                        "phone": payload.get("phone") or "",
+                        "address_1": payload.get("address_1") or "",
+                        "email": payload.get("email") or "",
+                        "address_2": payload.get("address_2") or "",
+                        "country": payload.get("country") or "",
+                        "city": payload.get("city") or "",
+                        "pobox": payload.get("pobox") or "",
+                        "company_name": payload.get("company") or payload.get("company_name") or "",
+                    },
+                    request=request,
+                    tenant_config=True,
+                )
+            )
+        return created
+
+    @staticmethod
     def resolveInstalments(sale_order_id, request):
         sale_order = commonQuery.findOneRecord(Order, sale_order_id, request=request, tenant_config=True)
         if sale_order is None:
@@ -2618,6 +2702,31 @@ class SaleService:
         sale_order["total_items"] = len(items)
         sale_order["total_quantity"] = sum((quantity(item.get("quantity")) for item in items), Decimal("0"))
 
+        addresses = commonQuery.findAllRecords(
+            OrderAddress,
+            {"sale_order_id": sale_order_id},
+            {
+                "attributes": [
+                    "id",
+                    "type",
+                    "first_name",
+                    "last_name",
+                    "phone",
+                    "address_1",
+                    "email",
+                    "address_2",
+                    "country",
+                    "city",
+                    "pobox",
+                    "company_name",
+                ],
+                "order": ["id"],
+            },
+            request=request,
+            tenant_config=True,
+        )
+        addresses_map = {address["type"]: address for address in addresses}
+
         payments = commonQuery.findAllRecords(
             OrderPayment,
             {"sale_order_id": sale_order_id},
@@ -2769,6 +2878,8 @@ class SaleService:
             "cashier": cashier,
             "items": items,
             "payments": payments,
+            "addresses": addresses_map,
+            "order_addresses": addresses,
             "taxes": taxes,
             "settings": order_settings,
             "settings_map": settings_map,
@@ -3234,6 +3345,7 @@ class SaleService:
                     "discount_percentage": data.get("discount_percentage") or 0,
                     "total_coupons": data.get("total_coupons") or 0,
                     "shipping": data.get("shipping") or 0,
+                    "shipping_type": data.get("shipping_type") or "",
                     "tax_amount": data.get("tax_amount") or 0,
                     "tendered_amount": data.get("tendered_amount") or 0,
                     "note": data.get("note") or "",
@@ -3332,6 +3444,7 @@ class SaleService:
             )
 
             SaleService.saveOrderSettings(sale_order["id"], request)
+            SaleService.saveOrderAddresses(sale_order["id"], data, request)
             SaleDraftService.trackOrderCoupons(sale_order["id"], request)
             SaleStockService.recordSaleStock(sale_order, request)
             if data.get("instalments"):
@@ -3482,6 +3595,7 @@ class SaleService:
             commonQuery.branchScopedQueryset(OrdersCoupon, {"sale_order_id": sale_order_id}, request).delete()
             commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
             commonQuery.branchScopedQueryset(OrderSetting, {"sale_order_id": sale_order_id}, request).delete()
+            commonQuery.branchScopedQueryset(OrderAddress, {"sale_order_id": sale_order_id}, request).delete()
 
             sale_order = commonQuery.updateRecordById(
                 Order,
@@ -3497,6 +3611,7 @@ class SaleService:
                     "discount_percentage": data.get("discount_percentage") or 0,
                     "total_coupons": data.get("total_coupons") or 0,
                     "shipping": data.get("shipping") or 0,
+                    "shipping_type": data.get("shipping_type") or "",
                     "tax_amount": data.get("tax_amount") or 0,
                     "tendered_amount": preserved_payment_summary["paid_amount"],
                     "change_amount": 0,
@@ -3598,6 +3713,7 @@ class SaleService:
                 SaleRegisterService.recordChangeGiven(updated_sale, shift, change_amount, request)
 
             SaleService.saveOrderSettings(updated_sale["id"], request)
+            SaleService.saveOrderAddresses(updated_sale["id"], data, request)
             SaleDraftService.trackOrderCoupons(updated_sale["id"], request)
             SaleStockService.recordSaleStock(updated_sale, request)
             updated_customer = SaleCustomerService.applyCustomerImpact(updated_sale, request)
@@ -3882,6 +3998,7 @@ class SaleService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one payment is required.")
 
             settings = getOptionSettings(request.user)
+            SaleValidationService.ensureStrictInstallmentPaymentAllowed(sale_order, settings, request)
             shift = getCurrentRegisterContext(
                 request,
                 sale_order.get("register_id"),
@@ -4314,6 +4431,7 @@ class SaleService:
 
         with transaction.atomic():
             settings = getOptionSettings(request.user)
+            SaleValidationService.ensureStrictInstallmentPaymentAllowed(sale_order, settings, request)
             shift = getCurrentRegisterContext(
                 request,
                 sale_order.get("register_id"),

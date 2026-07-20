@@ -2805,7 +2805,14 @@ class PosParityFlowTest(TestCase):
             "no",
             user=self.user,
         )
-        customer = self.create_customer(username="unpaid-without-partial-customer")
+        group = CustomerGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Minimum Credit Group",
+            minimal_credit_payment=Decimal("50"),
+        )
+        customer = self.create_customer(group=group, username="unpaid-without-partial-customer")
 
         sale = SaleService.create(
             {
@@ -2831,6 +2838,58 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(order.payment_status, "unpaid")
         self.assertEqual(order.tendered_amount, Decimal("0.00000"))
         self.assertFalse(order.support_instalments)
+
+    def test_strict_installments_block_early_due_collection(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_unpaid",
+            "yes",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_strict_instalments",
+            "yes",
+            user=self.user,
+        )
+        customer = self.create_customer(username="strict-installment-customer")
+
+        sale = SaleService.create(
+            {
+                "customer_id": customer.id,
+                "order_type": "takeaway",
+                "items": [
+                    {
+                        "product_id": self.product.id,
+                        "unit_id": self.unit.id,
+                        "unit_quantity_id": self.unit_quantity.id,
+                        "quantity": Decimal("1"),
+                    }
+                ],
+                "payments": [],
+                "support_instalments": True,
+                "total_instalments": 1,
+                "final_payment_date": "2026-07-25T00:00:00+00:00",
+                "instalments": [{"date": "2026-07-25", "amount": Decimal("100")}],
+            },
+            self.request,
+        ).data
+
+        with self.assertRaises(Exception) as error:
+            SaleService.collectDue(
+                sale["id"],
+                {"payments": [{"payment_type": "cash-payment", "amount": Decimal("100")}]},
+                self.request,
+            )
+        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(
+            error.exception.message["message"],
+            "No payment is expected at the moment. If the customer want to pay early, consider adjusting instalment payments date.",
+        )
 
     def test_partial_sale_installments_collect_due_and_customer_ledger_follow_source(self):
         self.unit_quantity.quantity = Decimal("10")

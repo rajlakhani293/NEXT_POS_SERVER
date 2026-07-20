@@ -51,6 +51,12 @@ def getCustomerGroupDropdown(request):
     return CustomerGroupService.dropdownList(request)
 
 
+@router.post("/coupons/{code}", response=ApiResponse)
+@permissionRequired("pos.read.customers")
+def loadCustomerCouponForPos(request, code: str, payload: Optional[dict] = None):
+    return CustomerService.loadCouponForPos(code, payload or {}, request)
+
+
 @router.post("/groups/", response=ApiResponse)
 @permissionRequired("pos.create.customers-groups")
 def createCustomerGroup(request, payload: CustomerGroupIn):

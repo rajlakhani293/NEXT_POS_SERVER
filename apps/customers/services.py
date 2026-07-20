@@ -3,8 +3,10 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 from django.utils.text import slugify
 
+from apps.catalog.models import Category, Product
 from apps.accounts.models import Role, User, UserRoleRelation
 from apps.common.commonQuery import commonQuery
 from apps.common.error_codes import ErrorCodes
@@ -20,6 +22,7 @@ from apps.customers.models import (
     CustomerGroup,
     CustomerReward,
 )
+from apps.promotions.models import Coupon, CouponCategory, CouponCustomerGroup, CouponProduct
 from apps.rewards.models import RewardSystem
 
 
@@ -461,6 +464,115 @@ class CustomerService:
             tenant_config=True,
         )
         return successResponse("Customer coupons retrieved successfully.", data=data)
+
+    @staticmethod
+    def loadCouponForPos(code, data, request):
+        customer_id = (data or {}).get("customer_id")
+        if not customer_id:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "You must select a customer before applying a coupon.")
+
+        customer = commonQuery.findOneRecord(Customer, customer_id, request=request, tenant_config=True)
+        if customer is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, "Customer not found.")
+
+        issued_coupon = commonQuery.findOneRecord(
+            CustomerCoupon,
+            {"code": code, "customer_id": customer_id, "status__in": [0, 1]},
+            request=request,
+            tenant_config=True,
+        )
+        if issued_coupon:
+            coupon = commonQuery.findOneRecord(
+                Coupon,
+                issued_coupon["coupon_id"],
+                request=request,
+                tenant_config=True,
+            )
+        else:
+            coupon = commonQuery.findOneRecord(
+                Coupon,
+                {"code": code, "status": 0},
+                request=request,
+                tenant_config=True,
+            )
+
+        if coupon is None:
+            raise api_error(404, ErrorCodes.NOT_FOUND, f"Coupon {code} not found.")
+
+        now = timezone.localtime()
+        if coupon.get("valid_until") and now > coupon["valid_until"]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The coupon is out from validity date range.")
+        if coupon.get("valid_hours_start") and now.time() < coupon["valid_hours_start"]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The coupon is out from validity date range.")
+        if coupon.get("valid_hours_end") and now.time() > coupon["valid_hours_end"]:
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "The coupon is out from validity date range.")
+
+        group_links = commonQuery.findAllRecords(
+            CouponCustomerGroup,
+            {"coupon_id": coupon["id"]},
+            {"attributes": ["customer_group_id"]},
+            request=request,
+            tenant_config=True,
+        )
+        if group_links:
+            allowed_group_ids = [link["customer_group_id"] for link in group_links]
+            if not customer.get("group_id") or customer["group_id"] not in allowed_group_ids:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, f"Coupon {coupon.get('code')} is not valid for this customer group.")
+
+        product_links = commonQuery.findAllRecords(
+            CouponProduct,
+            {"coupon_id": coupon["id"]},
+            {"attributes": ["id", "product_id"]},
+            request=request,
+            tenant_config=True,
+        )
+        category_links = commonQuery.findAllRecords(
+            CouponCategory,
+            {"coupon_id": coupon["id"]},
+            {"attributes": ["id", "category_id"]},
+            request=request,
+            tenant_config=True,
+        )
+        product_map = {
+            product["id"]: product
+            for product in commonQuery.findAllRecords(
+                Product,
+                {"id__in": [link["product_id"] for link in product_links]},
+                {"attributes": ["id", "name"]},
+                request=request,
+                tenant_config=True,
+            )
+        }
+        category_map = {
+            category["id"]: category
+            for category in commonQuery.findAllRecords(
+                Category,
+                {"id__in": [link["category_id"] for link in category_links]},
+                {"attributes": ["id", "name"]},
+                request=request,
+                tenant_config=True,
+            )
+        }
+
+        coupon_data = dict(coupon)
+        coupon_data["customer_coupon"] = [issued_coupon] if issued_coupon else []
+        coupon_data["products"] = [
+            {
+                "id": link["id"],
+                "product_id": link["product_id"],
+                "product": product_map.get(link["product_id"], {}),
+            }
+            for link in product_links
+        ]
+        coupon_data["categories"] = [
+            {
+                "id": link["id"],
+                "category_id": link["category_id"],
+                "category": category_map.get(link["category_id"], {}),
+            }
+            for link in category_links
+        ]
+        return successResponse("The coupon has been loaded.", data=coupon_data)
 
     @staticmethod
     def rewards(customer_id, request):

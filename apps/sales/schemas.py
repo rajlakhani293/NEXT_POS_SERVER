@@ -43,6 +43,19 @@ class OrderPaymentActionIn(Schema):
     note: str = ""
 
 
+class OrderAddressIn(Schema):
+    first_name: str = ""
+    last_name: str = ""
+    phone: str = ""
+    address_1: str = ""
+    email: str = ""
+    address_2: str = ""
+    country: str = ""
+    city: str = ""
+    pobox: str = ""
+    company: str = ""
+
+
 class OrderInstalmentCreateIn(Schema):
     due_date: Optional[str] = None
     date: Optional[str] = None
@@ -62,12 +75,15 @@ class SaleCreateIn(Schema):
     discount_percentage: Decimal = Field(Decimal("0"), ge=0)
     total_coupons: Decimal = Field(Decimal("0"), ge=0)
     shipping: Decimal = Field(Decimal("0"), ge=0)
+    shipping_type: str = ""
     tax_amount: Decimal = Field(Decimal("0"), ge=0)
     tendered_amount: Decimal = Field(Decimal("0"), ge=0)
     note: str = ""
     coupon_codes: List[str] = Field(default_factory=list)
     items: List[SaleItemIn]
     payments: List[OrderPaymentIn] = Field(default_factory=list)
+    billing: Optional[OrderAddressIn] = None
+    shipping_address: Optional[OrderAddressIn] = None
     support_instalments: bool = True
     total_instalments: int = Field(0, ge=0)
     final_payment_date: Optional[str] = None

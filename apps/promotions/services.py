@@ -8,7 +8,7 @@ from apps.common.error_codes import ErrorCodes
 from apps.common.exceptions import api_error
 from apps.common.helpers import buildUniqueValue, decimalValue as money, validateTenantRelationIds, validateUniqueFields
 from apps.common.responses import successResponse
-from apps.customers.models import CustomerCoupon, CustomerGroup
+from apps.customers.models import Customer, CustomerCoupon, CustomerGroup
 from apps.promotions.models import (
     OrdersCoupon,
     Coupon,
