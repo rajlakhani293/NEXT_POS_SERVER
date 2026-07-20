@@ -3950,7 +3950,8 @@ class SaleService:
                         if item.get("product_id") and sale_order.get("payment_status") in [
                             "paid",
                             "partially_paid",
-                            "refunded",
+                            "unpaid",
+                            "partially_due",
                             "partially_refunded",
                         ]:
                             ProductStockService.recordStockHistory(
@@ -3973,16 +3974,16 @@ class SaleService:
                 commonQuery.branchScopedQueryset(OrderTax, {"sale_order_id": sale_order_id}, request).delete()
                 commonQuery.branchScopedQueryset(OrdersCoupon, {"sale_order_id": sale_order_id}, request).delete()
                 commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
+                commonQuery.branchScopedQueryset(OrderAddress, {"sale_order_id": sale_order_id}, request).delete()
                 RegisterService.deleteRegisterHistoryUsingOrder(sale_order_id, request)
                 SaleService.uncountDeletedOrderForCashier(sale_order_id, request)
                 SaleService.uncountDeletedOrderForCustomer(sale_order_id, request)
-                count = commonQuery.softDeleteById(Order, sale_order_id, request=request, tenant_config=True)
-                deleted_count += count
+                deleted_count += commonQuery.hardDeleteRecords(Order, sale_order_id, request=request, tenant_config=True)[0]
                 ReportService.recomputeDashboardRange({}, request)
 
         if deleted_count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Sale order not found.")
-        return successResponse("Sales deleted successfully.", data={"deleted_count": deleted_count})
+        return successResponse("The order has been deleted.", data={"deleted_count": deleted_count})
 
     @staticmethod
     def collectDue(sale_order_id, data, request):
