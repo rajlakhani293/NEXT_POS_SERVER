@@ -10,7 +10,6 @@ ORDER_TYPE_OPTIONS = [
 
 
 BUSINESS_SETTING_FIELDS = [
-    "allow_partial_orders",
     "enable_customer_rewards",
     "enable_credit_account",
     "enable_cash_registers",
@@ -41,6 +40,10 @@ BUSINESS_SETTING_FIELDS = [
     "pos_keyboard_quick_search",
     "pos_keyboard_toggle_merge",
     "pos_amount_shortcut",
+    "customers_default",
+    "customers_default_group",
+    "pos_layout",
+    "pos_sound_enabled",
     "currency_symbol",
     "currency_iso",
     "currency_position",
@@ -51,8 +54,11 @@ BUSINESS_SETTING_FIELDS = [
     "hide_empty_categories",
     "unit_price_editable",
     "default_change_payment_type",
+    "pos_registers_default_change_payment_type",
     "order_types",
+    "pos_quick_product_default_unit",
     "pos_preferred_price",
+    "pos_enable_reordering",
     "pos_vat",
     "store_language",
     "registration_enabled",
@@ -69,6 +75,7 @@ BUSINESS_SETTING_FIELDS = [
     "scale_barcode_type",
     "orders_code_type",
     "orders_allow_unpaid",
+    "orders_allow_partial",
     "orders_strict_instalments",
     "orders_quotation_expiration",
     "pos_tax_group",
@@ -76,14 +83,28 @@ BUSINESS_SETTING_FIELDS = [
     "printing_document",
     "printing_enabled_for",
     "printing_gateway",
+    "pos_complete_sale_audio",
+    "pos_new_item_audio",
+    "pos_order_sms",
+    "invoice_receipt_template",
+    "invoice_receipt_logo",
+    "invoice_merge_similar_products",
+    "invoice_display_tax_breakdown",
+    "invoice_receipt_footer",
+    "invoice_receipt_column_a",
+    "invoice_receipt_column_b",
     "reports_email",
     "accounting_expenses_accounts",
     "accounting_default_paid_expense_offset_account",
+    "accounting_orders_revenues_account",
+    "accounting_orders_cash_account",
+    "accounting_orders_unpaid_account",
+    "accounting_orders_cogs_account",
 ]
 
 
 OPTION_KEY_MAP = {
-    "allow_partial_orders": "orders_allow_partial",
+    "orders_allow_partial": "orders_allow_partial",
     "enable_customer_rewards": "customers_rewards_enabled",
     "enable_credit_account": "customers_credit_enabled",
     "enable_cash_registers": "registers_enabled",
@@ -114,6 +135,10 @@ OPTION_KEY_MAP = {
     "pos_keyboard_quick_search": "pos_keyboard_quick_search",
     "pos_keyboard_toggle_merge": "pos_keyboard_toggle_merge",
     "pos_amount_shortcut": "pos_amount_shortcut",
+    "customers_default": "customers_default",
+    "customers_default_group": "customers_default_group",
+    "pos_layout": "pos_layout",
+    "pos_sound_enabled": "pos_sound_enabled",
     "currency_symbol": "currency_symbol",
     "currency_iso": "currency_iso",
     "currency_position": "currency_position",
@@ -125,7 +150,10 @@ OPTION_KEY_MAP = {
     "unit_price_editable": "unit_price_editable",
     "order_types": "order_types",
     "default_change_payment_type": "registers_default_change_payment_type",
+    "pos_registers_default_change_payment_type": "registers_default_change_payment_type",
     "pos_preferred_price": "pos_preferred_price",
+    "pos_quick_product_default_unit": "quick_product_default_unit",
+    "pos_enable_reordering": "enable_reordering",
     "pos_vat": "pos_vat",
     "store_language": "store_language",
     "registration_enabled": "registration_enabled",
@@ -149,9 +177,23 @@ OPTION_KEY_MAP = {
     "printing_document": "pos_printing_document",
     "printing_enabled_for": "pos_printing_enabled_for",
     "printing_gateway": "pos_printing_gateway",
+    "pos_complete_sale_audio": "pos_complete_sale_audio",
+    "pos_new_item_audio": "pos_new_item_audio",
+    "pos_order_sms": "pos_order_sms",
+    "invoice_receipt_template": "invoice_receipt_template",
+    "invoice_receipt_logo": "invoice_receipt_logo",
+    "invoice_merge_similar_products": "invoice_merge_similar_products",
+    "invoice_display_tax_breakdown": "invoice_display_tax_breakdown",
+    "invoice_receipt_footer": "invoice_receipt_footer",
+    "invoice_receipt_column_a": "invoice_receipt_column_a",
+    "invoice_receipt_column_b": "invoice_receipt_column_b",
     "reports_email": "reports_email",
     "accounting_expenses_accounts": "accounting_expenses_accounts",
     "accounting_default_paid_expense_offset_account": "accounting_default_paid_expense_offset_account",
+    "accounting_orders_revenues_account": "accounting_orders_revenues_account",
+    "accounting_orders_cash_account": "accounting_orders_cash_account",
+    "accounting_orders_unpaid_account": "accounting_orders_unpaid_account",
+    "accounting_orders_cogs_account": "accounting_orders_cogs_account",
 }
 
 
@@ -191,6 +233,10 @@ STATIC_OPTION_DEFAULTS = {
     "pos_keyboard_quick_search": [],
     "pos_keyboard_toggle_merge": [],
     "pos_amount_shortcut": "",
+    "customers_default": "",
+    "customers_default_group": "",
+    "pos_layout": "grocery_shop",
+    "pos_sound_enabled": "yes",
     "currency_symbol": "₹",
     "currency_iso": "INR",
     "currency_position": "before",
@@ -212,7 +258,10 @@ STATIC_OPTION_DEFAULTS = {
     "customers_rewards_enabled": "no",
     "customers_credit_enabled": "no",
     "registers_enabled": "no",
+    "registers_default_change_payment_type": "",
     "pos_preferred_price": "net_prices",
+    "quick_product_default_unit": "",
+    "enable_reordering": "no",
     "pos_vat": "disabled",
     "pos_tax_group": "",
     "pos_tax_type": "",
@@ -221,9 +270,23 @@ STATIC_OPTION_DEFAULTS = {
     "pos_printing_document": "receipt",
     "pos_printing_enabled_for": "only_paid_orders",
     "pos_printing_gateway": "default",
+    "pos_complete_sale_audio": "",
+    "pos_new_item_audio": "",
+    "pos_order_sms": "no",
+    "invoice_receipt_template": "default",
+    "invoice_receipt_logo": "",
+    "invoice_merge_similar_products": "no",
+    "invoice_display_tax_breakdown": "no",
+    "invoice_receipt_footer": "",
+    "invoice_receipt_column_a": "",
+    "invoice_receipt_column_b": "",
     "reports_email": "no",
     "accounting_expenses_accounts": [],
     "accounting_default_paid_expense_offset_account": "",
+    "accounting_orders_revenues_account": "",
+    "accounting_orders_cash_account": "",
+    "accounting_orders_unpaid_account": "",
+    "accounting_orders_cogs_account": "",
 }
 
 
@@ -339,7 +402,7 @@ DEFAULT_SCALE_RANGES = [
 
 def defaultBusinessSettings():
     return {
-        "allow_partial_orders": False,
+        "orders_allow_partial": False,
         "enable_customer_rewards": False,
         "enable_credit_account": False,
         "enable_cash_registers": True,
@@ -370,6 +433,10 @@ def defaultBusinessSettings():
         "pos_keyboard_quick_search": [],
         "pos_keyboard_toggle_merge": [],
         "pos_amount_shortcut": "",
+        "customers_default": "",
+        "customers_default_group": "",
+        "pos_layout": "grocery_shop",
+        "pos_sound_enabled": "yes",
         "currency_symbol": "₹",
         "currency_iso": "INR",
         "currency_position": "before",
@@ -380,8 +447,11 @@ def defaultBusinessSettings():
         "hide_empty_categories": True,
         "unit_price_editable": True,
         "default_change_payment_type": "cash-payment",
+        "pos_registers_default_change_payment_type": "cash-payment",
         "order_types": ["takeaway", "delivery"],
+        "pos_quick_product_default_unit": "",
         "pos_preferred_price": "net_prices",
+        "pos_enable_reordering": False,
         "pos_vat": "disabled",
         "registration_enabled": "no",
         "registration_role": "",
@@ -404,9 +474,23 @@ def defaultBusinessSettings():
         "printing_document": "receipt",
         "printing_enabled_for": "only_paid_orders",
         "printing_gateway": "default",
+        "pos_complete_sale_audio": "",
+        "pos_new_item_audio": "",
+        "pos_order_sms": "no",
+        "invoice_receipt_template": "default",
+        "invoice_receipt_logo": "",
+        "invoice_merge_similar_products": False,
+        "invoice_display_tax_breakdown": False,
+        "invoice_receipt_footer": "",
+        "invoice_receipt_column_a": "",
+        "invoice_receipt_column_b": "",
         "reports_email": "no",
         "accounting_expenses_accounts": [],
         "accounting_default_paid_expense_offset_account": "",
+        "accounting_orders_revenues_account": "",
+        "accounting_orders_cash_account": "",
+        "accounting_orders_unpaid_account": "",
+        "accounting_orders_cogs_account": "",
     }
 
 
@@ -553,7 +637,7 @@ def buildBusinessSettingsFromOptions(options):
     option_map = {option.key: option for option in options}
     defaults = defaultBusinessSettings()
     values = {
-        "allow_partial_orders": defaults["allow_partial_orders"],
+        "orders_allow_partial": defaults["orders_allow_partial"],
         "enable_customer_rewards": defaults["enable_customer_rewards"],
         "enable_credit_account": defaults["enable_credit_account"],
         "enable_cash_registers": defaults["enable_cash_registers"],
@@ -563,7 +647,11 @@ def buildBusinessSettingsFromOptions(options):
         for key, option_key in OPTION_KEY_MAP.items()
     }
     values.update({key: value for key, value in reverse_map.items() if value is not None})
-    return {**defaults, **values}
+    merged = {**defaults, **values}
+    if merged.get("orders_code_type") == "sequential":
+        merged["orders_code_type"] = "date_sequential"
+    merged["allow_partial_orders"] = merged["orders_allow_partial"]
+    return merged
 
 
 class TenantDefaultsService:

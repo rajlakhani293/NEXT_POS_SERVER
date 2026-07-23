@@ -54,6 +54,8 @@ class OptionSettingService:
         "pos_keyboard_toggle_merge",
     }
     STRING_SETTING_FIELDS = {
+        "customers_default",
+        "customers_default_group",
         "currency_symbol",
         "currency_iso",
         "currency_position",
@@ -82,10 +84,25 @@ class OptionSettingService:
         "pos_action_permission_duration",
         "pos_action_permission_cooldown_features",
         "pos_amount_shortcut",
+        "pos_layout",
+        "pos_complete_sale_audio",
+        "pos_new_item_audio",
+        "pos_quick_product_default_unit",
+        "pos_registers_default_change_payment_type",
         "pos_printing_document",
         "pos_printing_enabled_for",
         "pos_printing_gateway",
+        "invoice_receipt_template",
+        "invoice_receipt_logo",
+        "invoice_receipt_footer",
+        "invoice_receipt_column_a",
+        "invoice_receipt_column_b",
         "reports_email",
+        "accounting_default_paid_expense_offset_account",
+        "accounting_orders_revenues_account",
+        "accounting_orders_cash_account",
+        "accounting_orders_unpaid_account",
+        "accounting_orders_cogs_account",
     }
     INTEGER_SETTING_FIELDS = {
         "currency_precision",
@@ -111,7 +128,8 @@ class OptionSettingService:
         "pos_registers_default_change_payment_type": "registers_default_change_payment_type",
         "customers_rewards_enabled": "customers_rewards_enabled",
         "customers_credit_enabled": "customers_credit_enabled",
-        "orders_allow_partial": "orders_allow_partial",
+        "pos_sound_enabled": "pos_sound_enabled",
+        "pos_enable_reordering": "enable_reordering",
     }
     SETTING_FORMS = {
         "general": {
@@ -267,6 +285,12 @@ class OptionSettingService:
                 "general": [
                     ("accounting_expenses_accounts", "multiselect", "Expense Accounts", ""),
                     ("accounting_default_paid_expense_offset_account", "search-select", "Paid Expense Offset", ""),
+                ],
+                "orders": [
+                    ("accounting_orders_revenues_account", "search-select", "Sales Revenues Account", "", "Every order cash payment will be reflected on this account"),
+                    ("accounting_orders_cash_account", "search-select", "Order Cash Account", "", "Every order cash payment will be reflected on this account"),
+                    ("accounting_orders_unpaid_account", "search-select", "Receivable Account", "", "Every unpaid orders will be recorded on this account."),
+                    ("accounting_orders_cogs_account", "search-select", "COGS Account", "", "Cost of goods sold account"),
                 ],
             },
         },
@@ -711,6 +735,12 @@ class OptionSettingService:
         return selected
 
     @staticmethod
+    def normalizeOrderCodeType(value):
+        if value == "sequential":
+            return "date_sequential"
+        return value or "date_sequential"
+
+    @staticmethod
     def get(user):
         data = OptionSettingService.buildSessionSettings(user)
         return successResponse(
@@ -743,8 +773,6 @@ class OptionSettingService:
     @staticmethod
     def update(user, data):
         OptionSettingService.ensureSettings(user)
-        if "orders_allow_partial" in data:
-            data["allow_partial_orders"] = data.get("orders_allow_partial")
         setting_data = OptionSettingService.defaultValues()
         for field in BUSINESS_SETTING_FIELDS:
             if field == "order_types":
@@ -761,7 +789,10 @@ class OptionSettingService:
                 value = data.get(field)
                 setting_data[field] = value if isinstance(value, list) else []
             elif field in OptionSettingService.STRING_SETTING_FIELDS:
-                setting_data[field] = str(data.get(field) or OptionSettingService.defaultValues().get(field) or "")
+                value = str(data.get(field) or OptionSettingService.defaultValues().get(field) or "")
+                if field == "orders_code_type":
+                    value = OptionSettingService.normalizeOrderCodeType(value)
+                setting_data[field] = value
             else:
                 setting_data[field] = bool(data.get(field))
         setting_data["order_types"] = OptionSettingService.normalizeOrderTypes(data.get("order_types"))

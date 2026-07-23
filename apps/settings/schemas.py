@@ -7,18 +7,24 @@ CurrencyPosition = Literal["before", "after"]
 CurrencyPreferred = Literal["iso", "symbol"]
 PosPreferredPrice = Literal["gross_prices", "net_prices"]
 PosVat = Literal["disabled", "flat_vat", "variable_vat", "products_vat"]
-OrdersCodeType = Literal["date_sequential", "random_code", "number_sequential"]
+OrdersCodeType = Literal["date_sequential", "random_code", "number_sequential", "sequential"]
 QuotationExpiration = Literal["never", "3", "5", "10", "15", "30"]
 
 
 class OptionSettingIn(Schema):
-    allow_partial_orders: bool = False
-    orders_allow_partial: Optional[bool] = None
+    orders_allow_partial: bool = False
     enable_customer_rewards: bool = False
     enable_credit_account: bool = False
     enable_cash_registers: bool = True
     allow_decimal_quantities: bool = True
     quick_product_enabled: bool = True
+    pos_quick_product_default_unit: Optional[int] = None
+    pos_layout: str = "grocery_shop"
+    pos_sound_enabled: bool = True
+    pos_complete_sale_audio: str = ""
+    pos_new_item_audio: str = ""
+    pos_order_sms: bool = False
+    pos_enable_reordering: bool = False
     show_quantity: bool = True
     currency_symbol: str = "₹"
     currency_iso: str = "INR"
@@ -30,6 +36,7 @@ class OptionSettingIn(Schema):
     hide_empty_categories: bool = True
     unit_price_editable: bool = True
     default_change_payment_type: str = "cash-payment"
+    pos_registers_default_change_payment_type: Optional[int] = None
     order_types: List[OrderType] = Field(default_factory=lambda: ["takeaway", "delivery"])
     pos_preferred_price: PosPreferredPrice = "net_prices"
     pos_vat: PosVat = "disabled"
@@ -45,14 +52,27 @@ class OptionSettingIn(Schema):
     orders_allow_unpaid: bool = False
     orders_strict_instalments: bool = False
     orders_quotation_expiration: QuotationExpiration = "never"
+    customers_default: Optional[int] = None
+    customers_default_group: Optional[int] = None
     pos_tax_group: str = ""
     pos_tax_type: str = ""
     printing_document: str = "receipt"
     printing_enabled_for: str = "only_paid_orders"
     printing_gateway: str = "default"
+    invoice_receipt_template: str = "default"
+    invoice_receipt_logo: str = ""
+    invoice_merge_similar_products: bool = False
+    invoice_display_tax_breakdown: bool = False
+    invoice_receipt_footer: str = ""
+    invoice_receipt_column_a: str = ""
+    invoice_receipt_column_b: str = ""
     reports_email: bool = False
     accounting_expenses_accounts: List[int] = Field(default_factory=list)
     accounting_default_paid_expense_offset_account: Optional[int] = None
+    accounting_orders_revenues_account: Optional[int] = None
+    accounting_orders_cash_account: Optional[int] = None
+    accounting_orders_unpaid_account: Optional[int] = None
+    accounting_orders_cogs_account: Optional[int] = None
 
 
 class PaymentTypeOut(Schema):

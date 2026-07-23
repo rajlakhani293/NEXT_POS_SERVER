@@ -108,6 +108,8 @@ def parseListDate(value):
 
 
 def yesNo(value):
+    if isinstance(value, str):
+        return "yes" if value.lower() in {"yes", "true", "1", "enabled"} else "no"
     return "yes" if bool(value) else "no"
 
 
@@ -117,9 +119,11 @@ def generateOrderCode(request, created_at=None):
             return generateOrderCode(request, created_at)
 
     from apps.settings.services import OptionSettingService
-    code_type = OptionSettingService.getOptionValue(request.user.company, request.user.branch, "orders_code_type", "sequential")
+    code_type = OptionSettingService.getOptionValue(request.user.company, request.user.branch, "orders_code_type", "date_sequential")
+    if code_type == "sequential":
+        code_type = "date_sequential"
 
-    if code_type == "random":
+    if code_type in ["random", "random_code"]:
         import uuid
         while True:
             code = uuid.uuid4().hex[:8].upper()
@@ -617,7 +621,7 @@ class SaleValidationService:
             return
         if due_amount <= 0:
             return
-        if paid_amount > 0 and not settings.allow_partial_orders:
+        if paid_amount > 0 and not getattr(settings, "orders_allow_partial", getattr(settings, "allow_partial_orders", False)):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid sales are not allowed.")
         if paid_amount <= 0 and not settings.orders_allow_unpaid:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Unpaid sales are not allowed.")
@@ -2587,28 +2591,28 @@ class SaleService:
         settings = getOptionSettings(request.user)
         payment_types = SaleService.getSupportedPayments(request).data
         options = {
-            "pos_printing_document": "receipt",
-            "orders_allow_partial": yesNo(getattr(settings, "allow_partial_orders", False)),
+            "pos_printing_document": getattr(settings, "printing_document", "receipt"),
+            "orders_allow_partial": yesNo(getattr(settings, "orders_allow_partial", getattr(settings, "allow_partial_orders", False))),
             "orders_allow_unpaid": yesNo(getattr(settings, "orders_allow_unpaid", False)),
             "pos_order_types": getattr(settings, "order_types", None) or ["takeaway", "delivery"],
-            "pos_order_sms": "no",
-            "pos_sound_enabled": "yes",
+            "pos_order_sms": yesNo(getattr(settings, "pos_order_sms", False)),
+            "pos_sound_enabled": yesNo(getattr(settings, "pos_sound_enabled", True)),
             "pos_quick_product": yesNo(getattr(settings, "quick_product_enabled", False)),
-            "pos_quick_product_default_unit": 0,
+            "pos_quick_product_default_unit": getattr(settings, "pos_quick_product_default_unit", "") or 0,
             "pos_preferred_price": getattr(settings, "pos_preferred_price", "net_prices"),
             "pos_unit_price_editable": yesNo(getattr(settings, "unit_price_editable", False)),
-            "pos_printing_enabled_for": "only_paid_orders",
+            "pos_printing_enabled_for": getattr(settings, "printing_enabled_for", "only_paid_orders"),
             "pos_registers_enabled": yesNo(getattr(settings, "enable_cash_registers", False)),
             "pos_idle_counter": getattr(settings, "pos_idle_counter", "disabled"),
             "pos_disbursement": getattr(settings, "pos_disbursement", "no"),
-            "customers_default": False,
+            "customers_default": getattr(settings, "customers_default", None) or False,
             "pos_vat": getattr(settings, "pos_vat", "disabled"),
             "pos_tax_group": getattr(settings, "pos_tax_group", None) or None,
             "pos_tax_type": getattr(settings, "pos_tax_type", None) or False,
-            "pos_printing_gateway": "default",
+            "pos_printing_gateway": getattr(settings, "printing_gateway", "default"),
             "pos_show_quantity": bool(getattr(settings, "show_quantity", False)),
-            "pos_new_item_audio": "",
-            "pos_complete_sale_audio": "",
+            "pos_new_item_audio": getattr(settings, "pos_new_item_audio", ""),
+            "pos_complete_sale_audio": getattr(settings, "pos_complete_sale_audio", ""),
             "pos_numpad": getattr(settings, "pos_numpad", "default"),
             "pos_allow_wholesale_price": bool(getattr(settings, "allow_wholesale_price", False)),
             "pos_allow_decimal_quantities": bool(getattr(settings, "allow_decimal_quantities", False)),
@@ -2618,6 +2622,9 @@ class SaleService:
             "pos_action_permission_enabled": getattr(settings, "pos_action_permission_enabled", "no"),
             "pos_show_preview_pinned_products": bool(getattr(settings, "show_preview_pinned_products", False)),
             "pos_enable_pinned_products": bool(getattr(settings, "enable_pinned_products", False)),
+            "pos_items_merge": bool(getattr(settings, "items_merge", False)),
+            "pos_layout": getattr(settings, "pos_layout", "grocery_shop"),
+            "pos_enable_reordering": bool(getattr(settings, "pos_enable_reordering", False)),
         }
         return successResponse(
             "POS session retrieved successfully.",
