@@ -13,6 +13,7 @@ QuotationExpiration = Literal["never", "3", "5", "10", "15", "30"]
 
 class OptionSettingIn(Schema):
     allow_partial_orders: bool = False
+    orders_allow_partial: Optional[bool] = None
     enable_customer_rewards: bool = False
     enable_credit_account: bool = False
     enable_cash_registers: bool = True

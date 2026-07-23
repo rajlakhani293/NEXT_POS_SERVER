@@ -743,6 +743,8 @@ class OptionSettingService:
     @staticmethod
     def update(user, data):
         OptionSettingService.ensureSettings(user)
+        if "orders_allow_partial" in data:
+            data["allow_partial_orders"] = data.get("orders_allow_partial")
         setting_data = OptionSettingService.defaultValues()
         for field in BUSINESS_SETTING_FIELDS:
             if field == "order_types":
