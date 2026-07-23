@@ -651,6 +651,13 @@ class SaleValidationService:
                 )
 
     @staticmethod
+    def ensurePartialOrdersAllowedForInstalments(data, settings):
+        has_instalments = bool(data.get("instalments"))
+        supports_instalments = data.get("support_instalments") is True
+        if (has_instalments or supports_instalments) and not getattr(settings, "orders_allow_partial", False):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
+
+    @staticmethod
     def ensureStrictInstallmentPaymentAllowed(sale_order, settings, request):
         if not getattr(settings, "orders_strict_instalments", False):
             return
@@ -3327,6 +3334,7 @@ class SaleService:
 
         with transaction.atomic():
             settings = getOptionSettings(request.user)
+            SaleValidationService.ensurePartialOrdersAllowedForInstalments(data, settings)
             shift = getCurrentRegisterContext(
                 request,
                 data.get("register_id"),
@@ -3576,6 +3584,7 @@ class SaleService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Returned sale cannot be edited.")
 
             settings = getOptionSettings(request.user)
+            SaleValidationService.ensurePartialOrdersAllowedForInstalments(data, settings)
             shift = getCurrentRegisterContext(
                 request,
                 data.get("register_id") or sale_order.get("register_id"),
