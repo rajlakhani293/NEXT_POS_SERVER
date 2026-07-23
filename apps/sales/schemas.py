@@ -121,6 +121,7 @@ class SaleHoldIn(Schema):
 
 class SaleVoidIn(Schema):
     note: str = ""
+    reason: str = ""
 
 
 class SaleCollectDueIn(Schema):
