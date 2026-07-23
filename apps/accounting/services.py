@@ -872,7 +872,93 @@ class AccountingSettingsService:
                 user=request.user,
             )
             saved[field] = value
+        AccountingSettingsService.syncOrderAccountRules(normalized, request)
         return successResponse("Accounting settings updated successfully.", data=saved)
+
+    @staticmethod
+    def updateRule(rule, values):
+        update_fields = []
+        for field, value in values.items():
+            if value in [None, ""]:
+                continue
+            value = int(value)
+            if getattr(rule, field) != value:
+                setattr(rule, field, value)
+                update_fields.append(field)
+        if update_fields:
+            rule.save(update_fields=[*update_fields, "updated_at"])
+
+    @staticmethod
+    def firstRule(event_key, request):
+        return (
+            commonQuery.branchScopedQueryset(
+                TransactionActionRule,
+                {"on": event_key, "status": 0},
+                request,
+            )
+            .order_by("id")
+            .first()
+        )
+
+    @staticmethod
+    def syncOrderAccountRules(data, request):
+        order_fields = {
+            "sales_revenue_account_id",
+            "order_cash_account_id",
+            "receivable_account_id",
+            "cogs_account_id",
+        }
+        if not order_fields.intersection(data.keys()):
+            return
+
+        order_unpaid = AccountingSettingsService.firstRule("order_unpaid", request)
+        if order_unpaid:
+            AccountingSettingsService.updateRule(
+                order_unpaid,
+                {
+                    "account_id": data.get("receivable_account_id"),
+                    "offset_account_id": data.get("sales_revenue_account_id"),
+                },
+            )
+
+        order_payment = AccountingSettingsService.firstRule("order_from_unpaid_to_paid", request)
+        if order_payment:
+            AccountingSettingsService.updateRule(
+                order_payment,
+                {
+                    "account_id": data.get("order_cash_account_id"),
+                    "offset_account_id": data.get("receivable_account_id"),
+                },
+            )
+
+        order_paid = AccountingSettingsService.firstRule("order_paid", request)
+        if order_paid:
+            AccountingSettingsService.updateRule(
+                order_paid,
+                {
+                    "account_id": data.get("order_cash_account_id"),
+                    "offset_account_id": data.get("receivable_account_id"),
+                },
+            )
+
+        order_cogs = AccountingSettingsService.firstRule("order_cogs", request)
+        if order_cogs:
+            AccountingSettingsService.updateRule(
+                order_cogs,
+                {
+                    "account_id": data.get("cogs_account_id"),
+                },
+            )
+
+        unpaid_voided = AccountingSettingsService.firstRule("order_unpaid_voided", request)
+        if unpaid_voided:
+            AccountingSettingsService.updateRule(
+                unpaid_voided,
+                {
+                    "account_id": data.get("sales_revenue_account_id"),
+                    "offset_account_id": data.get("receivable_account_id"),
+                },
+            )
 
 
 class TransactionAccountService:
