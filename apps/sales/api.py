@@ -171,6 +171,12 @@ def collectSaleDue(request, sale_order_id: int, payload: SaleCollectDueIn):
     return SaleService.collectDue(sale_order_id, payloadData(payload), request)
 
 
+@router.post("/{sale_order_id}/payments", response=ApiResponse)
+@permissionRequired("pos.make-payment.orders")
+def addSalePayment(request, sale_order_id: int, payload: OrderPaymentActionIn):
+    return SaleService.addPayment(sale_order_id, payloadData(payload, exclude_none=True), request)
+
+
 @router.post("/{sale_order_id}/processing", response=ApiResponse)
 @permissionRequired("pos.update.orders")
 def updateSaleProcessing(request, sale_order_id: int, payload: SaleStatusUpdateIn):

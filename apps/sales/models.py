@@ -32,7 +32,7 @@ class Order(TenantAwareModel):
     delivery_status = models.CharField(max_length=30, default="pending")
     discount_type = models.CharField(max_length=30, blank=True, null=True)
     discount_amount = models.DecimalField(max_digits=18, decimal_places=5, default=0, db_column="discount")
-    support_instalments = models.BooleanField(default=True)
+    support_instalments = models.BooleanField(default=False)
     discount_percentage = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     shipping = models.DecimalField(max_digits=18, decimal_places=5, default=0)
     shipping_rate = models.DecimalField(max_digits=14, decimal_places=5, default=0)

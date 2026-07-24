@@ -84,7 +84,7 @@ class SaleCreateIn(Schema):
     payments: List[OrderPaymentIn] = Field(default_factory=list)
     billing: Optional[OrderAddressIn] = None
     shipping_address: Optional[OrderAddressIn] = None
-    support_instalments: bool = True
+    support_instalments: bool = False
     total_instalments: int = Field(0, ge=0)
     final_payment_date: Optional[str] = None
     instalments: List[OrderInstalmentCreateIn] = Field(default_factory=list)
@@ -193,4 +193,3 @@ class ResetSalesDataIn(Schema):
     reset_customer_accounts: bool = True
     reset_registers: bool = True
     reset_transactions: bool = True
-
