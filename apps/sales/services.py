@@ -1007,6 +1007,7 @@ class OrderPaymentService:
     def applyPayments(sale_order, payments, shift, customer, settings, request):
         paid_amount = Decimal("0")
         cash_paid_amount = Decimal("0")
+        payment_ids = []
 
         for payment in payments or []:
             amount = money(payment.get("amount"))
@@ -1035,6 +1036,7 @@ class OrderPaymentService:
                 tenant_config=True,
             )
             paid_amount += amount
+            payment_ids.append(order_payment["id"])
 
             if shift:
                 SaleRegisterService.recordCashOrderPayment(sale_order, order_payment, shift, amount, request)
@@ -1046,6 +1048,7 @@ class OrderPaymentService:
         return {
             "paid_amount": paid_amount,
             "cash_paid_amount": cash_paid_amount,
+            "payment_ids": payment_ids,
         }
 
     @staticmethod
