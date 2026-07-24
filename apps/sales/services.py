@@ -658,6 +658,13 @@ class SaleValidationService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
 
     @staticmethod
+    def ensurePartialDuePaymentAllowed(collected_amount, remaining_due, settings):
+        if collected_amount <= 0 or collected_amount >= remaining_due:
+            return
+        if not getattr(settings, "orders_allow_partial", False):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
+
+    @staticmethod
     def ensureStrictInstallmentPaymentAllowed(sale_order, settings, request):
         if not getattr(settings, "orders_strict_instalments", False):
             return
@@ -4035,6 +4042,7 @@ class SaleService:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Collected amount must be greater than 0.")
             if collected_amount > remaining_due:
                 raise api_error(400, ErrorCodes.BAD_REQUEST, "Collected amount cannot exceed remaining due amount.")
+            SaleValidationService.ensurePartialDuePaymentAllowed(collected_amount, remaining_due, settings)
 
             next_due = max(remaining_due - collected_amount, Decimal("0"))
             next_tendered = money(sale_order.get("tendered_amount")) + collected_amount
@@ -4169,6 +4177,7 @@ class SaleService:
             next_tendered = money(sale_order.get("tendered_amount")) + paid_amount
             total = money(sale_order.get("total"))
             next_due = max(total - next_tendered, Decimal("0"))
+            SaleValidationService.ensurePartialDuePaymentAllowed(paid_amount, saleDueAmount(sale_order), settings)
             updated_sale = commonQuery.updateRecordById(
                 Order,
                 sale_order_id,
@@ -4274,12 +4283,15 @@ class SaleService:
     @staticmethod
     def createInstallments(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        settings = getOptionSettings(request.user)
         lines = data.get("lines") or []
         payment_ids = data.get("payment_ids") or []
         if data.get("instalment"):
             lines = [data["instalment"]]
         if not lines:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one installment line is required.")
+        if not getattr(settings, "orders_allow_partial", False):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
         if saleDueAmount(sale_order) <= 0 and not data.get("allow_paid_order"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
 
@@ -4335,10 +4347,13 @@ class SaleService:
     @staticmethod
     def createInstallment(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        settings = getOptionSettings(request.user)
         amount = money(data.get("amount"))
         due_date = parseInstallmentDate(data.get("date") or data.get("due_date"))
         if amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "The defined amount is not valid.")
+        if not getattr(settings, "orders_allow_partial", False):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
         existing_total = sum(
             (
                 money(item.amount)
@@ -4471,6 +4486,7 @@ class SaleService:
                 request,
             )
 
+            SaleValidationService.ensurePartialDuePaymentAllowed(amount, saleDueAmount(sale_order), settings)
             commonQuery.updateRecordById(
                 OrderInstalment,
                 installment_id,
@@ -4917,4 +4933,3 @@ class SaleService:
             "Sales records, product history, stock ledger, customer accounts, and register data have been successfully reset.",
             data={"summary": summary},
         )
-

@@ -953,6 +953,10 @@ class AccountsService:
     @staticmethod
     def listUsers(user: User, data):
         field_config = [["username", True, True], ["full_name", True, False]]
+        custom_where = {"company_id": user.company_id}
+        if user.branch_id:
+            custom_where["branch_id"] = user.branch_id
+
         result = commonQuery.fetchPaginatedData(
             User,
             data,
@@ -971,7 +975,7 @@ class AccountsService:
                 ]
             },
             tenant_config={},
-            custom_where={"company_id": user.company_id},
+            custom_where=custom_where,
         )
 
         # Batch-fetch roles for each user in page.
@@ -992,9 +996,12 @@ class AccountsService:
 
     @staticmethod
     def userDropdown(user: User):
+        where = {"company_id": user.company_id, "status__in": [0, 1]}
+        if user.branch_id:
+            where["branch_id"] = user.branch_id
         return commonQuery.findAllRecords(
             User,
-            {"company_id": user.company_id, "status__in": [0, 1]},
+            where,
             {
                 "attributes": ["id", "full_name", "phone", "email"],
                 "order": ["full_name"],
@@ -1004,10 +1011,13 @@ class AccountsService:
 
     @staticmethod
     def getUser(user: User, user_id: int):
+        where = {"company_id": user.company_id, "id": user_id, "status__in": [0, 1]}
+        if user.branch_id:
+            where["branch_id"] = user.branch_id
         target_user = (
             commonQuery.scopedQueryset(
                 User,
-                {"company_id": user.company_id, "id": user_id, "status__in": [0, 1]},
+                where,
                 tenant_config={},
             )
             .select_related("branch", "role")
