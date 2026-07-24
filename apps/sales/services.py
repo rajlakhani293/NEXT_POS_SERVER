@@ -4824,3 +4824,97 @@ class SaleService:
             tenant_config=True,
         )
         return successResponse("Refunded sale items retrieved successfully.", data=refunded_items)
+
+    @staticmethod
+    def resetSalesData(data, request):
+        payload = data or {}
+        reset_sales = payload.get("reset_sales", True)
+        reset_stock_history = payload.get("reset_stock_history", True)
+        reset_stock_quantity = payload.get("reset_stock_quantity", True)
+        reset_customer_accounts = payload.get("reset_customer_accounts", True)
+        reset_registers = payload.get("reset_registers", True)
+        reset_transactions = payload.get("reset_transactions", True)
+
+        summary = {}
+
+        with transaction.atomic():
+            if reset_sales:
+                from apps.sales.models import (
+                    Order,
+                    OrderAddress,
+                    OrderCount,
+                    OrderInstalment,
+                    OrderMeta,
+                    OrderPayment,
+                    OrdersProduct,
+                    OrdersProductsRefund,
+                    OrdersRefund,
+                    OrderSetting,
+                    OrderStorage,
+                    OrderTax,
+                )
+                from apps.promotions.models import OrdersCoupon
+
+                summary["orders_products_refund"] = commonQuery.branchScopedQueryset(OrdersProductsRefund, {}, request).delete()[0]
+                summary["orders_refund"] = commonQuery.branchScopedQueryset(OrdersRefund, {}, request).delete()[0]
+                summary["orders_product"] = commonQuery.branchScopedQueryset(OrdersProduct, {}, request).delete()[0]
+                summary["order_payment"] = commonQuery.branchScopedQueryset(OrderPayment, {}, request).delete()[0]
+                summary["order_instalment"] = commonQuery.branchScopedQueryset(OrderInstalment, {}, request).delete()[0]
+                summary["order_address"] = commonQuery.branchScopedQueryset(OrderAddress, {}, request).delete()[0]
+                summary["order_tax"] = commonQuery.branchScopedQueryset(OrderTax, {}, request).delete()[0]
+                summary["order_meta"] = commonQuery.branchScopedQueryset(OrderMeta, {}, request).delete()[0]
+                summary["order_setting"] = commonQuery.branchScopedQueryset(OrderSetting, {}, request).delete()[0]
+                summary["order_storage"] = commonQuery.branchScopedQueryset(OrderStorage, {}, request).delete()[0]
+                summary["order_count"] = commonQuery.branchScopedQueryset(OrderCount, {}, request).delete()[0]
+                summary["orders_coupon"] = commonQuery.branchScopedQueryset(OrdersCoupon, {}, request).delete()[0]
+                summary["orders"] = commonQuery.branchScopedQueryset(Order, {}, request).delete()[0]
+
+            if reset_stock_history:
+                from apps.catalog.models import ProductHistory, ProductHistoryCombined
+
+                summary["product_history"] = commonQuery.branchScopedQueryset(ProductHistory, {}, request).delete()[0]
+                summary["product_history_combined"] = commonQuery.branchScopedQueryset(ProductHistoryCombined, {}, request).delete()[0]
+
+            if reset_stock_quantity:
+                from apps.catalog.models import ProductUnitQuantity
+
+                summary["products_stock_reset"] = commonQuery.branchScopedQueryset(ProductUnitQuantity, {}, request).update(quantity=0)
+
+            if reset_customer_accounts:
+                from apps.customers.models import CustomerAccountHistory, CustomerReward
+                from apps.accounts.models import User
+
+                summary["customer_account_history"] = commonQuery.branchScopedQueryset(CustomerAccountHistory, {}, request).delete()[0]
+                summary["customer_rewards"] = commonQuery.branchScopedQueryset(CustomerReward, {}, request).delete()[0]
+
+                customers_updated = commonQuery.branchScopedQueryset(User, {}, request).update(
+                    owed_amount=Decimal("0"),
+                    account_amount=Decimal("0"),
+                    purchases_amount=Decimal("0"),
+                    total_sales=Decimal("0"),
+                    total_sales_count=0,
+                )
+                summary["customers_reset"] = customers_updated
+
+            if reset_registers:
+                from apps.registers.models import Register, RegistersHistory
+
+                summary["registers_history"] = commonQuery.branchScopedQueryset(RegistersHistory, {}, request).delete()[0]
+                summary["registers_reset"] = commonQuery.branchScopedQueryset(Register, {}, request).update(balance=Decimal("0"))
+
+            if reset_transactions:
+                from apps.accounting.models import TransactionBalanceDay, TransactionBalanceMonth, TransactionHistory
+                from apps.reports.models import DashboardDay, DashboardMonth, DashboardWeek
+
+                summary["transaction_history"] = commonQuery.branchScopedQueryset(TransactionHistory, {}, request).delete()[0]
+                summary["transaction_balance_day"] = commonQuery.branchScopedQueryset(TransactionBalanceDay, {}, request).delete()[0]
+                summary["transaction_balance_month"] = commonQuery.branchScopedQueryset(TransactionBalanceMonth, {}, request).delete()[0]
+                summary["dashboard_day"] = commonQuery.branchScopedQueryset(DashboardDay, {}, request).delete()[0]
+                summary["dashboard_week"] = commonQuery.branchScopedQueryset(DashboardWeek, {}, request).delete()[0]
+                summary["dashboard_month"] = commonQuery.branchScopedQueryset(DashboardMonth, {}, request).delete()[0]
+
+        return successResponse(
+            "Sales records, product history, stock ledger, customer accounts, and register data have been successfully reset.",
+            data={"summary": summary},
+        )
+

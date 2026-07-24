@@ -347,8 +347,22 @@ def resetTenantData(request, payload: dict):
             count, _details = model.objects.filter(**filters).delete()
             if count:
                 deleted[label] = count
+        from apps.accounts.models import User
+        from decimal import Decimal
+
+        user_filters = {"company_id": request.user.company_id}
+        if request.user.branch_id:
+            user_filters["branch_id"] = request.user.branch_id
+        User.objects.filter(**user_filters).update(
+            owed_amount=Decimal("0"),
+            account_amount=Decimal("0"),
+            purchases_amount=Decimal("0"),
+            total_sales=Decimal("0"),
+            total_sales_count=0,
+        )
         TenantDefaultsService.ensureBranchDefaults(request.user.company, request.user.branch)
     return successResponse("The database has been successfully seeded.", data={"deleted": deleted, "mode": (payload or {}).get("mode")})
+
 
 
 @router.get("/system/fix-symbolic-links", response=ApiResponse)

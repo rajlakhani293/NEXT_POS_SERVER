@@ -11,6 +11,7 @@ from apps.sales.schemas import (
     OrderInstalmentPayloadIn,
     OrderInstalmentUpdateIn,
     OrderInstalmentsCreateIn,
+    ResetSalesDataIn,
     SaleCollectDueIn,
     SaleCreateIn,
     SaleHoldIn,
@@ -27,9 +28,17 @@ router = Router(tags=["sales"], auth=auth_bearer)
 ordersRouter = Router(tags=["orders"], auth=auth_bearer)
 
 
+@router.post("/reset-data", response=ApiResponse)
+@router.post("/reset", response=ApiResponse)
+@permissionRequired("pos.delete.orders")
+def resetSalesData(request, payload: ResetSalesDataIn = None):
+    return SaleService.resetSalesData(payloadData(payload) if payload else {}, request)
+
+
 @router.post("/", response=ApiResponse)
 @permissionRequired("pos.create.orders")
 def createSale(request, payload: SaleCreateIn):
+
     return SaleService.create(payloadData(payload), request)
 
 

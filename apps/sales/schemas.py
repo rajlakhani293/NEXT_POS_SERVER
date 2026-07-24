@@ -184,3 +184,13 @@ class SaleReturnCreateIn(Schema):
     refund_shipping: bool = False
     items: List[SaleReturnItemIn] = Field(default_factory=list)
     products: List[SaleReturnItemIn] = Field(default_factory=list)
+
+
+class ResetSalesDataIn(Schema):
+    reset_sales: bool = True
+    reset_stock_history: bool = True
+    reset_stock_quantity: bool = True
+    reset_customer_accounts: bool = True
+    reset_registers: bool = True
+    reset_transactions: bool = True
+

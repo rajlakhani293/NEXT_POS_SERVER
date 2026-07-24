@@ -1565,3 +1565,62 @@ class PosApiIntegrationTest(TestCase):
         self.assertEqual(bulk_update_response.json()["message"], "The permissions has been updated.")
         created_role = Role.objects.get(id=created["id"])
         self.assertIn("users_create", list(created_role.permissions.values_list("codename", flat=True)))
+
+    def test_reset_sales_data_api(self):
+        from django.contrib.contenttypes.models import ContentType
+        from apps.catalog.models import ProductHistory
+        from apps.customers.models import CustomerAccountHistory
+        from apps.registers.models import Register, RegistersHistory
+
+        content_type = ContentType.objects.get_for_model(Role)
+        p_delete, _ = Permission.objects.get_or_create(
+            codename="pos.delete.orders",
+            content_type=content_type,
+            defaults={"name": "Can delete orders"},
+        )
+        self.user_a.user_permissions.add(p_delete)
+
+        category = Category.objects.create(name="Cat Reset", company=self.company_a, branch=self.branch_a)
+        unit_group = UnitGroup.objects.create(name="UG Reset", company=self.company_a, branch=self.branch_a)
+        unit = Unit.objects.create(name="U Reset", identifier="u-reset", group=unit_group, company=self.company_a, branch=self.branch_a)
+        product = Product.objects.create(name="Prod Reset", category=category, unit_group=unit_group, company=self.company_a, branch=self.branch_a)
+        puq = ProductUnitQuantity.objects.create(product=product, unit=unit, quantity=50, company=self.company_a, branch=self.branch_a)
+        ph = ProductHistory.objects.create(product=product, unit=unit, quantity=10, operation_type="sold", company=self.company_a, branch=self.branch_a)
+        order = Order.objects.create(code="ORD-RESET-1", total=100, company=self.company_a, branch=self.branch_a)
+
+        self.user_a.full_name = "User A Reset"
+        self.user_a.owed_amount = 150
+        self.user_a.account_amount = 50
+        self.user_a.purchases_amount = 200
+        self.user_a.total_sales = 300
+        self.user_a.total_sales_count = 5
+        self.user_a.save()
+
+
+        cah = CustomerAccountHistory.objects.create(customer=self.user_a, amount=50, operation="add", company=self.company_a, branch=self.branch_a)
+        reg = Register.objects.create(name="Reg Reset", balance=500, company=self.company_a, branch=self.branch_a)
+        rh = RegistersHistory.objects.create(register=reg, entry_type="register-opening", amount=500, company=self.company_a, branch=self.branch_a)
+
+        response = self.client.post("/api/sales/reset-data", data=json.dumps({}), content_type="application/json", **self.headers_a)
+        self.assertEqual(response.status_code, 200, response.content.decode())
+        res_data = response.json()
+        self.assertTrue(res_data["success"])
+
+        self.assertFalse(Order.objects.filter(id=order.id).exists())
+        self.assertFalse(ProductHistory.objects.filter(id=ph.id).exists())
+        self.assertFalse(CustomerAccountHistory.objects.filter(id=cah.id).exists())
+        self.assertFalse(RegistersHistory.objects.filter(id=rh.id).exists())
+
+        puq.refresh_from_db()
+        self.assertEqual(puq.quantity, 0)
+
+        reg.refresh_from_db()
+        self.assertEqual(reg.balance, 0)
+
+        self.user_a.refresh_from_db()
+        self.assertEqual(self.user_a.owed_amount, 0)
+        self.assertEqual(self.user_a.account_amount, 0)
+        self.assertEqual(self.user_a.purchases_amount, 0)
+        self.assertEqual(self.user_a.total_sales, 0)
+        self.assertEqual(self.user_a.total_sales_count, 0)
+
