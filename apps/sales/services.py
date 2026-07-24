@@ -3818,8 +3818,6 @@ class SaleService:
                 tenant_config=True,
             )
             paid_amount = sum((money(payment.get("value")) for payment in payments), Decimal("0"))
-            if paid_amount > 0:
-                raise api_error(400, ErrorCodes.BAD_REQUEST, "Paid sale cannot be voided. Use refund flow instead.")
 
             returns = commonQuery.findAllRecords(
                 OrdersRefund,
@@ -3850,19 +3848,19 @@ class SaleService:
                 tenant_config=True,
             )
             AccountingService.reflectEvent(
-                "order_unpaid_voided",
-                sale_order.get("total"),
+                "order_paid_voided" if paid_amount > 0 else "order_unpaid_voided",
+                paid_amount if paid_amount > 0 else sale_order.get("total"),
                 name=f"Voided order {sale_order['code']}",
                 transaction_type="adjustment",
                 source_type="sale",
                 source_id=sale_order_id,
                 transaction_date=timezone.now(),
-                description=data.get("note") or "Unpaid sale voided",
+                description=data.get("note") or ("Paid sale voided" if paid_amount > 0 else "Unpaid sale voided"),
                 reference_number=sale_order["code"],
                 request=request,
             )
             DomainActionService.afterSaleVoided(sale_order, request)
-            return successResponse("Sale voided successfully.", data=updated)
+            return successResponse("The order has been correctly voided.", data=updated)
 
     @staticmethod
     def voidOrder(sale_order_id, data, request):
