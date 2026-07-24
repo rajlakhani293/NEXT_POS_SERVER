@@ -84,7 +84,7 @@ class SaleCreateIn(Schema):
     payments: List[OrderPaymentIn] = Field(default_factory=list)
     billing: Optional[OrderAddressIn] = None
     shipping_address: Optional[OrderAddressIn] = None
-    support_instalments: bool = False
+    support_instalments: bool = True
     total_instalments: int = Field(0, ge=0)
     final_payment_date: Optional[str] = None
     instalments: List[OrderInstalmentCreateIn] = Field(default_factory=list)
