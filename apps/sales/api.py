@@ -54,12 +54,6 @@ def listSales(request, payload: SaleListIn):
     return SaleService.listSales(payloadData(payload), request)
 
 
-@router.post("/assigned/get-transactions", response=ApiResponse)
-@permissionRequired("pos.deliver.orders")
-def listAssignedOrders(request, payload: SaleListIn):
-    return SaleService.listAssignedOrders(payloadData(payload), request)
-
-
 @router.delete("/delete", response=ApiResponse)
 @permissionRequired("pos.delete.orders")
 def deleteSales(request, payload: BulkIdsSchema):

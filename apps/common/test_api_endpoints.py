@@ -61,11 +61,6 @@ class PosApiIntegrationTest(TestCase):
             content_type=content_type,
             defaults={"name": "Can read POS orders"},
         )
-        p_pos_deliver_orders, _ = Permission.objects.get_or_create(
-            codename="pos.deliver.orders",
-            content_type=content_type,
-            defaults={"name": "Can deliver POS orders"},
-        )
         p_pos_order_instalments, _ = Permission.objects.get_or_create(
             codename="pos.read.orders-instalments",
             content_type=content_type,
@@ -165,7 +160,6 @@ class PosApiIntegrationTest(TestCase):
         self.role_a.permissions.add(p_view)
         self.role_a.permissions.add(p_pos_categories)
         self.role_a.permissions.add(p_pos_orders)
-        self.role_a.permissions.add(p_pos_deliver_orders)
         self.role_a.permissions.add(p_pos_order_instalments)
         self.role_a.permissions.add(p_settings_view)
         self.role_a.permissions.add(p_settings_update)
@@ -548,79 +542,6 @@ class PosApiIntegrationTest(TestCase):
         self.assertEqual(item["order_code"], "ORD-1")
         self.assertIn("customer", item)
         self.assertIn("paid", item)
-
-    def test_assigned_orders_endpoint_lists_delivery_orders_for_current_driver(self):
-        assigned_order = Order.objects.create(
-            user=self.user_a,
-            company=self.company_a,
-            branch=self.branch_a,
-            code="DELIVERY-ASSIGNED",
-            customer=self.user_a,
-            driver=self.user_a,
-            order_type="delivery",
-            payment_status="unpaid",
-            delivery_status="pending",
-            total=100,
-            status=0,
-        )
-        Order.objects.create(
-            user=self.user_a,
-            company=self.company_a,
-            branch=self.branch_a,
-            code="DELIVERY-OTHER",
-            customer=self.user_a,
-            driver=self.user_b,
-            order_type="delivery",
-            payment_status="unpaid",
-            delivery_status="pending",
-            total=50,
-            status=0,
-        )
-        Order.objects.create(
-            user=self.user_a,
-            company=self.company_a,
-            branch=self.branch_a,
-            code="TAKEAWAY-ASSIGNED",
-            customer=self.user_a,
-            driver=self.user_a,
-            order_type="takeaway",
-            payment_status="unpaid",
-            delivery_status="not-available",
-            total=25,
-            status=0,
-        )
-
-        response = self.client.post(
-            "/api/sales/assigned/get-transactions",
-            data=json.dumps({"page": 1, "limit": 10}),
-            content_type="application/json",
-            **self.headers_a,
-        )
-
-        self.assertEqual(response.status_code, 200, response.content.decode())
-        payload = response.json()
-        self.assertTrue(payload["success"])
-        codes = [item["code"] for item in payload["data"]["items"]]
-        self.assertIn(assigned_order.code, codes)
-        self.assertNotIn("DELIVERY-OTHER", codes)
-        self.assertNotIn("TAKEAWAY-ASSIGNED", codes)
-
-        response = self.client.post(
-            "/api/sales/assigned/get-transactions",
-            data=json.dumps(
-                {
-                    "page": 1,
-                    "limit": 10,
-                    "startDate": "2026-03-31T18:30:00.000Z",
-                    "endDate": "2026-03-31T18:30:00.000Z",
-                }
-            ),
-            content_type="application/json",
-            **self.headers_a,
-        )
-
-        self.assertEqual(response.status_code, 200, response.content.decode())
-        self.assertTrue(response.json()["success"])
 
     def test_source_medias_endpoint_returns_gallery_sizes_and_user_like_source(self):
         Media.objects.create(
@@ -1623,4 +1544,3 @@ class PosApiIntegrationTest(TestCase):
         self.assertEqual(self.user_a.purchases_amount, 0)
         self.assertEqual(self.user_a.total_sales, 0)
         self.assertEqual(self.user_a.total_sales_count, 0)
-
