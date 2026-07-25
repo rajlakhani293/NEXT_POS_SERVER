@@ -192,7 +192,10 @@ def getSaleInstallments(request, sale_order_id: int):
 @router.post("/{sale_order_id}/instalments", response=ApiResponse)
 @permissionRequired("pos.create.orders-instalments")
 def createSaleInstallments(request, sale_order_id: int, payload: OrderInstalmentsCreateIn):
-    return SaleService.createInstallments(sale_order_id, payloadData(payload), request)
+    data = payloadData(payload)
+    if data.get("instalment"):
+        return SaleService.createInstallment(sale_order_id, data["instalment"], request)
+    return SaleService.createInstallments(sale_order_id, data, request)
 
 
 @router.put("/{sale_order_id}/instalments/{installment_id}", response=ApiResponse)

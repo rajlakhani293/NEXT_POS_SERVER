@@ -4274,13 +4274,10 @@ class SaleService:
     @staticmethod
     def createInstallment(sale_order_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
-        settings = getOptionSettings(request.user)
         amount = money(data.get("amount"))
         due_date = parseInstallmentDate(data.get("date") or data.get("due_date"))
         if amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "The defined amount is not valid.")
-        if not getattr(settings, "orders_allow_partial", False):
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
         existing_total = sum(
             (
                 money(item.amount)
@@ -4371,6 +4368,8 @@ class SaleService:
     @staticmethod
     def payInstallment(sale_order_id, installment_id, data, request):
         sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        if sale_order.get("payment_status") == "paid":
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unable to proceed as the order is already paid.")
         installment = commonQuery.findOneRecord(
             OrderInstalment,
             {"id": installment_id, "sale_order_id": sale_order_id},

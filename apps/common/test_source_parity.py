@@ -2839,6 +2839,92 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(order.tendered_amount, Decimal("0.00000"))
         self.assertFalse(order.support_instalments)
 
+    def test_delivery_shipping_is_included_for_paid_unpaid_and_instalment_orders(self):
+        self.unit_quantity.quantity = Decimal("10")
+        self.unit_quantity.save(update_fields=["quantity"])
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_unpaid",
+            "yes",
+            user=self.user,
+        )
+        OptionSettingService.ensureOptionValue(
+            self.company,
+            self.branch,
+            "orders_allow_partial",
+            "yes",
+            user=self.user,
+        )
+        paid_customer = self.create_customer(username="delivery-paid-customer")
+        unpaid_customer = self.create_customer(username="delivery-unpaid-customer")
+        instalment_customer = self.create_customer(username="delivery-instalment-customer")
+
+        base_item = {
+            "product_id": self.product.id,
+            "unit_id": self.unit.id,
+            "unit_quantity_id": self.unit_quantity.id,
+            "quantity": Decimal("1"),
+        }
+
+        paid_sale = SaleService.create(
+            {
+                "customer_id": paid_customer.id,
+                "order_type": "delivery",
+                "shipping": Decimal("25"),
+                "shipping_type": "flat",
+                "items": [base_item],
+                "payments": [{"payment_type": "cash-payment", "amount": Decimal("125")}],
+            },
+            self.request,
+        ).data
+        paid_order = Order.objects.get(id=paid_sale["id"])
+
+        unpaid_sale = SaleService.create(
+            {
+                "customer_id": unpaid_customer.id,
+                "order_type": "delivery",
+                "shipping": Decimal("25"),
+                "shipping_type": "flat",
+                "support_instalments": False,
+                "items": [base_item],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        unpaid_order = Order.objects.get(id=unpaid_sale["id"])
+
+        instalment_sale = SaleService.create(
+            {
+                "customer_id": instalment_customer.id,
+                "order_type": "delivery",
+                "shipping": Decimal("25"),
+                "shipping_type": "flat",
+                "support_instalments": True,
+                "total_instalments": 1,
+                "final_payment_date": "2026-07-25T00:00:00+00:00",
+                "instalments": [{"date": "2026-07-25", "amount": Decimal("125")}],
+                "items": [base_item],
+                "payments": [],
+            },
+            self.request,
+        ).data
+        instalment_order = Order.objects.get(id=instalment_sale["id"])
+        instalment = instalment_order.instalments.get()
+
+        for order in [paid_order, unpaid_order, instalment_order]:
+            self.assertEqual(order.shipping, Decimal("25.00000"))
+            self.assertEqual(order.shipping_type, "flat")
+            self.assertEqual(order.total, Decimal("125.00000"))
+            self.assertEqual(order.delivery_status, "pending")
+
+        self.assertEqual(paid_order.payment_status, "paid")
+        self.assertEqual(paid_order.tendered_amount, Decimal("125.00000"))
+        self.assertEqual(unpaid_order.payment_status, "unpaid")
+        self.assertEqual(instalment_order.payment_status, "unpaid")
+        self.assertTrue(instalment_order.support_instalments)
+        self.assertEqual(instalment.amount, Decimal("125.00000"))
+
     def test_strict_installments_block_early_due_collection(self):
         self.unit_quantity.quantity = Decimal("10")
         self.unit_quantity.save(update_fields=["quantity"])
