@@ -65,6 +65,24 @@ def saleDueAmount(sale_order):
     return max(money((sale_order or {}).get("total")) - money((sale_order or {}).get("tendered_amount")), Decimal("0"))
 
 
+def installmentScheduleTotal(sale_order_id, request, exclude_id=None):
+    filters = {"sale_order_id": sale_order_id, "status": 0}
+    queryset = commonQuery.branchScopedQueryset(OrderInstalment, filters, request)
+    if exclude_id:
+        queryset = queryset.exclude(id=exclude_id)
+    return sum((money(item.amount) for item in queryset), Decimal("0"))
+
+
+def ensureInstallmentScheduleWithinDue(sale_order, schedule_total, request):
+    due_amount = saleDueAmount(sale_order)
+    if schedule_total > due_amount:
+        raise api_error(
+            400,
+            ErrorCodes.BAD_REQUEST,
+            f"Instalments cannot exceed the remaining amount of {due_amount:.2f}.",
+        )
+
+
 def normalizeOrderPayments(payments):
     for payment in payments or []:
         payment["payment_type"] = payment.get("identifier")
@@ -4221,6 +4239,11 @@ class SaleService:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
         if saleDueAmount(sale_order) <= 0 and not data.get("allow_paid_order"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
+        ensureInstallmentScheduleWithinDue(
+            sale_order,
+            sum((money(line.get("amount")) for line in lines), Decimal("0")),
+            request,
+        )
 
         with transaction.atomic():
             commonQuery.branchScopedQueryset(OrderInstalment, {"sale_order_id": sale_order_id}, request).delete()
@@ -4278,19 +4301,11 @@ class SaleService:
         due_date = parseInstallmentDate(data.get("date") or data.get("due_date"))
         if amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "The defined amount is not valid.")
-        existing_total = sum(
-            (
-                money(item.amount)
-                for item in commonQuery.branchScopedQueryset(
-                    OrderInstalment,
-                    {"sale_order_id": sale_order_id, "status": 0},
-                    request,
-                )
-            ),
-            Decimal("0"),
-        )
-        if existing_total >= money(sale_order.get("total")):
+        existing_total = installmentScheduleTotal(sale_order_id, request)
+        remaining_schedule_amount = saleDueAmount(sale_order) - existing_total
+        if remaining_schedule_amount <= 0:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "No further instalments is allowed for this order. The total instalment already covers the order total.")
+        ensureInstallmentScheduleWithinDue(sale_order, existing_total + amount, request)
         installment = commonQuery.createRecord(
             OrderInstalment,
             {
@@ -4318,7 +4333,7 @@ class SaleService:
 
     @staticmethod
     def updateInstallment(sale_order_id, installment_id, data, request):
-        SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
+        sale_order = SaleReturnValidationService.ensureSaleOrder(sale_order_id, request)
         installment = commonQuery.findOneRecord(
             OrderInstalment,
             {"id": installment_id, "sale_order_id": sale_order_id},
@@ -4336,6 +4351,12 @@ class SaleService:
             update_data["date"] = update_data.pop("due_date")
         if "date" in update_data:
             update_data["date"] = parseInstallmentDate(update_data["date"])
+        if "amount" in update_data:
+            amount = money(update_data.get("amount"))
+            if amount <= 0:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "The defined amount is not valid.")
+            existing_total = installmentScheduleTotal(sale_order_id, request, exclude_id=installment_id)
+            ensureInstallmentScheduleWithinDue(sale_order, existing_total + amount, request)
         updated = commonQuery.updateRecordById(
             OrderInstalment,
             installment_id,

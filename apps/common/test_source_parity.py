@@ -404,6 +404,49 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(timezone.localtime(instalment.date).date().isoformat(), "2026-07-02")
         self.assertEqual(order.total_instalments, 1)
 
+    def test_order_instalments_cannot_exceed_unpaid_remaining_amount(self):
+        order = Order.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            code="260101-004",
+            order_type="takeaway",
+            payment_status="partially_paid",
+            total=Decimal("500"),
+            tendered_amount=Decimal("200"),
+        )
+
+        first = SaleService.createInstallment(
+            order.id,
+            {"amount": Decimal("200"), "date": "2026-07-01"},
+            self.request,
+        ).data["instalment"]
+        self.assertEqual(OrderInstalment.objects.get(id=first["id"]).amount, Decimal("200.00000"))
+
+        second = SaleService.createInstallment(
+            order.id,
+            {"amount": Decimal("100"), "date": "2026-07-02"},
+            self.request,
+        ).data["instalment"]
+        self.assertEqual(OrderInstalment.objects.get(id=second["id"]).amount, Decimal("100.00000"))
+
+        with self.assertRaises(Exception) as error:
+            SaleService.createInstallment(
+                order.id,
+                {"amount": Decimal("1"), "date": "2026-07-03"},
+                self.request,
+            )
+        self.assertIn("No further instalments is allowed", error.exception.message["message"])
+
+        with self.assertRaises(Exception) as update_error:
+            SaleService.updateInstallment(
+                order.id,
+                second["id"],
+                {"instalment": {"amount": Decimal("101"), "date": "2026-07-02"}},
+                self.request,
+            )
+        self.assertIn("Instalments cannot exceed the remaining amount", update_error.exception.message["message"])
+
     def test_order_print_and_void_wrappers_follow_source_response_shape(self):
         order = Order.objects.create(
             user=self.user,
