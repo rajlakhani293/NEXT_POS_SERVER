@@ -49,6 +49,36 @@ def relationName(model, record_id, request):
     return row["name"] if row else None
 
 
+def _moneyFloat(value):
+    return float(decimalValue(value or 0))
+
+
+def _taxValue(tax_type, rate, value):
+    value = decimalValue(value or 0)
+    rate = decimalValue(rate or 0)
+    if rate <= 0:
+        return 0.0
+    if tax_type == "inclusive":
+        return float(value - (value / (1 + (rate / 100))))
+    return float(value * rate / 100)
+
+
+def _priceWithoutTax(tax_type, rate, value):
+    value = decimalValue(value or 0)
+    rate = decimalValue(rate or 0)
+    if tax_type == "inclusive" and rate > 0:
+        return float(value / (1 + (rate / 100)))
+    return float(value)
+
+
+def _priceWithTax(tax_type, rate, value):
+    value = decimalValue(value or 0)
+    rate = decimalValue(rate or 0)
+    if tax_type == "exclusive" and rate > 0:
+        return float(value + (value * rate / 100))
+    return float(value)
+
+
 def _buildBarcode(request, exclude_id=None):
     raw = timezone.now().strftime("%y%m%d%H%M%S%f")[:13]
     return buildUniqueValue(Product, request, "barcode", raw, exclude_id=exclude_id)
@@ -2161,6 +2191,53 @@ class ProductStockService:
 
 class ProductUnitQuantityService:
     @staticmethod
+    def computeTaxFields(product_id, data, request, existing=None):
+        payload = dict(data or {})
+        product = commonQuery.branchScopedQueryset(
+            Product,
+            {"id": product_id},
+            request,
+        ).select_related("tax_group").first()
+        if product is None:
+            return payload
+
+        tax_group = product.tax_group
+        tax_type = product.tax_type or "exclusive"
+        tax_rate = 0
+        if tax_group is not None:
+            tax_rate = sum(
+                float(tax.rate or 0)
+                for tax in tax_group.taxes.exclude(status=2)
+            )
+
+        sale_price_edit = payload.get(
+            "sale_price_edit",
+            payload.get(
+                "sale_price",
+                getattr(existing, "sale_price_edit", 0) if existing is not None else 0,
+            ),
+        )
+        wholesale_price_edit = payload.get(
+            "wholesale_price_edit",
+            payload.get(
+                "wholesale_price",
+                getattr(existing, "wholesale_price_edit", 0) if existing is not None else 0,
+            ),
+        )
+        payload["sale_price_edit"] = _moneyFloat(sale_price_edit)
+        payload["sale_price_gross"] = _priceWithTax(tax_type, tax_rate, sale_price_edit)
+        payload["sale_price_net"] = _priceWithoutTax(tax_type, tax_rate, sale_price_edit)
+        payload["sale_price_tax"] = _taxValue(tax_type, tax_rate, sale_price_edit)
+        payload["sale_price"] = payload["sale_price_gross"]
+
+        payload["wholesale_price_edit"] = _moneyFloat(wholesale_price_edit)
+        payload["wholesale_price_gross"] = _priceWithTax(tax_type, tax_rate, wholesale_price_edit)
+        payload["wholesale_price_net"] = _priceWithoutTax(tax_type, tax_rate, wholesale_price_edit)
+        payload["wholesale_price_tax"] = _taxValue(tax_type, tax_rate, wholesale_price_edit)
+        payload["wholesale_price"] = payload["wholesale_price_net"]
+        return payload
+
+    @staticmethod
     def attachDisplayData(data):
         unit = data.get("unit") or {}
         convert_unit = data.get("convert_unit") or {}
@@ -2265,6 +2342,7 @@ class ProductUnitQuantityService:
                     status_in=(0, 1),
                     messages={"scale_plu": "Scale PLU already exists."},
                 )
+            data = ProductUnitQuantityService.computeTaxFields(product["id"], data, request)
             unit_quantity = commonQuery.createRecord(ProductUnitQuantity, {**data, "product_id": product["id"], "unit_id": unit["id"]}, request=request, tenant_config=True)
             return successResponse("Product unit quantity created successfully.", data=unit_quantity)
 
@@ -2303,6 +2381,12 @@ class ProductUnitQuantityService:
                     status_in=(0, 1),
                     messages={"scale_plu": "Scale PLU already exists."},
                 )
+            existing = commonQuery.branchScopedQueryset(
+                ProductUnitQuantity,
+                {"id": unit_quantity_id, "product_id": product["id"]},
+                request,
+            ).first()
+            data = ProductUnitQuantityService.computeTaxFields(product["id"], data, request, existing=existing)
             updated = commonQuery.updateRecordById(ProductUnitQuantity, {"id": unit_quantity_id, "product_id": product["id"]}, data, request=request, tenant_config=True)
             if updated is None:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Product unit quantity not found.")

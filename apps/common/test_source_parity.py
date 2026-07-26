@@ -1584,6 +1584,62 @@ class PosParityFlowTest(TestCase):
         self.assertEqual(refund_receipt["items"][0]["tax_amount"], Decimal("18.00000"))
         self.assertEqual(refund_receipt["totals_summary"]["total"], Decimal("118.00000"))
 
+    def test_product_unit_quantity_prices_are_recomputed_from_product_tax_like_source(self):
+        tax_group = TaxGroup.objects.create(
+            user=self.user,
+            company=self.company,
+            branch=self.branch,
+            name="Product GST",
+        )
+        Tax.objects.create(user=self.user, company=self.company, branch=self.branch, tax_group=tax_group, name="GST 18", rate=18)
+        self.product.tax_group = tax_group
+        self.product.tax_type = "exclusive"
+        self.product.save(update_fields=["tax_group", "tax_type"])
+
+        ProductUnitQuantityService.update(
+            self.product.id,
+            self.unit_quantity.id,
+            {
+                "sale_price_edit": Decimal("100"),
+                "wholesale_price_edit": Decimal("80"),
+            },
+            self.request,
+        )
+        self.unit_quantity.refresh_from_db()
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_edit), 100, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_net), 100, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_tax), 18, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_gross), 118, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price), 118, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_edit), 80, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_net), 80, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_tax), 14.4, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_gross), 94.4, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price), 80, places=4)
+
+        self.product.tax_type = "inclusive"
+        self.product.save(update_fields=["tax_type"])
+        ProductUnitQuantityService.update(
+            self.product.id,
+            self.unit_quantity.id,
+            {
+                "sale_price_edit": Decimal("118"),
+                "wholesale_price_edit": Decimal("94.4"),
+            },
+            self.request,
+        )
+        self.unit_quantity.refresh_from_db()
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_edit), 118, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_net), 100, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_tax), 18, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price_gross), 118, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.sale_price), 118, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_edit), 94.4, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_net), 80, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_tax), 14.4, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price_gross), 94.4, places=4)
+        self.assertAlmostEqual(float(self.unit_quantity.wholesale_price), 80, places=4)
+
     def test_order_level_vat_creates_order_tax_rows_like_source(self):
         self.unit_quantity.quantity = Decimal("5")
         self.unit_quantity.save(update_fields=["quantity"])
