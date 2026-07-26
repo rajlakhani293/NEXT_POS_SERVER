@@ -438,7 +438,7 @@ def updateScaleRange(request, scale_range_id: int, payload: ScaleRangeUpdateIn):
 @router.post("/products/", response=ApiResponse)
 @permissionRequired("pos.create.products")
 def createProduct(request, payload: Form[ProductIn], image: File[Optional[UploadedFile]] = None):
-    return ProductService.create(payloadData(payload, exclude_none=True), request, image=image)
+    return ProductService.create(payloadData(payload, exclude_unset=True), request, image=image)
 
 
 @router.post("/products/get-transactions", response=ApiResponse)
@@ -598,7 +598,7 @@ def updateProduct(
     payload: Form[ProductUpdateIn],
     image: File[Optional[UploadedFile]] = None,
 ):
-    return ProductService.update(payloadData(payload, exclude_none=True), request, product_id, image=image)
+    return ProductService.update(payloadData(payload, exclude_unset=True), request, product_id, image=image)
 
 
 @router.post("/products/{product_id}/gallery", response=ApiResponse)

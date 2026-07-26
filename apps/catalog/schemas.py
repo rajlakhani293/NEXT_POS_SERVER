@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Literal, List, Optional
 
 from ninja import Schema
+from pydantic import field_validator
 
 from apps.common.schemas import ActiveStatus
 
@@ -143,6 +144,13 @@ class ProductIn(Schema):
     groups_json: Optional[str] = None
     variations: Optional[List[Any]] = None
 
+    @field_validator("tax_group_id", "tax_type", mode="before")
+    @classmethod
+    def empty_to_none(cls, v):
+        if v == "":
+            return None
+        return v
+
 
 class ProductUpdateIn(Schema):
     name: Optional[str] = None
@@ -175,6 +183,13 @@ class ProductUpdateIn(Schema):
     groups_json: Optional[str] = None
     variations: Optional[List[Any]] = None
     status: Optional[ActiveStatus] = None
+
+    @field_validator("tax_group_id", "tax_type", mode="before")
+    @classmethod
+    def empty_to_none(cls, v):
+        if v == "":
+            return None
+        return v
 
 
 class ProductUnitQuantityIn(Schema):
