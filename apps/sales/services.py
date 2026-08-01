@@ -672,8 +672,12 @@ class SaleValidationService:
     def ensurePartialOrdersAllowedForInstalments(data, settings):
         has_instalments = bool(data.get("instalments"))
         supports_instalments = data.get("support_instalments") is True
-        if (has_instalments or supports_instalments) and not getattr(settings, "orders_allow_partial", False):
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
+        if has_instalments or supports_instalments:
+            has_payments = any(money(p.get("amount") or p.get("value") or 0) > 0 for p in data.get("payments") or [])
+            if has_payments and not getattr(settings, "orders_allow_partial", False):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
+            elif not has_payments and not getattr(settings, "orders_allow_unpaid", False):
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Unpaid sales are not allowed.")
 
     @staticmethod
     def ensurePartialDuePaymentAllowed(collected_amount, remaining_due, settings):
@@ -2590,7 +2594,7 @@ class SaleService:
         return successResponse(
             "POS session retrieved successfully.",
             data={
-                "title": getattr(getattr(request.user, "company", None), "name", None) or "POS",
+                "title": "POS",
                 "orderTypes": SaleService.getOrderTypeOptions(settings),
                 "options": options,
                 "urls": {
@@ -3946,7 +3950,7 @@ class SaleService:
                 RegisterService.deleteRegisterHistoryUsingOrder(sale_order_id, request)
                 SaleService.uncountDeletedOrderForCashier(sale_order_id, request)
                 SaleService.uncountDeletedOrderForCustomer(sale_order_id, request)
-                deleted_count += commonQuery.hardDeleteRecords(Order, sale_order_id, request=request, tenant_config=True)[0]
+                deleted_count += commonQuery.softDeleteById(Order, sale_order_id, request=request, tenant_config=True)
                 ReportService.recomputeDashboardRange({}, request)
 
         if deleted_count == 0:
@@ -4235,8 +4239,11 @@ class SaleService:
             lines = [data["instalment"]]
         if not lines:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "At least one installment line is required.")
-        if not getattr(settings, "orders_allow_partial", False):
+        has_payments = money((sale_order or {}).get("tendered_amount") or 0) > 0
+        if has_payments and not getattr(settings, "orders_allow_partial", False):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Partially paid orders are disabled.")
+        elif not has_payments and not getattr(settings, "orders_allow_unpaid", False):
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unpaid sales are not allowed.")
         if saleDueAmount(sale_order) <= 0 and not data.get("allow_paid_order"):
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Installments can be created only when due amount exists.")
         ensureInstallmentScheduleWithinDue(

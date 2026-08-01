@@ -451,7 +451,6 @@ class commonQuery:
         model_fields = modelFieldNames(model)
         ctx = safeAuthContext(request)
         ids = list(model.objects.filter(q).values_list("id", flat=True))
-        assertRecordsNotInUse(model, ids)
 
         update_kwargs = {"status": 2}
         if "deleted_at" in model_fields:

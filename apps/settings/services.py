@@ -286,12 +286,6 @@ class OptionSettingService:
                     ("accounting_expenses_accounts", "multiselect", "Expense Accounts", ""),
                     ("accounting_default_paid_expense_offset_account", "search-select", "Paid Expense Offset", ""),
                 ],
-                "orders": [
-                    ("accounting_orders_revenues_account", "search-select", "Sales Revenues Account", "", "Every order cash payment will be reflected on this account"),
-                    ("accounting_orders_cash_account", "search-select", "Order Cash Account", "", "Every order cash payment will be reflected on this account"),
-                    ("accounting_orders_unpaid_account", "search-select", "Receivable Account", "", "Every unpaid orders will be recorded on this account."),
-                    ("accounting_orders_cogs_account", "search-select", "COGS Account", "", "Cost of goods sold account"),
-                ],
             },
         },
         "reset": {

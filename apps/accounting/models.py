@@ -29,6 +29,22 @@ class Transaction(TenantAwareModel):
     TYPE_INCOME = "income"
     TYPE_EXPENSE = "expense"
 
+    TYPE_SCHEDULED = "ns.scheduled-transaction"
+    TYPE_RECURRING = "ns.recurring-transaction"
+    TYPE_ENTITY = "ns.entity-transaction"
+    TYPE_DIRECT = "ns.direct-transaction"
+    TYPE_INDIRECT = "ns.indirect-transaction"
+
+    OCCURRENCE_START_OF_MONTH = "month_starts"
+    OCCURRENCE_END_OF_MONTH = "month_ends"
+    OCCURRENCE_MIDDLE_OF_MONTH = "month_mid"
+    OCCURRENCE_SPECIFIC_DAY = "on_specific_day"
+    OCCURRENCE_X_AFTER_MONTH_STARTS = "x_after_month_starts"
+    OCCURRENCE_X_BEFORE_MONTH_ENDS = "x_before_month_ends"
+    OCCURRENCE_EVERY_X_DAYS = "every_x_days"
+    OCCURRENCE_EVERY_X_HOURS = "every_x_hours"
+    OCCURRENCE_EVERY_X_MINUTES = "every_x_minutes"
+
     name = models.CharField(max_length=180)
     account = models.ForeignKey(TransactionAccount, on_delete=models.PROTECT, related_name="transactions")
     description = models.TextField(blank=True, null=True)
