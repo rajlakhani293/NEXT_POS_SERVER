@@ -3922,7 +3922,6 @@ class SaleService:
                         if item.get("product_id") and sale_order.get("payment_status") in [
                             "paid",
                             "partially_paid",
-                            "unpaid",
                             "partially_due",
                             "partially_refunded",
                         ]:

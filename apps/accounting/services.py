@@ -599,13 +599,7 @@ class AccountingService:
             request=request,
             tenant_config=True,
         )
-        AccountingService.updateBalances(
-            offset_account["id"],
-            history.get("value") or 0,
-            operation,
-            normalizeTransactionDate(record.get("trigger_date") or timezone.now()),
-            request,
-        )
+        # Reflection entries are double-entry offsets and do not update balance tables.
         return successResponse("Accounting reflection created successfully.", data=record)
 
     @staticmethod
@@ -1576,7 +1570,7 @@ class TransactionService:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
         if transaction_record.get("recurring") or transaction_record.get("scheduled_date") or transaction_record.get("group_id"):
             return TransactionService.prepareTransactionHistory(transaction_id, request)
-        if transaction_record.get("type") in [Transaction.TYPE_EXPENSE, Transaction.TYPE_INCOME, None, ""]:
+        if transaction_record.get("type") in [Transaction.TYPE_EXPENSE, Transaction.TYPE_INCOME, Transaction.TYPE_DIRECT, None, ""]:
             return TransactionService.triggerTransaction(transaction_id, request)
         return successResponse("Transaction processing skipped.", data={"transaction": transaction_record})
 
@@ -1585,7 +1579,7 @@ class TransactionService:
         transaction_record = commonQuery.findOneRecord(Transaction, transaction_id, request=request, tenant_config=True)
         if transaction_record is None:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction not found.")
-        if transaction_record.get("type") not in [Transaction.TYPE_EXPENSE, Transaction.TYPE_INCOME, None, ""]:
+        if transaction_record.get("type") not in [Transaction.TYPE_EXPENSE, Transaction.TYPE_INCOME, Transaction.TYPE_DIRECT, None, ""]:
             raise api_error(400, ErrorCodes.BAD_REQUEST, "This transaction type cannot be triggered.")
         history = TransactionService._buildHistory(
             transaction_record,
@@ -1649,10 +1643,10 @@ class TransactionService:
             ("every_x_days", "Every Days"),
         ]
         configurations = [
-            {"identifier": "direct", "label": "Direct Expense", "fields": ["name", "account_id", "description", "media_id", "value", "type"]},
-            {"identifier": "recurring", "label": "Recurring Expense", "fields": ["name", "account_id", "description", "media_id", "value", "occurrence", "occurrence_value", "type"]},
-            {"identifier": "entity", "label": "Entity Expense", "fields": ["name", "account_id", "description", "media_id", "value", "group_id", "scheduled_date", "type"]},
-            {"identifier": "scheduled", "label": "Scheduled Expense", "fields": ["name", "account_id", "description", "media_id", "value", "scheduled_date", "type"]},
+            {"identifier": Transaction.TYPE_DIRECT, "label": "Direct Expense", "fields": ["name", "account_id", "description", "media_id", "value", "type"]},
+            {"identifier": Transaction.TYPE_RECURRING, "label": "Recurring Expense", "fields": ["name", "account_id", "description", "media_id", "value", "occurrence", "occurrence_value", "type"]},
+            {"identifier": Transaction.TYPE_ENTITY, "label": "Entity Expense", "fields": ["name", "account_id", "description", "media_id", "value", "group_id", "scheduled_date", "type"]},
+            {"identifier": Transaction.TYPE_SCHEDULED, "label": "Scheduled Expense", "fields": ["name", "account_id", "description", "media_id", "value", "scheduled_date", "type"]},
         ]
         return successResponse(
             "Transaction configurations retrieved successfully.",

@@ -335,6 +335,8 @@ class CategoryService:
         id_list = ids if isinstance(ids, list) else [ids]
         if commonQuery.branchScopedQueryset(Category, {"parent_id__in": id_list}, request).exclude(status=2).exists():
             raise api_error(400, ErrorCodes.BAD_REQUEST, "Can't delete a category having sub categories linked to it.")
+        if Product.objects.filter(category_id__in=id_list).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Category is in use and cannot be deleted.")
         count = commonQuery.softDeleteById(Category, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Category not found.")
@@ -549,6 +551,10 @@ class UnitGroupService:
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        id_list = ids if isinstance(ids, list) else [ids]
+        if Product.objects.filter(unit_group_id__in=id_list).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unit group is in use and cannot be deleted.")
         count = commonQuery.softDeleteById(UnitGroup, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit group not found.")
@@ -698,6 +704,10 @@ class UnitService:
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        id_list = ids if isinstance(ids, list) else [ids]
+        if ProductUnitQuantity.objects.filter(unit_id__in=id_list).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Unit is in use and cannot be deleted.")
         count = commonQuery.softDeleteById(Unit, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Unit not found.")
@@ -802,6 +812,10 @@ class TaxGroupService:
 
     @staticmethod
     def delete(data, request):
+        ids = data.get("ids")
+        id_list = ids if isinstance(ids, list) else [ids]
+        if Tax.objects.filter(tax_group_id__in=id_list).exists():
+            raise api_error(400, ErrorCodes.BAD_REQUEST, "Tax group is in use and cannot be deleted.")
         count = commonQuery.softDeleteById(TaxGroup, data.get("ids"), request=request, tenant_config=True)
         if count == 0:
             raise api_error(404, ErrorCodes.NOT_FOUND, "Tax group not found.")

@@ -3375,7 +3375,7 @@ class PosParityFlowTest(TestCase):
             self.request,
         ).data["transaction"]
         tx = Transaction.objects.get(id=transaction["id"])
-        history = TransactionHistory.objects.get(transaction_id=tx.id)
+        history = TransactionHistory.objects.get(transaction_id=tx.id, is_reflection=False)
 
         self.assertFalse(tx.active)
         self.assertEqual(history.operation, TransactionHistory.OPERATION_DEBIT)

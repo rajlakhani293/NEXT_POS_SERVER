@@ -1266,6 +1266,7 @@ class PosApiIntegrationTest(TestCase):
                 {
                     "username": "multi_role_user",
                     "password": "password123",
+                    "password_confirm": "password123",
                     "email": "multi@example.com",
                     "roles": [self.role_a.id, second_role.id],
                     "active": True,

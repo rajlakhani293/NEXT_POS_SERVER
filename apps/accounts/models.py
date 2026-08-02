@@ -95,7 +95,7 @@ class User(AbstractUser):
         blank=True,
         related_name="customers",
     )
-    full_name = models.CharField(max_length=255, blank=True)
+    full_name = models.CharField(max_length=255, blank=True, null=True)
     profile_image = models.URLField(blank=True)
     phone = models.CharField(max_length=20, blank=True)
     gender = models.CharField(max_length=20, blank=True)
@@ -123,6 +123,14 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.full_name or self.phone or self.email or self.username
+
+    def save(self, *args, **kwargs):
+        if not self.full_name:
+            if self.first_name or self.last_name:
+                self.full_name = f"{self.first_name} {self.last_name}".strip()
+            else:
+                self.full_name = None
+        super().save(*args, **kwargs)
 
     def assignRole(self, role_name):
         from apps.common.commonQuery import commonQuery

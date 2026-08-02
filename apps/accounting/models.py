@@ -29,11 +29,11 @@ class Transaction(TenantAwareModel):
     TYPE_INCOME = "income"
     TYPE_EXPENSE = "expense"
 
-    TYPE_SCHEDULED = "ns.scheduled-transaction"
-    TYPE_RECURRING = "ns.recurring-transaction"
-    TYPE_ENTITY = "ns.entity-transaction"
-    TYPE_DIRECT = "ns.direct-transaction"
-    TYPE_INDIRECT = "ns.indirect-transaction"
+    TYPE_SCHEDULED = "scheduled-transaction"
+    TYPE_RECURRING = "recurring-transaction"
+    TYPE_ENTITY = "entity-transaction"
+    TYPE_DIRECT = "direct-transaction"
+    TYPE_INDIRECT = "indirect-transaction"
 
     OCCURRENCE_START_OF_MONTH = "month_starts"
     OCCURRENCE_END_OF_MONTH = "month_ends"
