@@ -373,9 +373,6 @@ class AccountingService:
         amount = money(amount)
         if amount <= 0:
             return None
-        operation = {"increase": "credit", "decrease": "debit"}.get(action_type, action_type)
-        if operation not in ["credit", "debit"]:
-            raise api_error(400, ErrorCodes.BAD_REQUEST, "Action type must be increase or decrease.")
 
         with transaction.atomic():
             if account_id:
@@ -389,6 +386,22 @@ class AccountingService:
                     raise api_error(404, ErrorCodes.NOT_FOUND, "Transaction account not found.")
             else:
                 account = AccountingService.getOrCreateSystemAccount(account_code, request)
+
+            category = account.get("category_identifier") if isinstance(account, dict) else getattr(account, "category_identifier", None)
+            ACCOUNT_OPERATIONS = {
+                "assets": {"increase": "debit", "decrease": "credit"},
+                "liabilities": {"increase": "credit", "decrease": "debit"},
+                "equity": {"increase": "credit", "decrease": "debit"},
+                "revenues": {"increase": "credit", "decrease": "debit"},
+                "expenses": {"increase": "debit", "decrease": "credit"},
+            }
+            if action_type in ["increase", "decrease"]:
+                operation = ACCOUNT_OPERATIONS.get(category, {}).get(action_type, action_type)
+            else:
+                operation = action_type
+
+            if operation not in ["credit", "debit"]:
+                raise api_error(400, ErrorCodes.BAD_REQUEST, "Action type must be increase or decrease.")
 
             tx_date = normalizeTransactionDate(transaction_date)
             transaction_record = commonQuery.createRecord(
@@ -459,40 +472,43 @@ class AccountingService:
             {"on": event_key, "status": 0},
             request,
         ).order_by("id")
+        rule = rules.first()
+        if not rule:
+            return []
+
         group_code = f"{event_key}:{source_type}:{source_id or 'manual'}:{timezone.now().timestamp()}"
         records = []
         with transaction.atomic():
-            for rule in rules:
-                common = {
-                    "name": name,
-                    "transaction_type": transaction_type,
-                    "amount": amount,
-                    "source_type": source_type,
-                    "source_id": source_id,
-                    "transaction_date": transaction_date,
-                    "description": description,
-                    "reference_number": reference_number,
-                    "event_key": event_key,
-                    "group_code": group_code,
-                    "rule_id": rule.id,
-                    "request": request,
-                }
-                primary_record = AccountingService.record(
-                    account_id=rule.account_id,
-                    action_type=rule.action,
+            common = {
+                "name": name,
+                "transaction_type": transaction_type,
+                "amount": amount,
+                "source_type": source_type,
+                "source_id": source_id,
+                "transaction_date": transaction_date,
+                "description": description,
+                "reference_number": reference_number,
+                "event_key": event_key,
+                "group_code": group_code,
+                "rule_id": rule.id,
+                "request": request,
+            }
+            primary_record = AccountingService.record(
+                account_id=rule.account_id,
+                action_type=rule.action,
+                **common,
+            )
+            records.append(primary_record)
+            primary_history_id = (primary_record or {}).get("history", {}).get("id")
+            records.append(
+                AccountingService.record(
+                    account_id=rule.offset_account_id,
+                    action_type=rule.do,
+                    is_reflection=True,
+                    reflection_source_id=primary_history_id,
                     **common,
                 )
-                records.append(primary_record)
-                primary_history_id = (primary_record or {}).get("history", {}).get("id")
-                records.append(
-                    AccountingService.record(
-                        account_id=rule.offset_account_id,
-                        action_type=rule.do,
-                        is_reflection=True,
-                        reflection_source_id=primary_history_id,
-                        **common,
-                    )
-                )
+            )
         return records
 
     @staticmethod

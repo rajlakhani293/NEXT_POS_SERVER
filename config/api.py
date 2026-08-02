@@ -110,25 +110,53 @@ def normalize_unique_field_name(raw_field):
     return field_name or "value"
 
 
-def parse_unique_constraint_fields(message):
+def parse_unique_constraint_table_and_field(message):
     lower_message = message.lower()
-    tenant_fields = {"branch", "branch_id", "company", "company_id", "user", "user_id"}
+    tenant_fields = {"branch", "branch_id", "company", "company_id", "user", "user_id", "id"}
+
+    table_name = None
+    field_name = None
 
     if "unique constraint failed:" in lower_message:
         raw_fields = message.split(":", 1)[-1].split(",")
+        last_raw_field = raw_fields[-1].strip()
+        if "." in last_raw_field:
+            table_name = last_raw_field.split(".", 1)[0]
         fields = [normalize_unique_field_name(field) for field in raw_fields]
         fields = [field for field in fields if field not in tenant_fields]
         if fields:
-            return fields[-1]
+            field_name = fields[-1]
 
-    if "key (" in lower_message:
+    elif "key (" in lower_message:
+        if "violates unique constraint" in lower_message:
+            constraint_name = message.split("violates unique constraint", 1)[1].strip().split(" ", 1)[0]
+            constraint_name = constraint_name.strip("`'\"")
+            parts = constraint_name.split("_")
+            if parts:
+                table_name = parts[0]
         raw_fields = lower_message.split("key (", 1)[1].split(")", 1)[0].split(",")
         fields = [normalize_unique_field_name(field) for field in raw_fields]
         fields = [field for field in fields if field not in tenant_fields]
         if fields:
-            return fields[-1]
+            field_name = fields[-1]
 
-    return "value"
+    elif "for key '" in lower_message:
+        key_name = message.split("for key '", 1)[1].split("'", 1)[0]
+        for suffix in ["_uniq", "_unique", "_key"]:
+            key_name = key_name.removesuffix(suffix)
+        parts = key_name.split("_")
+        if parts and len(parts[-1]) == 8 and all(c in "0123456789abcdef" for c in parts[-1]):
+            parts.pop()
+        if parts:
+            table_name = parts[0]
+            fields = [normalize_unique_field_name(part) for part in parts]
+            fields = [field for field in fields if field not in tenant_fields]
+            normalized_table_name = normalize_unique_field_name(table_name)
+            fields = [field for field in fields if field != normalized_table_name]
+            if fields:
+                field_name = fields[-1]
+
+    return table_name, field_name
 
 
 def parse_integrity_error(exc: IntegrityError):
@@ -146,9 +174,25 @@ def parse_integrity_error(exc: IntegrityError):
         return f"Invalid {label} selected.", {"field": field_name}
 
     if "duplicate entry" in lower_message or "unique constraint" in lower_message:
-        field_name = parse_unique_constraint_fields(message)
-        label = humanize_db_field(field_name).lower()
-        return f"This {label} already exists.", {"field": field_name}
+        table_name, field_name = parse_unique_constraint_table_and_field(message)
+        if not field_name:
+            field_name = "value"
+
+        field_label = humanize_db_field(field_name).lower()
+        if table_name:
+            table_label = humanize_db_field(table_name)
+            if table_label.endswith("es"):
+                if table_label.endswith("ies"):
+                    table_label = table_label[:-3] + "y"
+                elif table_label.endswith("xes") or table_label.endswith("ches") or table_label.endswith("shes") or table_label.endswith("sses"):
+                    table_label = table_label[:-2]
+                else:
+                    table_label = table_label[:-1]
+            elif table_label.endswith("s") and not table_label.endswith("ss"):
+                table_label = table_label[:-1]
+            return f"{table_label} {field_label} already exists.", {"field": field_name}
+
+        return f"This {field_label} already exists.", {"field": field_name}
 
     return "Database validation failed.", None
 

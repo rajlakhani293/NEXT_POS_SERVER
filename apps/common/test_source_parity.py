@@ -2374,9 +2374,7 @@ class PosParityFlowTest(TestCase):
 
         PurchaseOrderService.delete({"ids": [procurement.id]}, self.request)
         self.unit_quantity.refresh_from_db()
-        procurement.refresh_from_db()
-
-        self.assertEqual(procurement.status, 2)
+        self.assertFalse(Procurement.objects.filter(id=procurement.id).exists())
         self.assertFalse(ProcurementsProduct.objects.filter(procurement=procurement).exists())
         self.assertEqual(Decimal(str(self.unit_quantity.quantity)), Decimal("0.0"))
         self.assertTrue(

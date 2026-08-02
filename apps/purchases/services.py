@@ -541,13 +541,25 @@ class PurchaseOrderService:
                     ).data
                     procurement["products"] = created_products
                     procurement["items"] = created_products
-            commonQuery.branchScopedQueryset(Provider, {"id": provider["id"]}, request).update(
-                amount_due=F("amount_due") + float(value)
-            )
+            payment_status = procurement.get("payment_status")
+            is_paid = payment_status == PurchaseOrderService.PAYMENT_PAID
+            
+            if is_paid:
+                commonQuery.branchScopedQueryset(Provider, {"id": provider["id"]}, request).update(
+                    amount_paid=F("amount_paid") + float(value)
+                )
+            else:
+                commonQuery.branchScopedQueryset(Provider, {"id": provider["id"]}, request).update(
+                    amount_due=F("amount_due") + float(value)
+                )
+
+            event_key = "procurement_paid" if is_paid else "procurement_unpaid"
+            event_name = f"Paid Procurement: {procurement['name']}" if is_paid else f"Unpaid Procurement: {procurement['name']}"
+
             AccountingService.reflectEvent(
-                "procurement_unpaid",
+                event_key,
                 value,
-                name=f"Procurement {procurement['name']}",
+                name=event_name,
                 transaction_type="expense",
                 source_type="purchase",
                 source_id=procurement["id"],
@@ -1254,7 +1266,7 @@ class PurchaseOrderService:
                 ).delete()
                 AccountingService.deleteProcurementTransactions(procurement["id"], request)
 
-            count = commonQuery.softDeleteById(Procurement, ids, request=request, tenant_config=True)
+            count, _ = commonQuery.hardDeleteRecords(Procurement, ids, request=request, tenant_config=True)
             if count == 0:
                 raise api_error(404, ErrorCodes.NOT_FOUND, "Procurement not found.")
             for provider_id in {procurement["provider_id"] for procurement in procurements if procurement.get("provider_id")}:

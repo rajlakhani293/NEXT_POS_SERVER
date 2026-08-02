@@ -23,18 +23,18 @@ class SharedSchemaTests(SimpleTestCase):
         examples = [
             (
                 "UNIQUE constraint failed: taxes.branch_id, taxes.name",
-                "This name already exists.",
+                "Tax name already exists.",
                 "name",
             ),
             (
                 "duplicate key value violates unique constraint products_branch_barcode_key DETAIL: Key (branch_id, barcode)=(1, 123) already exists.",
-                "This barcode already exists.",
+                "Product barcode already exists.",
                 "barcode",
             ),
             (
                 "(1062, \"Duplicate entry '1-piece' for key 'units_branch_id_identifier_c616fbc4'\")",
-                "This value already exists.",
-                "value",
+                "Unit identifier already exists.",
+                "identifier",
             ),
         ]
 
